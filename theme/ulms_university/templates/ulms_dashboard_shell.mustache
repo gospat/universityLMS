@@ -1,0 +1,200 @@
+{{!
+    ULMS role dashboard shell.
+}}
+{{> theme_boost/head }}
+
+<body {{{ bodyattributes }}}>
+{{> core/local/toast/wrapper}}
+<div id="page-wrapper" class="d-print-block">
+    {{{ output.standard_top_of_body_html }}}
+
+    <header class="navbar fixed-top navbar-light bg-white navbar-expand ulms-portal-navbar" aria-label="{{#str}}sitemenubar, admin{{/str}}">
+        <div class="container-fluid ulms-shell-topbar">
+            <div class="ulms-shell-topbar__brand">
+                {{#portalnav}}
+                    <button type="button" class="btn btn-link ulms-shell-toggle" data-ulms-sidebar-toggle="true" aria-expanded="true" aria-controls="ulms-shell-sidebar" aria-label="Toggle sidebar navigation" title="Collapse or expand the sidebar navigation">
+                        <span class="ulms-shell-toggle__icon" aria-hidden="true"></span>
+                        <span class="sr-only">Toggle navigation</span>
+                    </button>
+                {{/portalnav}}
+                <a href="{{{ config.homeurl }}}" class="navbar-brand d-flex align-items-center m-0 p-0 aabtn">
+                    {{# output.should_display_navbar_logo }}
+                        <img src="{{output.get_compact_logo_url}}" class="logo me-2" alt="{{sitename}}">
+                    {{/ output.should_display_navbar_logo }}
+                    <span>{{{ sitename }}}</span>
+                </a>
+            </div>
+
+            {{#portalnav}}
+                <div class="ulms-shell-topbar__context">
+                    <span class="ulms-shell-topbar__portal">{{portalname}}</span>
+                    {{#currentuserrole}}
+                        <span class="ulms-shell-topbar__role">{{currentuserrole}}</span>
+                    {{/currentuserrole}}
+                </div>
+            {{/portalnav}}
+
+            <div id="usernavigation" class="navbar-nav ms-auto h-100 ulms-shell-topbar__actions">
+                {{{ output.navbar_plugin_output }}}
+                <div class="d-flex align-items-stretch usermenu-container" data-region="usermenu">
+                    {{#usermenu}}
+                        {{> core/user_menu }}
+                    {{/usermenu}}
+                </div>
+                {{{ output.edit_switch }}}
+            </div>
+        </div>
+    </header>
+
+    <div id="page" data-region="mainpage" data-usertour="scroller" class="drawers drag-container">
+        <div id="topofscroll" class="main-inner">
+            <div class="ulms-shell">
+                {{#portalnav}}
+                    <aside id="ulms-shell-sidebar" class="ulms-shell-sidebar" aria-label="{{navigationaria}}">
+                        <div class="ulms-shell-sidebar__inner">
+                            <div class="ulms-shell-sidebar__brand">
+                                <div class="ulms-shell-sidebar__eyebrow">{{eyebrow}}</div>
+                                <div class="ulms-shell-sidebar__title">{{portalname}}</div>
+                            </div>
+                            <nav class="ulms-shell-sidebar__nav">
+                                {{#navgroups}}
+                                    <section class="ulms-shell-nav-group">
+                                        <h2 class="ulms-shell-nav-group__title">{{heading}}</h2>
+                                        <ul class="ulms-shell-nav-group__list">
+                                            {{#items}}
+                                                <li class="ulms-shell-nav-group__item">
+                                                    {{#active}}
+                                                        <span class="ulms-shell-nav-link ulms-shell-nav-link--active" aria-current="page" title="{{label}}">
+                                                            {{#icon}}<span class="ulms-shell-nav-link__icon" aria-hidden="true">{{{icon}}}</span>{{/icon}}
+                                                            <span class="ulms-shell-nav-link__label">{{label}}</span>
+                                                        </span>
+                                                    {{/active}}
+                                                    {{^active}}
+                                                        <a href="{{url}}" class="ulms-shell-nav-link" title="{{label}}">
+                                                            {{#icon}}<span class="ulms-shell-nav-link__icon" aria-hidden="true">{{{icon}}}</span>{{/icon}}
+                                                            <span class="ulms-shell-nav-link__label">{{label}}</span>
+                                                        </a>
+                                                    {{/active}}
+                                                </li>
+                                            {{/items}}
+                                        </ul>
+                                    </section>
+                                {{/navgroups}}
+                            </nav>
+                        </div>
+                    </aside>
+                    <div class="ulms-shell-overlay" data-ulms-sidebar-dismiss="true" aria-hidden="true"></div>
+                {{/portalnav}}
+                <div id="page-content" class="pb-3 d-print-block ulms-shell-content">
+                    <div id="region-main-box">
+                        <main id="region-main" aria-label="{{#str}}content{{/str}}">
+                            {{#headercontext}}
+                            <section class="ulms-welcome-banner">
+                                <div class="ulms-welcome-banner__inner">
+                                    <div class="ulms-welcome-banner__copy">
+                                        {{#banner_eyebrow}}<div class="ulms-welcome-banner__eyebrow">{{banner_eyebrow}}</div>{{/banner_eyebrow}}
+                                        {{#banner_title}}<h1 class="ulms-welcome-banner__title">{{banner_title}}</h1>{{/banner_title}}
+                                        {{#banner_meta}}<p class="ulms-welcome-banner__meta">{{banner_meta}}</p>{{/banner_meta}}
+                                        <div class="ulms-welcome-banner__ctas">
+                                            {{#banner_cta1}}<a class="btn btn-primary ulms-welcome-banner__cta ulms-welcome-banner__cta--primary" href="{{href}}">{{label}}</a>{{/banner_cta1}}
+                                            {{#banner_cta2}}<a class="btn btn-outline-secondary ulms-welcome-banner__cta ulms-welcome-banner__cta--outline" href="{{href}}">{{label}}</a>{{/banner_cta2}}
+                                        </div>
+                                    </div>
+                                </div>
+                                {{#breadcrumbs}}
+                                <nav aria-label="Breadcrumb" class="ulms-breadcrumbs">
+                                    <ol class="ulms-breadcrumbs__list">
+                                        {{#breadcrumbs}}
+                                        <li class="ulms-breadcrumbs__item" {{^url}}aria-current="page"{{/url}}>
+                                            {{#url}}<a class="ulms-breadcrumbs__link" href="{{url}}">{{{label}}}</a>{{/url}}
+                                            {{^url}}<span class="ulms-breadcrumbs__current" aria-current="page">{{{label}}}</span>{{/url}}
+                                        </li>
+                                        {{/breadcrumbs}}
+                                    </ol>
+                                </nav>
+                                {{/breadcrumbs}}
+                            </section>
+                            {{/headercontext}}
+                            {{#summarycards_count}}
+                            <section class="ulms-summary-cards" aria-label="Summary">
+                                <div class="ulms-summary-cards__grid">
+                                    {{#summarycards}}
+                                    <article class="ulms-summary-card">
+                                        <div class="ulms-summary-card__body">
+                                            {{#eyebrow}}<div class="ulms-summary-card__eyebrow">{{eyebrow}}</div>{{/eyebrow}}
+                                            <div class="ulms-summary-card__row">
+                                                <div class="ulms-summary-card__col">
+                                                    {{#number}}<div class="ulms-summary-card__number">{{number}}</div>{{/number}}
+                                                    {{#desc}}<div class="ulms-summary-card__desc">{{desc}}</div>{{/desc}}
+                                                </div>
+                                                {{#mini_icon}}<div class="ulms-summary-card__icon" aria-hidden="true">{{{mini_icon}}}</div>{{/mini_icon}}
+                                            </div>
+                                        </div>
+                                    </article>
+                                    {{/summarycards}}
+                                </div>
+                            </section>
+                            {{/summarycards_count}}
+                            {{#quickaccess_count}}
+                            <section class="ulms-quick-access" aria-label="Quick access">
+                                <h2 class="ulms-quick-access__heading">Quick access</h2>
+                                <div class="ulms-quick-access__grid">
+                                    {{#quickaccess}}
+                                    <a class="ulms-qa-card" href="{{url}}">
+                                        <div class="ulms-qa-card__inner">
+                                            {{#icon}}<div class="ulms-qa-card__icon" aria-hidden="true">{{{icon}}}</div>{{/icon}}
+                                            <div class="ulms-qa-card__body">
+                                                {{#title}}<div class="ulms-qa-card__title">{{title}}</div>{{/title}}
+                                                {{#subtitle}}<div class="ulms-qa-card__subtitle">{{subtitle}}</div>{{/subtitle}}
+                                            </div>
+                                        </div>
+                                    </a>
+                                    {{/quickaccess}}
+                                </div>
+                            </section>
+                            {{/quickaccess_count}}
+                            {{{ output.main_content }}}
+                        </main>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <footer id="page-footer" class="ulms-portal-footer">
+            <div class="ulms-portal-footer__inner">
+                <div class="ulms-portal-footer__meta">
+                    <span class="ulms-portal-footer__brand">{{{ sitename }}}</span>
+                    <span class="ulms-portal-footer__login">{{{ output.login_info }}}</span>
+                </div>
+
+                {{# output.has_popover_links }}
+                    <div class="ulms-portal-footer__support">
+                        {{# output.page_doc_link }}
+                            <span class="ulms-portal-footer__link">{{{ output.page_doc_link }}}</span>
+                        {{/ output.page_doc_link }}
+                        {{# output.services_support_link }}
+                            <span class="ulms-portal-footer__link">{{{ output.services_support_link }}}</span>
+                        {{/ output.services_support_link }}
+                        {{# output.supportemail }}
+                            <span class="ulms-portal-footer__link">{{{ output.supportemail }}}</span>
+                        {{/ output.supportemail }}
+                    </div>
+                {{/ output.has_popover_links }}
+
+                <div class="ulms-portal-footer__system">
+                    {{{ output.standard_footer_html }}}
+                </div>
+            </div>
+
+            <div class="footer-content-debugging footer-dark bg-dark text-light">
+                <div class="container-fluid footer-dark-inner">
+                    {{{ output.debug_footer_html }}}
+                </div>
+            </div>
+        </footer>
+    </div>
+    {{{ output.standard_after_main_region_html }}}
+</div>
+
+{{{ output.standard_end_of_body_html }}}
+</body>
+</html>

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/ulms_kortext/db" VERSION="2026091300" COMMENT="XMLDB file for local_ulms_kortext"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+    <TABLES>
+        <TABLE NAME="local_ulms_kortext_adoptions" COMMENT="Programme-level eTextbook ISBN adoptions tied to ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_programmes"/>
+                <FIELD NAME="moodlecourseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to Moodle core course table"/>
+                <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_semesters"/>
+                <FIELD NAME="isbn" TYPE="char" LENGTH="17" NOTNULL="true" SEQUENCE="false" COMMENT="ISBN-10 or ISBN-13 with optional hyphens"/>
+                <FIELD NAME="ebook_id" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Kortext e-book identifier issued by integrations team"/>
+                <FIELD NAME="deeplink_url" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Signed LTI deep-link URL pasted from Moodle External Tool configuration"/>
+                <FIELD NAME="adopted_by" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to user.id of actor who created the adoption"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="active" SEQUENCE="false" COMMENT="active / archived"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="programme_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+                <KEY NAME="moodlecourse_fk" TYPE="foreign" FIELDS="moodlecourseid" REFTABLE="course" REFFIELDS="id"/>
+                <KEY NAME="semester_fk" TYPE="foreign" FIELDS="semesterid" REFTABLE="local_ulms_semesters" REFFIELDS="id"/>
+                <KEY NAME="adoptedby_fk" TYPE="foreign" FIELDS="adopted_by" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="programme_course_semester_isbn_unique" UNIQUE="true" FIELDS="programmeid, moodlecourseid, semesterid, isbn"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+                <INDEX NAME="programme_idx" UNIQUE="false" FIELDS="programmeid"/>
+                <INDEX NAME="semester_idx" UNIQUE="false" FIELDS="semesterid"/>
+                <INDEX NAME="moodlecourse_idx" UNIQUE="false" FIELDS="moodlecourseid"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_kortext_entitlement_log" COMMENT="Audit log of every Kortext entitlement grant (or failure) — idempotent per user+adoption">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="adoptionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_kortext_adoptions"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to user.id of student/lecturer entitled"/>
+                <FIELD NAME="idempotency_key" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="SHA256 hash of userid + adoptionid; global uniqueness guard for AC-10"/>
+                <FIELD NAME="remote_ktx_id" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Remote Kortext entitlement id returned from POST /entitlements"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="granted" SEQUENCE="false" COMMENT="granted / failed / skipped"/>
+                <FIELD NAME="http_code" TYPE="int" LENGTH="4" NOTNULL="false" SEQUENCE="false" COMMENT="HTTP status code returned by Kortext REST call (null for skipped or mock)"/>
+                <FIELD NAME="error_msg" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Human readable error text if status=failed"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="adoption_fk" TYPE="foreign" FIELDS="adoptionid" REFTABLE="local_ulms_kortext_adoptions" REFFIELDS="id"/>
+                <KEY NAME="user_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="useradoption_unique" UNIQUE="true" FIELDS="userid, adoptionid"/>
+                <INDEX NAME="idempotency_key_unique" UNIQUE="true" FIELDS="idempotency_key"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+                <INDEX NAME="timecreated_idx" UNIQUE="false" FIELDS="timecreated"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_kortext_usage_snapshot" COMMENT="Daily usage counts per adoption pulled from Kortext usage API">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="adoptionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_kortext_adoptions"/>
+                <FIELD NAME="snapshot_date" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Unix timestamp at 00:00 UTC of the day this snapshot covers"/>
+                <FIELD NAME="unique_users" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="opens_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="adoption_fk" TYPE="foreign" FIELDS="adoptionid" REFTABLE="local_ulms_kortext_adoptions" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="adoption_date_unique" UNIQUE="true" FIELDS="adoptionid, snapshot_date"/>
+                <INDEX NAME="snapshot_date_idx" UNIQUE="false" FIELDS="snapshot_date"/>
+            </INDEXES>
+        </TABLE>
+    </TABLES>
+</XMLDB>

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/ulms_academics/db" VERSION="2026091100" COMMENT="XMLDB file for local_ulms_academics"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+    <TABLES>
+        <TABLE NAME="local_ulms_faculties" COMMENT="Stores faculty definitions for the ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="code" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="active" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_departments" COMMENT="Stores department definitions for the ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="facultyid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="code" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="active" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="faculty_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+                <INDEX NAME="faculty_idx" UNIQUE="false" FIELDS="facultyid"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_programmes" COMMENT="Stores programme definitions for the ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="departmentid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="code" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="awardtype" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="durationyears" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="4" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="active" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="department_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+                <INDEX NAME="department_idx" UNIQUE="false" FIELDS="departmentid"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_programme_courses" COMMENT="Maps Moodle courses to academic programmes and semesters">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="moodlecourseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="coursetype" TYPE="char" LENGTH="30" NOTNULL="true" DEFAULT="core" SEQUENCE="false"/>
+                <FIELD NAME="iscore" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="programme_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+                <KEY NAME="moodlecourse_fk" TYPE="foreign" FIELDS="moodlecourseid" REFTABLE="course" REFFIELDS="id"/>
+                <KEY NAME="semester_fk" TYPE="foreign" FIELDS="semesterid" REFTABLE="local_ulms_semesters" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="programme_idx" UNIQUE="false" FIELDS="programmeid"/>
+                <INDEX NAME="course_idx" UNIQUE="false" FIELDS="moodlecourseid"/>
+                <INDEX NAME="semester_idx" UNIQUE="false" FIELDS="semesterid"/>
+                <INDEX NAME="programme_course_per_semester_unique" UNIQUE="true" FIELDS="programmeid,moodlecourseid,semesterid"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_sessions" COMMENT="Stores academic sessions for the ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="code" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="startdate" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="enddate" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="iscurrent" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+                <INDEX NAME="current_idx" UNIQUE="false" FIELDS="iscurrent"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_semesters" COMMENT="Stores semester definitions for the ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="sessionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="code" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="startdate" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="enddate" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="iscurrent" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="session_fk" TYPE="foreign" FIELDS="sessionid" REFTABLE="local_ulms_sessions" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="session_idx" UNIQUE="false" FIELDS="sessionid"/>
+                <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+            </INDEXES>
+        </TABLE>
+    </TABLES>
+</XMLDB>

@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/ulms_dashboard/db" VERSION="2026091100" COMMENT="XMLDB file for local_ulms_dashboard"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+    <TABLES>
+        <TABLE NAME="local_ulms_faculty_admin_assignments" COMMENT="Maps faculty admin users to their primary faculty scope">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="facultyid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+                <KEY NAME="facultyid_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id"/>
+            </KEYS>
+        </TABLE>
+        <TABLE NAME="local_ulms_department_admin_assignments" COMMENT="Maps department admin users to their primary department scope">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="departmentid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+                <KEY NAME="departmentid_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id"/>
+            </KEYS>
+        </TABLE>
+        <TABLE NAME="local_ulms_user_provisioning_log" COMMENT="Stores audit entries for manual and bulk ULMS user provisioning">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="actorid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="createduserid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="targetrole" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="createmode" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="identifier" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="message" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="detailsjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="actorid_idx" UNIQUE="false" FIELDS="actorid"/>
+                <INDEX NAME="createduserid_idx" UNIQUE="false" FIELDS="createduserid"/>
+                <INDEX NAME="targetrole_idx" UNIQUE="false" FIELDS="targetrole"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+                <INDEX NAME="timecreated_idx" UNIQUE="false" FIELDS="timecreated"/>
+            </INDEXES>
+        </TABLE>
+        <TABLE NAME="local_ulms_user_profile" COMMENT="Stores ULMS-specific academic metadata for managed users">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="facultyid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="departmentid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="studylevel" TYPE="char" LENGTH="50" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="staffid" TYPE="char" LENGTH="100" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="userprofile_faculty_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id"/>
+                <KEY NAME="userprofile_department_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id"/>
+                <KEY NAME="userprofile_programme_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="userid_uix" UNIQUE="true" FIELDS="userid"/>
+                <INDEX NAME="studylevel_idx" UNIQUE="false" FIELDS="studylevel"/>
+            </INDEXES>
+        </TABLE>
+        <TABLE NAME="local_ulms_levels" COMMENT="Stores study-level definitions for the ULMS academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="code" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="active" SEQUENCE="false"/>
+                <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+                <INDEX NAME="sortorder_idx" UNIQUE="false" FIELDS="sortorder"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="local_ulms_user_management_log" COMMENT="Stores audit entries for ULMS admin user management actions">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="actorid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="targetuserid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="action" TYPE="char" LENGTH="64" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="message" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="detailsjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="ipaddress" TYPE="char" LENGTH="64" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="actorid_fk" TYPE="foreign" FIELDS="actorid" REFTABLE="user" REFFIELDS="id"/>
+                <KEY NAME="targetuserid_fk" TYPE="foreign" FIELDS="targetuserid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="action_idx" UNIQUE="false" FIELDS="action"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+                <INDEX NAME="timecreated_idx" UNIQUE="false" FIELDS="timecreated"/>
+            </INDEXES>
+        </TABLE>
+    </TABLES>
+</XMLDB>

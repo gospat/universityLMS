@@ -1,0 +1,242 @@
+{{!
+    ULMS University combined drawers and portal shell template.
+    Applies the ULMS student/lecturer/admin/superadmin portal shell
+    (sidebar navigation, portal topbar, filtered user menu, portal footer)
+    while preserving Boost drawers functionality (course index, blocks drawer,
+    activity header, secondary navigation tabs).
+}}
+{{> theme_boost/head }}
+
+<body {{{ bodyattributes }}}>
+{{> core/local/toast/wrapper}}
+<div id="page-wrapper" class="d-print-block">
+    {{{ output.standard_top_of_body_html }}}
+
+    <header class="navbar fixed-top navbar-light bg-white navbar-expand ulms-portal-navbar" aria-label="{{#str}}sitemenubar, admin{{/str}}">
+        <div class="container-fluid ulms-shell-topbar">
+            <div class="ulms-shell-topbar__brand">
+                {{#portalnav}}
+                    <button type="button" class="btn btn-link ulms-shell-toggle" data-ulms-sidebar-toggle="true" aria-expanded="true" aria-controls="ulms-shell-sidebar" aria-label="Toggle sidebar navigation" title="Collapse or expand the sidebar navigation">
+                        <span class="ulms-shell-toggle__icon" aria-hidden="true"></span>
+                        <span class="sr-only">Toggle navigation</span>
+                    </button>
+                {{/portalnav}}
+                <a href="{{{ config.homeurl }}}" class="navbar-brand d-flex align-items-center m-0 p-0 aabtn">
+                    {{# output.should_display_navbar_logo }}
+                        <img src="{{output.get_compact_logo_url}}" class="logo me-2" alt="{{sitename}}">
+                    {{/ output.should_display_navbar_logo }}
+                    <span>{{{ sitename }}}</span>
+                </a>
+            </div>
+
+            {{#portalnav}}
+                <div class="ulms-shell-topbar__context">
+                    <span class="ulms-shell-topbar__portal">{{portalname}}</span>
+                    {{#currentuserrole}}
+                        <span class="ulms-shell-topbar__role">{{currentuserrole}}</span>
+                    {{/currentuserrole}}
+                </div>
+            {{/portalnav}}
+
+            <div id="usernavigation" class="navbar-nav ms-auto h-100 ulms-shell-topbar__actions">
+                {{{ output.navbar_plugin_output }}}
+                <div class="d-flex align-items-stretch usermenu-container" data-region="usermenu">
+                    {{#usermenu}}
+                        {{> core/user_menu }}
+                    {{/usermenu}}
+                </div>
+                {{{ output.edit_switch }}}
+            </div>
+        </div>
+    </header>
+
+    {{#courseindex}}
+        {{< theme_boost/drawer }}
+            {{$id}}theme_boost-drawers-courseindex{{/id}}
+            {{$drawerheadercontent}}
+                {{> theme_boost/courseindexdrawercontrols}}
+            {{/drawerheadercontent}}
+            {{$drawerclasses}}drawer drawer-left {{#courseindexopen}}show{{/courseindexopen}}{{/drawerclasses}}
+            {{$drawercontent}}
+                {{{courseindex}}}
+            {{/drawercontent}}
+            {{$drawerpreferencename}}drawer-open-index{{/drawerpreferencename}}
+            {{$drawerstate}}show-drawer-left{{/drawerstate}}
+            {{$tooltipplacement}}right{{/tooltipplacement}}
+            {{$closebuttontext}}{{#str}}closecourseindex, core{{/str}}{{/closebuttontext}}
+        {{/ theme_boost/drawer}}
+    {{/courseindex}}
+    {{#hasblocks}}
+        {{< theme_boost/drawer }}
+            {{$id}}theme_boost-drawers-blocks{{/id}}
+            {{$drawerclasses}}drawer drawer-right{{#blockdraweropen}} show{{/blockdraweropen}}{{/drawerclasses}}
+            {{$drawercontent}}
+                <div class="d-print-none">
+                    {{{ addblockbutton }}}
+                    {{{ sidepreblocks }}}
+                </div>
+            {{/drawercontent}}
+            {{$drawerpreferencename}}drawer-open-block{{/drawerpreferencename}}
+            {{$forceopen}}{{#forceblockdraweropen}}1{{/forceblockdraweropen}}{{/forceopen}}
+            {{$drawerstate}}show-drawer-right{{/drawerstate}}
+            {{$tooltipplacement}}left{{/tooltipplacement}}
+            {{$drawercloseonresize}}1{{/drawercloseonresize}}
+            {{$closebuttontext}}{{#str}}closeblockdrawer, core{{/str}}{{/closebuttontext}}
+        {{/ theme_boost/drawer}}
+    {{/hasblocks}}
+    <div id="page" data-region="mainpage" data-usertour="scroller" class="drawers {{#courseindexopen}}show-drawer-left{{/courseindexopen}} {{#blockdraweropen}}show-drawer-right{{/blockdraweropen}} drag-container">
+        <div id="topofscroll" class="main-inner">
+            <div class="drawer-toggles d-flex">
+                {{#courseindex}}
+                    <div class="drawer-toggler drawer-left-toggle open-nav d-print-none">
+                        <button
+                            class="btn icon-no-margin"
+                            data-toggler="drawers"
+                            data-action="toggle"
+                            data-target="theme_boost-drawers-courseindex"
+                            data-toggle="tooltip"
+                            data-placement="right"
+                            title="{{#str}}opendrawerindex, core{{/str}}"
+                        >
+                            <span class="sr-only">{{#str}}opendrawerindex, core{{/str}}</span>
+                            {{#pix}} t/index_drawer, moodle {{/pix}}
+                        </button>
+                    </div>
+                {{/courseindex}}
+                {{#hasblocks}}
+                    <div class="drawer-toggler drawer-right-toggle ms-auto d-print-none">
+                        <button
+                            class="btn icon-no-margin"
+                            data-toggler="drawers"
+                            data-action="toggle"
+                            data-target="theme_boost-drawers-blocks"
+                            data-toggle="tooltip"
+                            data-placement="right"
+                            title="{{#str}}opendrawerblocks, core{{/str}}"
+                        >
+                            <span class="sr-only">{{#str}}opendrawerblocks, core{{/str}}</span>
+                            <span class="dir-rtl-hide">{{#pix}}t/blocks_drawer, core{{/pix}}</span>
+                            <span class="dir-ltr-hide">{{#pix}}t/blocks_drawer_rtl, core{{/pix}}</span>
+                        </button>
+                    </div>
+                {{/hasblocks}}
+            </div>
+            <div class="ulms-shell">
+                {{#portalnav}}
+                    <aside id="ulms-shell-sidebar" class="ulms-shell-sidebar" aria-label="{{navigationaria}}">
+                        <div class="ulms-shell-sidebar__inner">
+                            <div class="ulms-shell-sidebar__brand">
+                                <div class="ulms-shell-sidebar__eyebrow">{{eyebrow}}</div>
+                                <div class="ulms-shell-sidebar__title">{{portalname}}</div>
+                            </div>
+                            <nav class="ulms-shell-sidebar__nav">
+                                {{#navgroups}}
+                                    <section class="ulms-shell-nav-group">
+                                        <h2 class="ulms-shell-nav-group__title">{{heading}}</h2>
+                                        <ul class="ulms-shell-nav-group__list">
+                                            {{#items}}
+                                                <li class="ulms-shell-nav-group__item">
+                                                    {{#active}}
+                                                        <span class="ulms-shell-nav-link ulms-shell-nav-link--active" aria-current="page" title="{{label}}">
+                                                            {{#icon}}<span class="ulms-shell-nav-link__icon" aria-hidden="true">{{{icon}}}</span>{{/icon}}
+                                                            <span class="ulms-shell-nav-link__label">{{label}}</span>
+                                                        </span>
+                                                    {{/active}}
+                                                    {{^active}}
+                                                        <a href="{{url}}" class="ulms-shell-nav-link" title="{{label}}">
+                                                            {{#icon}}<span class="ulms-shell-nav-link__icon" aria-hidden="true">{{{icon}}}</span>{{/icon}}
+                                                            <span class="ulms-shell-nav-link__label">{{label}}</span>
+                                                        </a>
+                                                    {{/active}}
+                                                </li>
+                                            {{/items}}
+                                        </ul>
+                                    </section>
+                                {{/navgroups}}
+                            </nav>
+                        </div>
+                    </aside>
+                    <div class="ulms-shell-overlay" data-ulms-sidebar-dismiss="true" aria-hidden="true"></div>
+                {{/portalnav}}
+                <div id="page-content" class="pb-3 d-print-block ulms-shell-content">
+                    {{{ output.full_header }}}
+                    {{#secondarymoremenu}}
+                        <div class="secondary-navigation d-print-none">
+                            {{> core/moremenu}}
+                        </div>
+                    {{/secondarymoremenu}}
+                    <div id="region-main-box">
+                        {{#hasregionmainsettingsmenu}}
+                        <div id="region-main-settings-menu" class="d-print-none">
+                            <div> {{{ regionmainsettingsmenu }}} </div>
+                        </div>
+                        {{/hasregionmainsettingsmenu}}
+                        <main id="region-main" aria-label="{{#str}}content{{/str}}">
+                            {{#hasregionmainsettingsmenu}}
+                                <div class="region_main_settings_menu_proxy"></div>
+                            {{/hasregionmainsettingsmenu}}
+                            {{{ output.course_content_header }}}
+                            {{#headercontent}}
+                                {{> core/activity_header }}
+                            {{/headercontent}}
+                            {{#overflow}}
+                                <div class="container-fluid tertiary-navigation">
+                                    <div class="navitem">
+                                        {{> core/url_select}}
+                                    </div>
+                                </div>
+                            {{/overflow}}
+                            {{{ output.main_content }}}
+                            {{{ output.activity_navigation }}}
+                            {{{ output.course_content_footer }}}
+                        </main>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <footer id="page-footer" class="ulms-portal-footer">
+            <div class="ulms-portal-footer__inner">
+                <div class="ulms-portal-footer__meta">
+                    <span class="ulms-portal-footer__brand">{{{ sitename }}}</span>
+                    <span class="ulms-portal-footer__login">{{{ output.login_info }}}</span>
+                </div>
+
+                {{# output.has_popover_links }}
+                    <div class="ulms-portal-footer__support">
+                        {{# output.page_doc_link }}
+                            <span class="ulms-portal-footer__link">{{{ output.page_doc_link }}}</span>
+                        {{/ output.page_doc_link }}
+                        {{# output.services_support_link }}
+                            <span class="ulms-portal-footer__link">{{{ output.services_support_link }}}</span>
+                        {{/ output.services_support_link }}
+                        {{# output.supportemail }}
+                            <span class="ulms-portal-footer__link">{{{ output.supportemail }}}</span>
+                        {{/ output.supportemail }}
+                    </div>
+                {{/ output.has_popover_links }}
+
+                <div class="ulms-portal-footer__system">
+                    {{{ output.standard_footer_html }}}
+                </div>
+            </div>
+
+            <div class="footer-content-debugging footer-dark bg-dark text-light">
+                <div class="container-fluid footer-dark-inner">
+                    {{{ output.debug_footer_html }}}
+                </div>
+            </div>
+        </footer>
+    </div>
+    {{{ output.standard_after_main_region_html }}}
+</div>
+
+{{{ output.standard_end_of_body_html }}}
+</body>
+</html>
+{{#js}}
+M.util.js_pending('theme_boost/loader');
+require(['theme_boost/loader', 'theme_boost/drawer'], function(Loader, Drawer) {
+    Drawer.init();
+    M.util.js_complete('theme_boost/loader');
+});
+{{/js}}

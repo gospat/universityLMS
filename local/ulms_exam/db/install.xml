@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/ulms_exam/db" VERSION="2026091101" COMMENT="ULMS Exams schema v3 (multi answer rows per question)" NEXT="2026091102">
+  <TABLES>
+    <TABLE NAME="local_ulms_exams" COMMENT="Exam definitions scope to programme+semester+course">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_programmes.id"/>
+        <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_semesters.id"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_course.id"/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="instructions" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="durationsec" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="start_ts" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="end_ts" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="draft" COMMENT="draft/published/closed/graded"/>
+        <FIELD NAME="passpct" TYPE="number" LENGTH="5" SCALE="2" NOTNULL="true" DEFAULT="0.00"/>
+        <FIELD NAME="maxattempts" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1"/>
+        <FIELD NAME="shufflequestions" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="shufflechoices" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1"/>
+        <FIELD NAME="allowresume" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1"/>
+        <FIELD NAME="createdby" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timepublished" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timeclosed" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timegraded" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="gradeitemid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_grade_items.id or 0 if not synced"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="programmeid" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+        <KEY NAME="courseid" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
+        <KEY NAME="createdby" TYPE="foreign" FIELDS="createdby" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+        <INDEX NAME="scope_idx" UNIQUE="false" FIELDS="programmeid, semesterid, courseid"/>
+        <INDEX NAME="window_idx" UNIQUE="false" FIELDS="start_ts, end_ts"/>
+        <INDEX NAME="creator_idx" UNIQUE="false" FIELDS="createdby, status"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ulms_exam_questions" COMMENT="One question row inside a specific exam">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="examid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_exams.id"/>
+        <FIELD NAME="questionbankid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_question_bank.id or 0 if adhoc"/>
+        <FIELD NAME="stem_html" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="ordernum" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="points" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="1"/>
+        <FIELD NAME="questiontype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="single" COMMENT="single (one correct) or multi (all-or-nothing)"/>
+        <FIELD NAME="shufflechoices_override" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="-1" COMMENT="-1 inherit exam, 0 off, 1 on"/>
+        <FIELD NAME="isactive" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="examid" TYPE="foreign" FIELDS="examid" REFTABLE="local_ulms_exams" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="exam_order_idx" UNIQUE="false" FIELDS="examid, ordernum"/>
+        <INDEX NAME="banklink_idx" UNIQUE="false" FIELDS="questionbankid"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ulms_question_choices" COMMENT="Adhoc choices for exam_questions (2-8 per question, exactly 1 correct)">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="examquestionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_exam_questions.id"/>
+        <FIELD NAME="choice_html" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="iscorrect" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="ordernum" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="examquestionid" TYPE="foreign" FIELDS="examquestionid" REFTABLE="local_ulms_exam_questions" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="qorder_idx" UNIQUE="false" FIELDS="examquestionid, ordernum"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ulms_question_bank" COMMENT="Reusable question bank items per programme+semester">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_programmes.id"/>
+        <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_semesters.id"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_course.id"/>
+        <FIELD NAME="createdby" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="stem_html" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="sharedlevel" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="programme" COMMENT="private/programme/department"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="active" COMMENT="active/archived"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="programmeid" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+        <KEY NAME="courseid" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
+        <KEY NAME="createdby" TYPE="foreign" FIELDS="createdby" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="scope_idx" UNIQUE="false" FIELDS="programmeid, semesterid, courseid, status"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ulms_question_bank_choices" COMMENT="Choices on question bank items">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="bankquestionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_question_bank.id"/>
+        <FIELD NAME="choice_html" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="iscorrect" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="ordernum" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="bankquestionid" TYPE="foreign" FIELDS="bankquestionid" REFTABLE="local_ulms_question_bank" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="bankorder_idx" UNIQUE="false" FIELDS="bankquestionid, ordernum"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ulms_exam_submissions" COMMENT="One attempt per examinee per exam, UNIQUE examid+examinee_userid">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="examid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_exams.id"/>
+        <FIELD NAME="examinee_userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_user.id"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="in_progress" COMMENT="in_progress/submitted/late_rejected/graded"/>
+        <FIELD NAME="choices_shuffle_seed" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="time_started" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="time_submitted" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="score_points" TYPE="number" LENGTH="10" SCALE="2" NOTNULL="true" DEFAULT="0.00"/>
+        <FIELD NAME="score_total_points" TYPE="number" LENGTH="10" SCALE="2" NOTNULL="true" DEFAULT="0.00"/>
+        <FIELD NAME="score_percent" TYPE="number" LENGTH="5" SCALE="2" NOTNULL="true" DEFAULT="0.00"/>
+        <FIELD NAME="late_rejected_reason" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="examid" TYPE="foreign" FIELDS="examid" REFTABLE="local_ulms_exams" REFFIELDS="id"/>
+        <KEY NAME="examinee_userid" TYPE="foreign" FIELDS="examinee_userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="unique_attendee" UNIQUE="true" FIELDS="examid, examinee_userid"/>
+        <INDEX NAME="userstatus_idx" UNIQUE="false" FIELDS="examinee_userid, status"/>
+        <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ulms_submission_answers" COMMENT="Per-question answer snapshot with denormalized correctness (grade immutability)">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="submissionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_exam_submissions.id"/>
+        <FIELD NAME="examquestionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_exam_questions.id"/>
+        <FIELD NAME="selected_choiceid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="is_correct_denorm" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="score_points_denorm" TYPE="number" LENGTH="10" SCALE="2" NOTNULL="true" DEFAULT="0.00"/>
+        <FIELD NAME="answered_ts" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timesaved" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="submissionid" TYPE="foreign" FIELDS="submissionid" REFTABLE="local_ulms_exam_submissions" REFFIELDS="id"/>
+        <KEY NAME="examquestionid" TYPE="foreign" FIELDS="examquestionid" REFTABLE="local_ulms_exam_questions" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="subq_idx" UNIQUE="false" FIELDS="submissionid, examquestionid"/>
+        <INDEX NAME="subchoice_idx" UNIQUE="true" FIELDS="submissionid, examquestionid, selected_choiceid"/>
+      </INDEXES>
+    </TABLE>
+  </TABLES>
+</XMLDB>

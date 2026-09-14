@@ -1,0 +1,22 @@
+<section class="ulms-brand-banner">
+    <div class="ulms-brand-banner__inner">
+        <p class="ulms-brand-banner__eyebrow">ULMS Experience</p>
+        <div class="ulms-brand-banner__title">{{brandtitle}}</div>
+        {{#supports_darkmode}}
+            <p class="ulms-brand-banner__meta">{{#str}} enabledarkmode, theme_ulms_university {{/str}}</p>
+        {{/supports_darkmode}}
+    </div>
+    {{#showportalcards}}
+        <div class="ulms-brand-banner__portal-grid" aria-label="Portal login links">
+            {{#portalcards}}
+                <article class="ulms-brand-banner__portal-card">
+                    <p class="ulms-brand-banner__portal-eyebrow">{{eyebrow}}</p>
+                    <h2 class="ulms-brand-banner__portal-title">{{title}}</h2>
+                    <p class="ulms-brand-banner__portal-meta">{{description}}</p>
+                    <p class="ulms-brand-banner__portal-meta">{{audiencesummary}}</p>
+                    <a class="btn btn-light" href="{{loginurl}}">{{#str}} portalcontinuecta, local_ulms_auth {{/str}}</a>
+                </article>
+            {{/portalcards}}
+        </div>
+    {{/showportalcards}}
+</section>

@@ -1,0 +1,77 @@
+.theme-ulms-university .ulms-password-field,
+.theme-ulms-university .ulms-role-login__password-wrap,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper {
+    position: relative !important;
+    display: block !important;
+    width: 100% !important;
+}
+
+.theme-ulms-university .ulms-password-field > .form-control,
+.theme-ulms-university .ulms-role-login__password-wrap > .form-control,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper > .form-control,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper.input-group > .form-control {
+    width: 100% !important;
+    min-height: 3.4rem !important;
+    padding-right: 3.5rem !important;
+    border-radius: 1rem !important;
+}
+
+.theme-ulms-university .ulms-password-toggle,
+.theme-ulms-university .ulms-role-login__password-toggle,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .input-group-append {
+    position: absolute !important;
+    top: 50% !important;
+    right: 0.7rem !important;
+    z-index: 2 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transform: translateY(-50%) !important;
+    margin: 0 !important;
+}
+
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .input-group-append {
+    right: 0.5rem !important;
+}
+
+.theme-ulms-university .ulms-password-toggle,
+.theme-ulms-university .ulms-role-login__password-toggle,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .toggle-sensitive-btn {
+    width: 2.5rem !important;
+    min-width: 2.5rem !important;
+    height: 2.5rem !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    color: #5f6872 !important;
+    box-shadow: none !important;
+}
+
+.theme-ulms-university .ulms-password-toggle:hover,
+.theme-ulms-university .ulms-password-toggle:focus-visible,
+.theme-ulms-university .ulms-role-login__password-toggle:hover,
+.theme-ulms-university .ulms-role-login__password-toggle:focus-visible,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .toggle-sensitive-btn:hover,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .toggle-sensitive-btn:focus-visible {
+    background: rgba(10, 73, 129, 0.08) !important;
+    color: #1d2125 !important;
+    outline: 0 !important;
+    box-shadow: 0 0 0 3px rgba(10, 73, 129, 0.18) !important;
+}
+
+.theme-ulms-university .ulms-password-toggle .icon,
+.theme-ulms-university .ulms-role-login__password-toggle .icon,
+.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .toggle-sensitive-btn .icon {
+    margin: 0 !important;
+    font-size: 1rem !important;
+}
+
+@media (max-width: 767.98px) {
+    .theme-ulms-university .ulms-password-field > .form-control,
+    .theme-ulms-university .ulms-role-login__password-wrap > .form-control,
+    .theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper > .form-control,
+    .theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper.input-group > .form-control {
+        padding-right: 3.3rem !important;
+    }
+}

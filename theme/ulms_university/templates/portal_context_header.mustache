@@ -1,0 +1,38 @@
+<div class="ulms-page-header ulms-page-header--portal-context">
+    {{#hasbreadcrumbs}}
+        <nav class="ulms-breadcrumbs" aria-label="{{#str}}breadcrumb, access{{/str}}">
+            <ol class="ulms-breadcrumbs__list">
+                {{#breadcrumbs}}
+                    <li class="ulms-breadcrumbs__item{{#active}} is-current{{/active}}" {{^url}}aria-current="page"{{/url}}>
+                        {{#url}}
+                            <a href="{{url}}" class="ulms-breadcrumbs__link">{{label}}</a>
+                        {{/url}}
+                        {{^url}}
+                            <span class="ulms-breadcrumbs__current" aria-current="page">{{label}}</span>
+                        {{/url}}
+                    </li>
+                {{/breadcrumbs}}
+            </ol>
+        </nav>
+    {{/hasbreadcrumbs}}
+
+    {{#backaction}}
+        {{#url}}
+            <div class="ulms-page-header__actions">
+                <a href="{{url}}" class="{{class}}" data-ulms-history-back="{{attributes.data-ulms-history-back}}" data-ulms-back-fallback="{{attributes.data-ulms-back-fallback}}" aria-label="{{attributes.aria-label}}">{{label}}</a>
+            </div>
+        {{/url}}
+    {{/backaction}}
+
+    {{#showtitle}}
+        <div class="ulms-page-header__content">
+            <div class="ulms-page-header__main">
+                <div class="ulms-page-header__eyebrow">{{eyebrow}}</div>
+                <h1 class="ulms-page-header__title">{{title}}</h1>
+                {{#meta}}
+                    <p class="ulms-page-header__meta">{{meta}}</p>
+                {{/meta}}
+            </div>
+        </div>
+    {{/showtitle}}
+</div>
