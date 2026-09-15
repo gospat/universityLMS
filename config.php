@@ -182,7 +182,22 @@ $CFG->dboptions = [
 ///////////////////////////////////////////////////////////////////////////
 
 $CFG->wwwroot   = rtrim((string)ulms_env('APP_URL', 'http://127.0.0.1:8000'), '/');
+$appenv_local = in_array(strtolower((string)ulms_env('APP_ENV', 'local')), ['local', 'dev', 'development', 'testing'], true);
+if ($appenv_local) {
+    if (strpos($CFG->wwwroot, 'https://') === 0) {
+        $CFG->wwwroot = preg_replace('#^https://#', 'http://', $CFG->wwwroot);
+    }
+    $CFG->sslproxy = false;
+    $CFG->sslproxy_ssloffload = false;
+    unset($_SERVER['HTTPS'], $_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTP_X_FORWARDED_SSL'], $_SERVER['HTTP_FRONT_END_HTTPS']);
+}
 $CFG->dataroot  = (string)ulms_env('MOODLE_DATA_PATH', dirname(__DIR__) . '/moodledata-local');
+if ($appenv_local) {
+    $candidate_outside = '/tmp/ulms-moodledata-outside';
+    if (is_dir($candidate_outside) && is_writable($candidate_outside) && file_exists($candidate_outside . '/.htaccess')) {
+        $CFG->dataroot = $candidate_outside;
+    }
+}
 $CFG->directorypermissions = 0777;
 $CFG->filepermissions = 0666;
 
@@ -209,7 +224,7 @@ if (in_array(strtolower($debug), ['1', 'true', 'yes', 'on'], true)) {
 @ini_set('html_errors', '0');
 
 $appenv = strtolower((string)ulms_env('APP_ENV', 'local'));
-$is_secure_request = function_exists('is_https') ? is_https() : ((isset($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https'));
+$is_secure_request = (!$appenv_local) && (function_exists('is_https') ? is_https() : ((isset($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')));
 @ini_set('session.cookie_httponly', '1');
 @ini_set('session.cookie_samesite', 'Lax');
 @ini_set('session.use_only_cookies', '1');

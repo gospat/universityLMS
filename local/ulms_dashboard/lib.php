@@ -77,13 +77,38 @@ function local_ulms_dashboard_get_management_header_context(string $section): ar
  * @return string
  */
 function local_ulms_dashboard_render_page_header(array $config): string {
+    static $cssemitted = false;
+    $content = '';
+    if (!$cssemitted) {
+        $css = <<<'ULMSCSS'
+.ulms-action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}
+.ulms-action-card{display:block;height:100%;padding:1.1rem 1.15rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;color:inherit;text-decoration:none;transition:border-color .2s ease,box-shadow .2s ease;min-width:0}
+.ulms-action-card:hover,.ulms-action-card:focus-visible{color:inherit;text-decoration:none;border-color:#94a3b8;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.ulms-action-card__title{margin:0;font-size:1rem;font-weight:700}
+.ulms-action-card__meta{margin-top:.45rem;color:#64748b;line-height:1.55}
+.ulms-action-card__footer{margin-top:.85rem;font-weight:600;color:#0f4c81}
+.ulms-action-card img,
+.ulms-action-card__cover,
+.ulms-action-card__cover img,
+.ulms-action-card [class*="__cover"]{display:block;width:100%;max-width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;border-radius:10px;overflow:hidden;margin:0 0 .85rem;background:#eef2f7}
+.ulms-summary-cards__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.9rem}
+.ulms-quick-access__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.9rem}
+.ulms-panel__body>.ulms-action-grid{margin-top:.1rem}
+@media (min-width:1400px){.ulms-action-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}}
+@media (max-width:991.98px){.ulms-action-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem}}
+@media (max-width:767.98px){.ulms-action-grid{grid-template-columns:1fr;gap:.75rem}.ulms-action-card{padding:.95rem 1rem}}
+@media (max-width:479.98px){.ulms-action-card{padding:.85rem .9rem;border-radius:10px}.ulms-action-card__cover,.ulms-action-card img{aspect-ratio:4/3}}
+ULMSCSS;
+        $content .= html_writer::tag('style', $css, ['data-ulms-inline' => 'cards-responsive']);
+        $cssemitted = true;
+    }
     $eyebrow = (string)($config['eyebrow'] ?? '');
     $title = (string)($config['title'] ?? '');
     $meta = (string)($config['meta'] ?? '');
     $actions = $config['actions'] ?? [];
     $navitems = $config['navitems'] ?? [];
 
-    $content = html_writer::start_div('ulms-page-header');
+    $content .= html_writer::start_div('ulms-page-header');
     if ($eyebrow !== '') {
         $content .= html_writer::tag('div', format_string($eyebrow), ['class' => 'ulms-page-header__eyebrow']);
     }
