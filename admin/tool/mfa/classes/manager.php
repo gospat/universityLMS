@@ -655,6 +655,27 @@ class manager {
             return;
         }
 
+        // ULMS defensive guard: corrupted state observed when a route performs a
+        // nested require_once(config.php) within clean_route_entry boot, which can
+        // desync the $GLOBALS['SESSION'] <-> $_SESSION['SESSION'] reference and
+        // leave either side as a non-object (e.g. serialized string, session id
+        // fallback, stale cookie payload). Re-bind the alias and reset to stdClass
+        // so downstream property assignments never throw "Attempt to assign
+        // property on string" exceptions.
+        if (!isset($SESSION) || !is_object($SESSION) || !($SESSION instanceof \stdClass)) {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            if (!isset($_SESSION) || !is_array($_SESSION)) {
+                $_SESSION = [];
+            }
+            if (!isset($_SESSION['SESSION']) || !is_object($_SESSION['SESSION']) || !($_SESSION['SESSION'] instanceof \stdClass)) {
+                $_SESSION['SESSION'] = new \stdClass();
+            }
+            $GLOBALS['SESSION'] = $_SESSION['SESSION'];
+            $SESSION = $_SESSION['SESSION'];
+        }
+
         if (!self::is_ready()) {
             // Set session var so if MFA becomes ready, you dont get locked from session.
             $SESSION->tool_mfa_authenticated = true;

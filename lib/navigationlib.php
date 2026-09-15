@@ -5456,7 +5456,32 @@ class settings_navigation extends navigation_node {
 
         $userauthplugin = false;
         if (!empty($user->auth)) {
-            $userauthplugin = get_auth_plugin($user->auth);
+            try {
+                $userauthplugin = get_auth_plugin($user->auth);
+            } catch (\Throwable $e) {
+                // ULMS defensive guard: on routes where user settings navigation is
+                // rendered (e.g. lecturer/exams/create), the page render pipeline can
+                // fail hard on a single corrupted / invalid auth plugin string in any
+                // user record reachable via navigation nodes. Fall back to `manual`
+                // (always present) so the form page still works, while emitting a
+                // low-level diagnostic notice rather than aborting the entire page
+                // with a 404-style authpluginnotfound exception.
+                if ($user->auth !== 'manual' && exists_auth_plugin('manual')) {
+                    try {
+                        $userauthplugin = get_auth_plugin('manual');
+                    } catch (\Throwable $ignored) {
+                        $userauthplugin = false;
+                    }
+                }
+                if (!$userauthplugin) {
+                    debugging(
+                        'Falling back user settings navigation for invalid auth plugin '
+                        . "'{$user->auth}' on user id {$user->id} ({$user->username}). "
+                        . 'Underlying: ' . $e->getMessage(),
+                        DEBUG_NORMAL
+                    );
+                }
+            }
         }
 
         $useraccount = $usersetting->add(get_string('useraccount'), null, self::TYPE_CONTAINER, null, 'useraccount');

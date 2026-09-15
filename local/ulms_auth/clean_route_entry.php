@@ -43,6 +43,28 @@ function local_ulms_auth_boot_public_route(string $relativefile, array $params =
         define('ULMS_PUBLIC_ROUTE_REQUEST', true);
     }
 
+    // ULMS defensive guard: some inner controllers (e.g. local/ulms_exam/*) also
+    // require_once(config.php) inside the require() below. Even though
+    // require_once prevents duplicate file loading, the nested re-entry through
+    // the global scope plus the PHP session alias dance in
+    // core\session\manager::start() can desync $GLOBALS['SESSION'] from
+    // $_SESSION['SESSION'], leaving one of them as a string on stale or partial
+    // session payloads. Re-bind to the canonical $_SESSION['SESSION'] stdClass
+    // (instantiate if missing) BEFORE any further code reads or writes $SESSION.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        if (!isset($_SESSION) || !is_array($_SESSION)) {
+            $_SESSION = [];
+        }
+        if (!isset($_SESSION['SESSION']) || !is_object($_SESSION['SESSION']) || !($_SESSION['SESSION'] instanceof stdClass)) {
+            $_SESSION['SESSION'] = new stdClass();
+        }
+        $GLOBALS['SESSION'] = $_SESSION['SESSION'];
+        $SESSION = $_SESSION['SESSION'];
+    } elseif (!isset($SESSION) || !is_object($SESSION) || !($SESSION instanceof stdClass)) {
+        $SESSION = new stdClass();
+        $GLOBALS['SESSION'] = $SESSION;
+    }
+
     foreach ($params as $key => $value) {
         $_GET[$key] = $value;
         $_REQUEST[$key] = $value;
