@@ -37,6 +37,7 @@ if (!defined('BEHAT_SITE_RUNNING')) {
 require_login();
 
 $context = \context_helper::instance_by_id($contextid);
+global $PAGE, $USER;
 $PAGE->set_context($context);
 
 $USER->editing = $setmode;
