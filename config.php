@@ -209,6 +209,10 @@ $CFG->debug_developer_use_pretty_exceptions = 0;
 
 $debug = (string)ulms_env('APP_DEBUG', '0');
 $display = (string)ulms_env('ULMS_WEB_DEBUG_DISPLAY', '0');
+$running_via_cli = (defined('CLI_SCRIPT') && CLI_SCRIPT) || PHP_SAPI === 'cli';
+if ($running_via_cli) {
+    $debug = (string)ulms_env('APP_DEBUG_CLI', (string)ulms_env('ULMS_CLI_DEBUG', '0'));
+}
 if (in_array(strtolower($debug), ['1', 'true', 'yes', 'on'], true)) {
     @error_reporting(E_ALL);
     $CFG->debug = 38911;
@@ -217,6 +221,10 @@ if (in_array(strtolower($debug), ['1', 'true', 'yes', 'on'], true)) {
     @error_reporting(0);
     $CFG->debug = 0;
     $CFG->debugdisplay = 0;
+}
+
+if (empty($CFG->smtphosts)) {
+    $CFG->smtphosts = 'localhost:25';
 }
 
 @ini_set('display_errors', '0');

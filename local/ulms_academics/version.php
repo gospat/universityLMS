@@ -16,9 +16,13 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+if (!isset($plugin)) {
+    $plugin = new stdClass();
+}
+
 /** @var stdClass $plugin */
 $plugin->component = 'local_ulms_academics';
-$plugin->version = 2026091501;
+$plugin->version = 2026091601;
 $plugin->requires = 2024042200;
 $plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.3.0';
+$plugin->release = '0.3.1';

@@ -91,6 +91,13 @@ foreach ($components as $component) {
 }
 
 $transport = (string)($CFG->ulmsmailtransport ?? 'moodle');
+if (empty($CFG->smtphosts)) {
+    global $DB;
+    $storedsmtp = $DB->get_field('config', 'value', ['name' => 'smtphosts']);
+    if (!empty($storedsmtp)) {
+        $CFG->smtphosts = (string)$storedsmtp;
+    }
+}
 $recordcheck('mail:transport', in_array($transport, ['moodle', 'resend'], true), 'Current transport: ' . $transport);
 
 if ($transport === 'resend') {
@@ -197,7 +204,15 @@ try {
 
 try {
     $lecturerservice = new \local_ulms_dashboard\local\service\lecturer_portal_service();
+    global $DB;
     $samplecourseid = 2;
+    $crs = $DB->get_record('course', ['id' => 2], 'id');
+    if (!$crs) {
+        $any = $DB->get_records_select('course', 'id > 1', null, 'id ASC', 'id', 0, 1);
+        if (!empty($any)) {
+            $samplecourseid = (int)reset($any)->id;
+        }
+    }
     if (method_exists($lecturerservice, 'audit_lecturer_course_url_access')) {
         $courseaudit = $lecturerservice->audit_lecturer_course_url_access($samplecourseid);
         $recordcheck(
@@ -563,7 +578,7 @@ try {
         'lastname' => 'User',
         'email' => 'crud-smoke-validate@ulms.test',
         'username' => 'crudsmoke',
-        'role' => 'student',
+        'role' => 'lecturer',
         'status' => 'active',
     ], 0, true);
     $checks_crud['validate_form_manual'] = is_array($vf) && !empty($vf['valid']) ? 'ok' : 'fail';
