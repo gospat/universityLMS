@@ -230,6 +230,47 @@
     {{{ output.standard_after_main_region_html }}}
 </div>
 
+<script data-ulms-shell-nav="1">
+(function(){
+  if (window.__ULMS_SHELL_NAV__) { return; }
+  window.__ULMS_SHELL_NAV__ = true;
+  var STORAGE_KEY = 'ulms_shell_state_v1';
+  var shell = document.querySelector('.ulms-shell');
+  var body = document.body;
+  var toggles = document.querySelectorAll('[data-ulms-sidebar-toggle="true"]');
+  var dismissers = document.querySelectorAll('[data-ulms-sidebar-dismiss="true"]');
+  var sidebar = document.getElementById('ulms-shell-sidebar');
+  if (!shell || !toggles.length) { return; }
+  var bpXL = window.matchMedia ? window.matchMedia('(min-width: 1200px)') : null;
+  var bpLG = window.matchMedia ? window.matchMedia('(min-width: 850px) and (max-width: 1199.98px)') : null;
+  var bpMobile = window.matchMedia ? window.matchMedia('(max-width: 849.98px)') : null;
+  var applyAria = function (expanded) { toggles.forEach(function (t) { t.setAttribute('aria-expanded', expanded ? 'true' : 'false'); }); };
+  var remember = function () { try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ collapsed: shell.classList.contains('is-sidebar-collapsed'), open: shell.classList.contains('is-sidebar-open') })); } catch (e) {} };
+  var restore = function () { try { var raw = window.localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } };
+  var collapse = function (on) { shell.classList.toggle('is-sidebar-collapsed', !!on); applyAria(!on); remember(); };
+  var open = function (on) { shell.classList.toggle('is-sidebar-open', !!on); body.style.overflow = on && bpMobile && bpMobile.matches ? 'hidden' : ''; applyAria(on); remember(); };
+  toggles.forEach(function (btn) { btn.addEventListener('click', function (ev) { ev.preventDefault(); if (bpMobile && bpMobile.matches) open(!shell.classList.contains('is-sidebar-open')); else collapse(!shell.classList.contains('is-sidebar-collapsed')); }, { passive: false }); });
+  dismissers.forEach(function (el) { el.addEventListener('click', function () { open(false); }); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') open(false); }, true);
+  document.addEventListener('click', function (ev) { if (!shell.classList.contains('is-sidebar-open') || !sidebar || !bpMobile || !bpMobile.matches) return; var node = ev.target; while (node && node !== document.body) { if (node === sidebar) return; if (node instanceof Element && node.closest && node.closest('[data-ulms-sidebar-toggle="true"]')) return; node = node.parentNode; } open(false); }, true);
+  if (sidebar) {
+    sidebar.addEventListener('click', function (ev) { var a = ev.target; while (a && a !== sidebar) { if (a instanceof Element && a.tagName === 'A' && a.getAttribute('href')) { if (bpMobile && bpMobile.matches) setTimeout(function () { open(false); }, 120); return; } a = a.parentNode; } }, true);
+    var startX = null;
+    sidebar.addEventListener('touchstart', function (e) { if (!e.touches || !e.touches.length) return; startX = e.touches[0].clientX; }, { passive: true });
+    sidebar.addEventListener('touchend', function (e) { if (startX == null || !e.changedTouches || !e.changedTouches.length) return; if (e.changedTouches[0].clientX - startX <= -55) open(false); startX = null; }, { passive: true });
+  }
+  var applyBreakpoints = function () {
+    if (bpXL && bpXL.matches) { open(false); var state = restore(); collapse(state ? !!state.collapsed : false); }
+    else if (bpLG && bpLG.matches) { open(false); collapse(true); }
+    else { collapse(false); open(false); }
+    applyAria(shell.classList.contains('is-sidebar-open') || !shell.classList.contains('is-sidebar-collapsed'));
+  };
+  applyBreakpoints();
+  [bpXL, bpLG, bpMobile].forEach(function (m) { if (m && typeof m.addEventListener === 'function') m.addEventListener('change', applyBreakpoints); else if (m && typeof m.addListener === 'function') m.addListener(applyBreakpoints); });
+  window.addEventListener('resize', applyBreakpoints);
+})();
+</script>
+
 {{{ output.standard_end_of_body_html }}}
 </body>
 </html>
