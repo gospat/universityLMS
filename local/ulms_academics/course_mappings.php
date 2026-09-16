@@ -228,6 +228,7 @@ if (optional_param('savemapping', 0, PARAM_BOOL) && confirm_sesskey()) {
         'programmeid' => optional_param('programmeid', 0, PARAM_INT),
         'moodlecourseid' => optional_param('moodlecourseid', 0, PARAM_INT),
         'semesterid' => optional_param('semesterid', 0, PARAM_INT),
+        'levelid' => optional_param('levelid', 0, PARAM_INT),
         'coursetype' => optional_param('coursetype', 'core', PARAM_ALPHA),
         'iscore' => optional_param('iscore', 0, PARAM_BOOL),
     ]);
@@ -265,6 +266,15 @@ if ($programmefilter > 0 && !array_key_exists($programmefilter, $filteredprogram
 
 $courses = $service->get_moodle_course_options();
 $semesters = $service->get_semester_options();
+$sessions = $service->get_records_for_entity('sessions');
+$sessionoptions = [0 => get_string('all')];
+foreach ($sessions as $s) {
+    $sessionoptions[(int)$s->id] = sprintf('%s (%s)', $s->code, $s->name ?? $s->code);
+}
+$levels = $DB->get_manager()->table_exists('local_ulms_levels')
+    ? $DB->get_records_menu('local_ulms_levels', ['status' => 'active'], 'sortorder ASC, id ASC', 'id, name')
+    : [];
+$leveloptions = [0 => get_string('mappinglevelwide', 'local_ulms_academics')] + $levels;
 $coursetypes = $service->get_course_type_options();
 $facultyfilters = [0 => get_string('all')] + $faculties;
 $departmentfilters = [0 => get_string('all')] + $departments;
@@ -309,9 +319,17 @@ $formvalues = [
     'programmeid' => $editmapping->programmeid ?? 0,
     'moodlecourseid' => $editmapping->moodlecourseid ?? 0,
     'semesterid' => $editmapping->semesterid ?? 0,
+    'levelid' => $editmapping->levelid ?? 0,
+    'sessionid' => 0,
     'coursetype' => $editmapping->coursetype ?? 'core',
     'iscore' => isset($editmapping->iscore) ? (int)$editmapping->iscore : 1,
 ];
+if (!empty($formvalues['semesterid'])) {
+    $sem = $DB->get_record('local_ulms_semesters', ['id' => (int)$formvalues['semesterid']], 'sessionid', IGNORE_MISSING);
+    if ($sem) {
+        $formvalues['sessionid'] = (int)$sem->sessionid;
+    }
+}
 $formfacultyid = optional_param('formfacultyid', 0, PARAM_INT);
 $formdepartmentid = optional_param('formdepartmentid', 0, PARAM_INT);
 
@@ -879,13 +897,29 @@ echo html_writer::select($courses, 'moodlecourseid', $formvalues['moodlecourseid
 echo html_writer::end_div();
 
 echo html_writer::start_div('col-md-6 mb-3');
-echo html_writer::tag('p', get_string('mappingformhierarchyhint', 'local_ulms_academics'), ['class' => 'ulms-helper-text mt-4']);
+echo html_writer::label(get_string('academicsessions', 'local_ulms_academics'), 'id_sessionid');
+$sessionselect = [0 => get_string('choosedots')];
+foreach ($sessions as $s) {
+    $sessionselect[(int)$s->id] = sprintf('%s — %s', $s->code, $s->name ?? $s->code);
+}
+echo html_writer::select($sessionselect, 'sessionid', $formvalues['sessionid'], false, [
+    'id' => 'id_sessionid',
+    'class' => 'custom-select',
+]);
 echo html_writer::end_div();
 
 echo html_writer::start_div('col-md-4 mb-3');
 echo html_writer::label(get_string('semesters', 'local_ulms_academics'), 'id_semesterid');
 echo html_writer::select($semesters, 'semesterid', $formvalues['semesterid'], false, [
     'id' => 'id_semesterid',
+    'class' => 'custom-select',
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('col-md-4 mb-3');
+echo html_writer::label(get_string('levels', 'local_ulms_academics'), 'id_levelid');
+echo html_writer::select($leveloptions, 'levelid', $formvalues['levelid'], false, [
+    'id' => 'id_levelid',
     'class' => 'custom-select',
 ]);
 echo html_writer::end_div();
@@ -972,5 +1006,46 @@ echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::end_div();
 
-echo html_writer::end_div();
+$deptsbyfac = [];
+foreach ($alldepartmentrecords as $d) {
+    $fid = (int)($d->facultyid ?? 0);
+    if (!isset($deptsbyfac[$fid])) {
+        $deptsbyfac[$fid] = [];
+    }
+    $deptsbyfac[$fid][(int)$d->id] = $d->name;
+}
+$progsbydept = [];
+foreach ($allprogrammerecords as $p) {
+    $did = (int)($p->departmentid ?? 0);
+    if (!isset($progsbydept[$did])) {
+        $progsbydept[$did] = [];
+    }
+    $progsbydept[$did][(int)$p->id] = $p->name;
+}
+$semsbysession = [];
+foreach ($service->get_records_for_entity('semesters') as $sm) {
+    $sid = (int)($sm->sessionid ?? 0);
+    if (!isset($semsbysession[$sid])) {
+        $semsbysession[$sid] = [];
+    }
+    $semsbysession[$sid][(int)$sm->id] = $sm->name;
+}
+$choose = get_string('choosedots');
+echo html_writer::start_tag('script');
+echo 'const ulmsCascade={'
+    . 'deptsByFac:' . json_encode($deptsbyfac) . ','
+    . 'progsByDept:' . json_encode($progsbydept) . ','
+    . 'semsBySession:' . json_encode($semsbysession) . ','
+    . 'choose:' . json_encode($choose)
+    . '};'
+    . "(function(){"
+    . "function rebuildSelect(sel,options,active){sel.innerHTML='';const d=document.createElement('option');d.value='0';d.textContent=ulmsCascade.choose;sel.appendChild(d);for(const k of Object.keys(options)){const o=document.createElement('option');o.value=String(k);o.textContent=options[k];if(String(k)===String(active)){o.selected=true;}sel.appendChild(o);}}"
+    . "const ff=document.getElementById('id_formfacultyid');const fd=document.getElementById('id_formdepartmentid');const fp=document.getElementById('id_programmeid');"
+    . "const fsess=document.getElementById('id_sessionid');const fsem=document.getElementById('id_semesterid');"
+    . "if(ff&&fd){ff.addEventListener('change',()=>{const fac=ff.value||'0';rebuildSelect(fd,ulmsCascade.deptsByFac[fac]||{},'0');if(fp){rebuildSelect(fp,{},'0');}});}"
+    . "if(fd&&fp){fd.addEventListener('change',()=>{const dept=fd.value||'0';rebuildSelect(fp,ulmsCascade.progsByDept[dept]||{},'0');});}"
+    . "if(fsess&&fsem){fsess.addEventListener('change',()=>{const sid=fsess.value||'0';rebuildSelect(fsem,ulmsCascade.semsBySession[sid]||{},'0');});}"
+    . "})();";
+echo html_writer::end_tag('script');
+
 echo $OUTPUT->footer();

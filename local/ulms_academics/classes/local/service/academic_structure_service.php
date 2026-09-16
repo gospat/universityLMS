@@ -317,6 +317,7 @@ class academic_structure_service {
             'programmes' => \get_string('programmes', 'local_ulms_academics'),
             'sessions' => \get_string('academicsessions', 'local_ulms_academics'),
             'semesters' => \get_string('semesters', 'local_ulms_academics'),
+            'coursemappings' => \get_string('mappings', 'local_ulms_academics'),
             default => \get_string('unknownentity', 'local_ulms_academics'),
         };
     }
@@ -742,39 +743,68 @@ class academic_structure_service {
      * @return array
      */
     public function save_course_mapping(array $data): array {
+        global $DB;
         $mappingid = (int)($data['mappingid'] ?? 0);
         $programmeid = (int)($data['programmeid'] ?? 0);
         $moodlecourseid = (int)($data['moodlecourseid'] ?? 0);
         $semesterid = (int)($data['semesterid'] ?? 0);
+        $levelid = (int)($data['levelid'] ?? 0);
         $coursetype = trim((string)($data['coursetype'] ?? 'core'));
         $iscore = !empty($data['iscore']) ? 1 : 0;
 
-        if ($programmeid <= 0 || $moodlecourseid <= 0) {
+        $errors = [];
+
+        if ($programmeid <= 0) {
+            $errors['programmeid'] = \get_string('mappingrequiredfieldprogramme', 'local_ulms_academics');
+        }
+        if ($moodlecourseid <= 0) {
+            $errors['moodlecourseid'] = \get_string('mappingrequiredfieldcourse', 'local_ulms_academics');
+        }
+        if ($moodlecourseid === 1) {
+            $errors['moodlecourseid'] = \get_string('mappinginvalidsitecourse', 'local_ulms_academics');
+        }
+        if (!empty($errors)) {
             return [
                 'success' => false,
                 'message' => \get_string('mappingrequiredfields', 'local_ulms_academics'),
+                'errors' => $errors,
             ];
         }
 
         if (!$this->get_record_for_entity('programmes', $programmeid)) {
+            $errors['programmeid'] = \get_string('recordnotfound', 'local_ulms_academics');
             return [
                 'success' => false,
                 'message' => \get_string('recordnotfound', 'local_ulms_academics'),
+                'errors' => $errors,
             ];
         }
 
         $courses = $this->repository->get_moodle_courses();
         if (!isset($courses[$moodlecourseid])) {
+            $errors['moodlecourseid'] = \get_string('mappinginvalidcourse', 'local_ulms_academics');
             return [
                 'success' => false,
                 'message' => \get_string('mappinginvalidcourse', 'local_ulms_academics'),
+                'errors' => $errors,
             ];
         }
 
         if ($semesterid > 0 && !$this->get_record_for_entity('semesters', $semesterid)) {
+            $errors['semesterid'] = \get_string('recordnotfound', 'local_ulms_academics');
             return [
                 'success' => false,
                 'message' => \get_string('recordnotfound', 'local_ulms_academics'),
+                'errors' => $errors,
+            ];
+        }
+
+        if ($levelid > 0 && !$DB->record_exists('local_ulms_levels', ['id' => $levelid])) {
+            $errors['levelid'] = \get_string('mappinginvalidlevel', 'local_ulms_academics');
+            return [
+                'success' => false,
+                'message' => \get_string('mappinginvalidlevel', 'local_ulms_academics'),
+                'errors' => $errors,
             ];
         }
 
@@ -783,17 +813,27 @@ class academic_structure_service {
         }
 
         if ($mappingid > 0 && !$this->repository->get_course_mapping($mappingid)) {
+            $errors['mappingid'] = \get_string('recordnotfound', 'local_ulms_academics');
             return [
                 'success' => false,
                 'message' => \get_string('recordnotfound', 'local_ulms_academics'),
+                'errors' => $errors,
             ];
         }
 
-        $existing = $this->repository->get_course_mapping_by_programme_course($programmeid, $moodlecourseid);
+        $existing = $this->repository->get_course_mapping_by_hierarchy(
+            $programmeid,
+            $moodlecourseid,
+            $semesterid,
+            $levelid
+        );
         if ($existing && $mappingid > 0 && (int)$existing->id !== $mappingid) {
             return [
                 'success' => false,
                 'message' => \get_string('mappingduplicate', 'local_ulms_academics'),
+                'errors' => [
+                    '_base' => \get_string('mappingduplicate', 'local_ulms_academics'),
+                ],
             ];
         }
 
@@ -809,6 +849,7 @@ class academic_structure_service {
         $record->programmeid = $programmeid;
         $record->moodlecourseid = $moodlecourseid;
         $record->semesterid = $semesterid > 0 ? $semesterid : null;
+        $record->levelid = $levelid;
         $record->coursetype = $coursetype;
         $record->iscore = $iscore;
 
@@ -829,6 +870,7 @@ class academic_structure_service {
                         'programmeid' => $programmeid,
                         'courseid' => $moodlecourseid,
                         'semesterid' => $semesterid,
+                        'levelid' => $levelid,
                     ]);
                 }
             }
@@ -888,6 +930,7 @@ class academic_structure_service {
                 'linenumber' => $linenumber,
                 'programme' => trim((string)($row['programmecode'] ?? $row['programmename'] ?? $row['programmeid'] ?? '')),
                 'course' => trim((string)($row['courseshortname'] ?? $row['moodlecourseid'] ?? '')),
+                'level' => trim((string)($row['levelcode'] ?? '')),
                 'semester' => trim((string)($row['semestercode'] ?? $row['semesterid'] ?? '')),
                 'coursetype' => trim((string)($row['coursetype'] ?? 'core')),
                 'iscore' => trim((string)($row['iscore'] ?? '1')),
@@ -897,9 +940,11 @@ class academic_structure_service {
             ];
 
             if ($record) {
-                $existing = $this->repository->get_course_mapping_by_programme_course(
+                $existing = $this->repository->get_course_mapping_by_hierarchy(
                     (int)$record->programmeid,
-                    (int)$record->moodlecourseid
+                    (int)$record->moodlecourseid,
+                    (int)($record->semesterid ?? 0),
+                    (int)($record->levelid ?? 0)
                 );
                 $previewrow['valid'] = true;
                 $previewrow['action'] = $existing
@@ -909,6 +954,7 @@ class academic_structure_service {
                 $previewrow['course'] = $this->get_moodle_course_label((int)$record->moodlecourseid);
                 $previewrow['programme'] = $this->get_programme_label((int)$record->programmeid);
                 $previewrow['semester'] = $this->get_semester_label((int)($record->semesterid ?? 0));
+                $previewrow['level'] = $this->get_level_label((int)($record->levelid ?? 0));
                 $previewrow['coursetype'] = $this->get_course_type_options()[$record->coursetype] ?? $record->coursetype;
                 $previewrow['iscore'] = !empty($record->iscore) ? \get_string('yes') : \get_string('no');
                 $result['valid']++;
@@ -947,9 +993,11 @@ class academic_structure_service {
                 continue;
             }
 
-            $existing = $this->repository->get_course_mapping_by_programme_course(
+            $existing = $this->repository->get_course_mapping_by_hierarchy(
                 (int)$record->programmeid,
-                (int)$record->moodlecourseid
+                (int)$record->moodlecourseid,
+                (int)($record->semesterid ?? 0),
+                (int)($record->levelid ?? 0)
             );
             if ($existing) {
                 $record->id = $existing->id;
@@ -980,17 +1028,24 @@ class academic_structure_service {
         string $sort = 'faculty',
         string $direction = 'ASC'
     ): array {
+        global $DB;
         $rows = [[
             'programmecode',
             'programmename',
             'courseshortname',
             'coursename',
             'moodlecourseid',
+            'levelcode',
             'semestercode',
             'semestername',
             'coursetype',
             'iscore',
         ]];
+
+        $levelbyid = [];
+        if ($DB->get_manager()->table_exists('local_ulms_levels')) {
+            $levelbyid = $DB->get_records_menu('local_ulms_levels', [], '', 'id, code');
+        }
 
         foreach ($this->get_course_mappings(
             $search,
@@ -1002,12 +1057,14 @@ class academic_structure_service {
             $sort,
             $direction
         ) as $mapping) {
+            $levelid = (int)($mapping->levelid ?? 0);
             $rows[] = [
                 $mapping->programmecode ?? '',
                 $mapping->programmename ?? '',
                 $mapping->courseshortname ?? '',
                 $mapping->coursename ?? '',
                 (string)$mapping->moodlecourseid,
+                $levelid > 0 && isset($levelbyid[$levelid]) ? (string)$levelbyid[$levelid] : '',
                 $mapping->semestercode ?? '',
                 $mapping->semestername ?? '',
                 $mapping->coursetype ?? 'core',
@@ -1025,8 +1082,8 @@ class academic_structure_service {
      */
     public function get_course_mapping_template_rows(): array {
         return [
-            ['programmecode', 'courseshortname', 'semestercode', 'coursetype', 'iscore'],
-            ['BSC-CS', 'CSC101', 'SEM-1', 'core', '1'],
+            ['programmecode', 'courseshortname', 'levelcode', 'semestercode', 'coursetype', 'iscore'],
+            ['BSC-CS', 'CSC101', '100', 'SEM-1', 'core', '1'],
         ];
     }
 
@@ -1039,6 +1096,8 @@ class academic_structure_service {
      * @return \stdClass|null
      */
     private function build_course_mapping_record_from_import_row(array $row, int $linenumber, array &$errors): ?\stdClass {
+        global $DB;
+
         $programmeid = (int)($row['programmeid'] ?? 0);
         if ($programmeid <= 0) {
             $programmecode = trim((string)($row['programmecode'] ?? ''));
@@ -1073,6 +1132,23 @@ class academic_structure_service {
         if ($programmeid <= 0 || $moodlecourseid <= 0) {
             $errors[] = \get_string('mappingcsvrequired', 'local_ulms_academics', $linenumber);
             return null;
+        }
+
+        if ($moodlecourseid === 1) {
+            $errors[] = \get_string('mappinginvalidsitecourse', 'local_ulms_academics');
+            return null;
+        }
+
+        $levelid = 0;
+        $levelcodein = trim((string)($row['levelcode'] ?? ''));
+        if ($levelcodein !== '' && $DB->get_manager()->table_exists('local_ulms_levels')) {
+            $level = $DB->get_record('local_ulms_levels', ['code' => $levelcodein], 'id', IGNORE_MISSING);
+            if ($level) {
+                $levelid = (int)$level->id;
+            } else {
+                $errors[] = \get_string('mappingcsvinvalidlevel', 'local_ulms_academics', $linenumber);
+                return null;
+            }
         }
 
         $semesterid = (int)($row['semesterid'] ?? 0);
@@ -1112,6 +1188,7 @@ class academic_structure_service {
         $record->programmeid = $programmeid;
         $record->moodlecourseid = $moodlecourseid;
         $record->semesterid = $semesterid > 0 ? $semesterid : null;
+        $record->levelid = $levelid;
         $record->coursetype = $coursetype;
         $record->iscore = $iscore;
 
@@ -1162,6 +1239,31 @@ class academic_structure_service {
 
         $semester = $this->get_record_for_entity('semesters', $semesterid);
         return $semester ? (string)$semester->name : \get_string('notset', 'local_ulms_academics');
+    }
+
+    /**
+     * Returns a readable level label using the dashboard levels table.
+     *
+     * @param int $levelid
+     * @return string
+     */
+    private function get_level_label(int $levelid): string {
+        global $DB;
+        if ($levelid <= 0) {
+            return \get_string('notset', 'local_ulms_academics');
+        }
+        if (!$DB->get_manager()->table_exists('local_ulms_levels')) {
+            return \get_string('notset', 'local_ulms_academics');
+        }
+        $level = $DB->get_record('local_ulms_levels', ['id' => $levelid], 'name, code', IGNORE_MISSING);
+        if (!$level) {
+            return \get_string('notset', 'local_ulms_academics');
+        }
+        $label = (string)$level->name;
+        if (!empty($level->code)) {
+            $label .= ' (' . $level->code . ')';
+        }
+        return $label;
     }
 
     /**
@@ -1347,7 +1449,36 @@ class academic_structure_service {
      * @param \stdClass $record
      * @return int
      */
-    public function save_entity_record(string $entity, \stdClass $record): int {
-        return $this->repository->save_record($entity, $record);
+    public function save_entity_record(string $entity, \stdClass $record): array {
+        try {
+            $id = $this->repository->save_record($entity, $record);
+            return [
+                'success' => true,
+                'id' => $id,
+                'message' => !empty($record->id)
+                    ? \get_string('recordupdated', 'local_ulms_academics')
+                    : \get_string('recordcreated', 'local_ulms_academics'),
+            ];
+        } catch (\InvalidArgumentException $e) {
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'errors' => [
+                    '_base' => $e->getMessage(),
+                ],
+            ];
+        } catch (\Throwable $e) {
+            if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                local_ulms_dashboard_log_operational_error($e, 'academic_structure_service::save_entity_record', [
+                    'entity' => $entity,
+                    'record' => (array)$record,
+                ]);
+            }
+            return [
+                'success' => false,
+                'message' => \get_string('recordnotsaved', 'local_ulms_academics'),
+                'errors' => ['_base' => \get_string('recordnotsaved', 'local_ulms_academics')],
+            ];
+        }
     }
 }

@@ -379,5 +379,14 @@ function xmldb_local_ulms_dashboard_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091302, 'local', 'ulms_dashboard');
     }
 
+    if ($oldversion < 2026091501) {
+        // Savepoint 2026091501: Academic Hierarchy Consistency upgrade.
+        // - Registers new managelevels capability via access.php refresh at upgrade time.
+        // - No schema changes in this plugin for this savepoint (schema changes
+        //   for the programme_courses join table live in local/ulms_academics).
+        // - Future dashboard-level schema/scoping migrations should land here.
+        upgrade_plugin_savepoint(true, 2026091501, 'local', 'ulms_dashboard');
+    }
+
     return true;
 }

@@ -114,5 +114,153 @@ function xmldb_local_ulms_academics_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091100, 'local', 'ulms_academics');
     }
 
+    if ($oldversion < 2026091501) {
+        // Savepoint 2026091501: Academic Hierarchy Consistency upgrade.
+        //   - ADD COLUMN local_ulms_programme_courses.levelid bigint(10) NOT NULL DEFAULT 0
+        //   - DROP any existing 3-column UNIQUE on (programmeid, moodlecourseid, semesterid)
+        //     (found under several possible Moodle-generated xmldb names depending on
+        //      the upgrade path that built this environment: programme_course_unique
+        //      with [pid,cid]; or programme_course_per_semester_unique with
+        //      [pid,sid,cid]; or the on-disk 3-col order [pid,cid,sid]).
+        //   - ADD NEW 4-column UNIQUE on (programmeid, moodlecourseid, semesterid, levelid)
+        //   - ADD INDEX (levelid, programmeid, semesterid) for efficient scope lookups
+        //     used by exam_service / adoptions when filtering by Programme + Level +
+        //     Semester to discover valid courses.
+        //   - Best-effort data migration for existing rows: infer levelid from linked
+        //     Moodle course shortname end-digits (e.g. ULMS-CS101 -> 100), fall back
+        //     to 0 (= level-wide) when indeterminate. Levelid 0 is always treated as
+        //     "any level" by downstream consumers, preserving backward compatibility
+        //     with the pre-hierarchy scope resolver.
+
+        $dbman = $DB->get_manager();
+        $table = new xmldb_table('local_ulms_programme_courses');
+
+        if ($dbman->table_exists($table)) {
+            $levelidfield = new xmldb_field(
+                'levelid',
+                XMLDB_TYPE_INTEGER,
+                '10',
+                null,
+                XMLDB_NOTNULL,
+                null,
+                '0'
+            );
+            if (!$dbman->field_exists($table, $levelidfield)) {
+                $dbman->add_field($table, $levelidfield);
+            }
+
+            // Try dropping every possible legacy 2/3-col unique key shape so the new
+            // 4-col unique succeeds regardless of which upgrade path created the
+            // existing index on this installation. index_exists() is tolerant to
+            // name/column mismatch so it is safe to probe.
+            $legacyUniqueCandidates = [
+                ['programme_course_unique',              ['programmeid', 'moodlecourseid']],
+                ['programme_course_per_semester_unique', ['programmeid', 'semesterid', 'moodlecourseid']],
+                ['programme_course_per_semester_unique', ['programmeid', 'moodlecourseid', 'semesterid']],
+            ];
+            foreach ($legacyUniqueCandidates as [$legacyName, $legacyCols]) {
+                $legacyIdx = new xmldb_index($legacyName, XMLDB_INDEX_UNIQUE, $legacyCols);
+                if ($dbman->index_exists($table, $legacyIdx)) {
+                    try {
+                        $dbman->drop_index($table, $legacyIdx);
+                    } catch (\Throwable $e) {
+                        debugging(
+                            'local_ulms_academics 2026091501: drop legacy unique '
+                            . $legacyName . ' cols=' . implode(',', $legacyCols)
+                            . ' failed (continuing): ' . $e->getMessage(),
+                            DEBUG_NORMAL
+                        );
+                    }
+                }
+            }
+
+            $newUnique = new xmldb_index(
+                'programme_course_full_hierarchy_unique',
+                XMLDB_INDEX_UNIQUE,
+                ['programmeid', 'moodlecourseid', 'semesterid', 'levelid']
+            );
+            if (!$dbman->index_exists($table, $newUnique)) {
+                $dbman->add_index($table, $newUnique);
+            }
+
+            $scopeIdx = new xmldb_index(
+                'level_programme_semester_scope_idx',
+                XMLDB_INDEX_NOTUNIQUE,
+                ['levelid', 'programmeid', 'semesterid']
+            );
+            if (!$dbman->index_exists($table, $scopeIdx)) {
+                $dbman->add_index($table, $scopeIdx);
+            }
+
+            // ---- Data migration: best-effort levelid inference from course codes ----
+            $rs = $DB->get_recordset_sql(
+                "SELECT pc.id, pc.levelid, pc.moodlecourseid, c.shortname, c.fullname
+                   FROM {local_ulms_programme_courses} pc
+                   JOIN {course} c ON c.id = pc.moodlecourseid
+                  WHERE pc.levelid = 0"
+            );
+            $levelsByCode = [];
+            try {
+                $allLevels = $DB->get_records_menu(
+                    'local_ulms_levels',
+                    ['status' => 'active'],
+                    '',
+                    'code, id'
+                );
+                if (is_array($allLevels)) {
+                    $levelsByCode = $allLevels;
+                }
+            } catch (\Throwable $ignored) {
+                $levelsByCode = [];
+            }
+
+            $updated = 0;
+            $leftzero = 0;
+            $now = time();
+            if ($rs->valid()) {
+                foreach ($rs as $row) {
+                    $inferred = 0;
+                    $probe = strtoupper((string)($row->shortname ?? '') . ' ' . (string)($row->fullname ?? ''));
+                    // Match trailing digit pattern like CS101 -> 100-level, MATH201 -> 200, etc.
+                    if (preg_match('/(\d)(\d)\d\b/', $probe, $m)) {
+                        $tentativecode = $m[1] . '00';
+                        if (isset($levelsByCode[$tentativecode])) {
+                            $inferred = (int)$levelsByCode[$tentativecode];
+                        }
+                    }
+                    // Also match explicit "100" "200" ... "600" tokens inside name.
+                    if ($inferred === 0) {
+                        foreach (array_keys($levelsByCode) as $code) {
+                            if (preg_match('/(^|[^0-9])' . preg_quote($code, '/') . '([^0-9]|$)/', $probe)) {
+                                $inferred = (int)$levelsByCode[$code];
+                                break;
+                            }
+                        }
+                    }
+                    if ($inferred > 0) {
+                        $DB->update_record('local_ulms_programme_courses', (object)[
+                            'id' => (int)$row->id,
+                            'levelid' => $inferred,
+                            'timemodified' => $now,
+                        ]);
+                        $updated++;
+                    } else {
+                        $leftzero++;
+                    }
+                }
+            }
+            $rs->close();
+
+            debugging(
+                'local_ulms_academics 2026091501 programme_courses levelid migration: '
+                . "inferred=$updated, left-wide=$leftzero",
+                DEBUG_NORMAL
+            );
+            unset($levelsByCode, $rs, $now);
+        }
+
+        upgrade_plugin_savepoint(true, 2026091501, 'local', 'ulms_academics');
+    }
+
     return true;
 }

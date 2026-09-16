@@ -41,4 +41,13 @@ $capabilities = [
             'coursecreator' => CAP_ALLOW,
         ],
     ],
+    'local/ulms_dashboard:managelevels' => [
+        'riskbitmask' => RISK_CONFIG,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_SYSTEM,
+        'archetypes' => [
+            'manager' => CAP_ALLOW,
+            'coursecreator' => CAP_ALLOW,
+        ],
+    ],
 ];

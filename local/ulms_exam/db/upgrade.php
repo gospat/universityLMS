@@ -69,5 +69,30 @@ function xmldb_local_ulms_exam_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091101, 'local', 'ulms_exam');
     }
 
+    if ($oldversion < 2026091501) {
+        $table = new xmldb_table('local_ulms_exams');
+
+        $field = new xmldb_field('levelid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'semesterid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('sessionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'levelid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $oldindex = new xmldb_index('scope_idx', XMLDB_INDEX_NOTUNIQUE, ['programmeid', 'semesterid', 'courseid']);
+        if ($dbman->index_exists($table, $oldindex)) {
+            $dbman->drop_index($table, $oldindex);
+        }
+        $newindex = new xmldb_index('scope_idx', XMLDB_INDEX_NOTUNIQUE, ['programmeid', 'levelid', 'sessionid', 'semesterid', 'courseid']);
+        if (!$dbman->index_exists($table, $newindex)) {
+            $dbman->add_index($table, $newindex);
+        }
+
+        upgrade_plugin_savepoint(true, 2026091501, 'local', 'ulms_exam');
+    }
+
     return true;
 }

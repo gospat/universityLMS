@@ -51,15 +51,27 @@ class exam_service {
                 $coursectx = \context::instance_by_id($coursecontextid->id);
                 if (has_capability('local/ulms_exam:manageown', $coursectx) &&
                     has_capability('moodle/course:manageactivities', $coursectx)) {
-                    // Also require programme_courses mapping linking programme+course+semester for authz scope.
-                    $mappingexists = $DB->record_exists(
-                        'local_ulms_programme_courses',
-                        [
+                    try {
+                        $repository = new \local_ulms_academics\local\repository\academic_repository();
+                        $mappingexists = (bool)$repository->get_course_mapping_by_hierarchy(
+                            (int)$exam->programmeid,
+                            (int)$exam->courseid,
+                            (int)$exam->semesterid,
+                            (int)($exam->levelid ?? 0)
+                        );
+                    } catch (\Throwable $e) {
+                        $conditions = [
                             'programmeid' => (int)$exam->programmeid,
                             'moodlecourseid' => (int)$exam->courseid,
-                            'semesterid' => (int)$exam->semesterid,
-                        ]
-                    );
+                        ];
+                        if ((int)$exam->semesterid > 0) {
+                            $conditions['semesterid'] = (int)$exam->semesterid;
+                        }
+                        if (!empty($exam->levelid) && (int)$exam->levelid > 0) {
+                            $conditions['levelid'] = (int)$exam->levelid;
+                        }
+                        $mappingexists = $DB->record_exists('local_ulms_programme_courses', $conditions);
+                    }
                     if ($mappingexists) {
                         return true;
                     }
@@ -107,42 +119,300 @@ class exam_service {
     }
 
     public function get_programme_course_options_for_lecturer(): array {
+        $scope = $this->get_lecturer_hierarchy_scope();
+        return [
+            'courses' => $scope['courses'],
+            'programmes' => $scope['programmes'],
+            'semesters' => $scope['semesters'],
+            'mappings' => $scope['mappings_flat_keys'],
+        ];
+    }
+
+    public function get_lecturer_hierarchy_scope(): array {
         global $DB, $USER;
+
+        $siteadmin = \is_siteadmin();
+        /** @var \context $syscontext */
+        $syscontext = \context::instance_by_id(\context_system::instance()->id);
+        $canmanageall = has_capability('local/ulms_exam:manageall', $syscontext);
+
+        $profile_table = 'local_ulms_user_profile';
+        $profile_table_exists = $DB->get_manager()->table_exists(new \xmldb_table($profile_table));
+
         $mycourses = enrol_get_all_users_courses($USER->id, true);
-        $programmes = [];
-        if (empty($mycourses)) {
-            /** @var \context $syscontext */
-            $syscontext = \context::instance_by_id(\context_system::instance()->id);
-            if (\is_siteadmin() || has_capability('local/ulms_exam:manageall', $syscontext)) {
-                $programmes = array_values($DB->get_records_menu('local_ulms_programmes', ['status' => 'active'], 'name ASC', 'id,name'));
-                return ['courses' => $mycourses, 'programmes' => $programmes, 'mappings' => []];
+        $courseids = array_values(array_map(static fn($c): int => (int)$c->id, $mycourses));
+
+        $profile_facultyid = 0;
+        $profile_deptid = 0;
+        $profile_programmeid = 0;
+        $profile_level_code = '';
+        if ($profile_table_exists) {
+            $profile = $DB->get_record($profile_table, ['userid' => (int)$USER->id], '*', IGNORE_MISSING);
+            if ($profile) {
+                $profile_facultyid = (int)($profile->facultyid ?? 0);
+                $profile_deptid = (int)($profile->departmentid ?? 0);
+                $profile_programmeid = (int)($profile->programmeid ?? 0);
+                $profile_level_code = trim((string)($profile->studylevel ?? ''));
             }
-            return ['courses' => [], 'programmes' => [], 'mappings' => []];
         }
-        [$insql, $inparams] = $DB->get_in_or_equal(array_keys($mycourses), SQL_PARAMS_NAMED);
-        $mappings = $DB->get_records_sql_menu(
-            "SELECT CONCAT(pc.programmeid, '_', pc.moodlecourseid, '_', pc.semesterid), pc.id
-               FROM {local_ulms_programme_courses} pc
-              WHERE pc.moodlecourseid $insql",
-            $inparams
-        );
-        [$progin, $proginparams] = $DB->get_in_or_equal(array_keys($mycourses), SQL_PARAMS_NAMED);
-        $programmerecords = $DB->get_records_sql(
-            "SELECT DISTINCT p.id, p.name
-               FROM {local_ulms_programmes} p
-               JOIN {local_ulms_programme_courses} pc ON pc.programmeid = p.id
-              WHERE pc.moodlecourseid $progin",
-            $proginparams
-        );
-        foreach ($programmerecords as $p) {
-            $programmes[(int)$p->id] = format_string($p->name);
+
+        $scoped_courseids = $courseids;
+        $scoped_programmeids = [];
+        $scoped_departmentids = [];
+        $scoped_facultyids = [];
+        $scoped_levelids = [];
+        $scoped_level_codes = [];
+        $scoped_sessionids = [];
+        $scoped_semesterids = [];
+
+        if ($siteadmin || $canmanageall) {
+            $scoped_facultyids = array_keys($DB->get_records_menu('local_ulms_faculties', ['status' => 'active'], 'name ASC', 'id,name'));
+            $scoped_departmentids = array_keys($DB->get_records_menu('local_ulms_departments', ['status' => 'active'], 'name ASC', 'id,name'));
+            $scoped_programmeids = array_keys($DB->get_records_menu('local_ulms_programmes', ['status' => 'active'], 'name ASC', 'id,name'));
+            $allcourses = $DB->get_records_menu('course', null, 'fullname ASC', 'id,fullname');
+            unset($allcourses[1]);
+            $scoped_courseids = array_keys($allcourses);
+            $scoped_levelids = array_keys($DB->get_records_menu('local_ulms_levels', ['status' => 'active'], 'sortorder ASC, code ASC', 'id,code'));
+            $scoped_sessionids = array_keys($DB->get_records_menu('local_ulms_sessions', null, 'startdate DESC, name ASC', 'id,name'));
+            $scoped_semesterids = array_keys($DB->get_records_menu('local_ulms_semesters', null, 'startdate DESC, code ASC', 'id,name'));
+        } else {
+            if ($profile_facultyid > 0) {
+                $scoped_facultyids[] = $profile_facultyid;
+            }
+            if ($profile_deptid > 0) {
+                $scoped_departmentids[] = $profile_deptid;
+            }
+            if ($profile_programmeid > 0) {
+                $scoped_programmeids[] = $profile_programmeid;
+            }
+            if ($profile_level_code !== '' && $DB->get_manager()->table_exists(new \xmldb_table('local_ulms_levels'))) {
+                $levelrec = $DB->get_record('local_ulms_levels', ['code' => $profile_level_code, 'status' => 'active'], '*', IGNORE_MISSING);
+                if ($levelrec) {
+                    $scoped_levelids[] = (int)$levelrec->id;
+                    $scoped_level_codes[(int)$levelrec->id] = $profile_level_code;
+                }
+            }
+            if ($profile_deptid > 0 && empty($scoped_programmeids)) {
+                $childprogs = $DB->get_records_menu('local_ulms_programmes', ['departmentid' => $profile_deptid, 'status' => 'active'], 'name ASC', 'id,name');
+                $scoped_programmeids = array_merge($scoped_programmeids, array_keys($childprogs));
+            }
+            if ($profile_facultyid > 0 && empty($scoped_departmentids)) {
+                $childdepts = $DB->get_records_menu('local_ulms_departments', ['facultyid' => $profile_facultyid, 'status' => 'active'], 'name ASC', 'id,name');
+                $scoped_departmentids = array_merge($scoped_departmentids, array_keys($childdepts));
+            }
+            if (!empty($scoped_departmentids) && empty($scoped_programmeids)) {
+                [$din, $dparams] = $DB->get_in_or_equal($scoped_departmentids, SQL_PARAMS_NAMED);
+                $progs = $DB->get_records_sql_menu("SELECT id, name FROM {local_ulms_programmes} WHERE status = 'active' AND departmentid $din", $dparams);
+                $scoped_programmeids = array_unique(array_merge($scoped_programmeids, array_keys($progs)));
+            }
         }
-        $semesters = $DB->get_records_menu('local_ulms_semesters', null, 'startdate DESC', 'id,name');
+
+        $mappings_by_course = [];
+        $mappings_all = [];
+        $mapping_select = "SELECT pc.id, pc.programmeid, pc.moodlecourseid, pc.semesterid, pc.levelid, pc.coursetype
+                            FROM {local_ulms_programme_courses} pc";
+        $mapping_where = [];
+        $mapping_params = [];
+        if (!$siteadmin && !$canmanageall) {
+            $ors = [];
+            if (!empty($courseids)) {
+                [$cin, $cparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'mc');
+                $ors[] = "pc.moodlecourseid $cin";
+                $mapping_params = array_merge($mapping_params, $cparams);
+            }
+            if (!empty($scoped_programmeids)) {
+                [$pin, $pparams] = $DB->get_in_or_equal($scoped_programmeids, SQL_PARAMS_NAMED, 'mp');
+                $ors[] = "pc.programmeid $pin";
+                $mapping_params = array_merge($mapping_params, $pparams);
+            }
+            if (!empty($ors)) {
+                $mapping_where[] = '(' . implode(' OR ', $ors) . ')';
+            }
+        }
+        $mapping_sql = $mapping_select;
+        if (!empty($mapping_where)) {
+            $mapping_sql .= ' WHERE ' . implode(' AND ', $mapping_where);
+        }
+        $mapping_rs = $DB->get_recordset_sql($mapping_sql, $mapping_params);
+        $mappings_flat_keys = [];
+        foreach ($mapping_rs as $m) {
+            $mid = (int)$m->id;
+            $pid = (int)$m->programmeid;
+            $cid = (int)$m->moodlecourseid;
+            $sid = (int)$m->semesterid;
+            $lid = (int)$m->levelid;
+            $mappings_all[$mid] = [
+                'id' => $mid,
+                'programmeid' => $pid,
+                'courseid' => $cid,
+                'semesterid' => $sid,
+                'levelid' => $lid,
+                'coursetype' => (string)($m->coursetype ?? 'core'),
+            ];
+            $mappings_flat_keys[] = "{$pid}_{$cid}_{$sid}";
+            if (!in_array($pid, $scoped_programmeids, true)) {
+                $scoped_programmeids[] = $pid;
+            }
+            if (!in_array($cid, $scoped_courseids, true)) {
+                $scoped_courseids[] = $cid;
+            }
+            if ($sid > 0 && !in_array($sid, $scoped_semesterids, true)) {
+                $scoped_semesterids[] = $sid;
+            }
+            if ($lid > 0 && !in_array($lid, $scoped_levelids, true)) {
+                $scoped_levelids[] = $lid;
+            }
+            if (!isset($mappings_by_course[$pid])) {
+                $mappings_by_course[$pid] = [];
+            }
+            if (!isset($mappings_by_course[$pid][$lid])) {
+                $mappings_by_course[$pid][$lid] = [];
+            }
+            if (!isset($mappings_by_course[$pid][$lid][$sid])) {
+                $mappings_by_course[$pid][$lid][$sid] = [];
+            }
+            $mappings_by_course[$pid][$lid][$sid][] = $cid;
+        }
+        $mapping_rs->close();
+
+        if (!empty($scoped_programmeids) && (empty($scoped_departmentids) || empty($scoped_facultyids))) {
+            [$pin, $pparams] = $DB->get_in_or_equal($scoped_programmeids, SQL_PARAMS_NAMED, 'pg');
+            $progdeps = $DB->get_records_sql_menu("SELECT id, departmentid FROM {local_ulms_programmes} WHERE id $pin", $pparams);
+            $deptids = array_values(array_unique(array_map(static fn($v): int => (int)$v, $progdeps)));
+            foreach ($deptids as $did) {
+                if ($did > 0 && !in_array($did, $scoped_departmentids, true)) {
+                    $scoped_departmentids[] = $did;
+                }
+            }
+            if (!empty($scoped_departmentids)) {
+                [$din, $dparams] = $DB->get_in_or_equal($scoped_departmentids, SQL_PARAMS_NAMED, 'dg');
+                $depfacs = $DB->get_records_sql_menu("SELECT id, facultyid FROM {local_ulms_departments} WHERE id $din", $dparams);
+                foreach ($depfacs as $fid) {
+                    $fid = (int)$fid;
+                    if ($fid > 0 && !in_array($fid, $scoped_facultyids, true)) {
+                        $scoped_facultyids[] = $fid;
+                    }
+                }
+            }
+        }
+
+        if (!empty($scoped_semesterids)) {
+            [$sein, $separams] = $DB->get_in_or_equal($scoped_semesterids, SQL_PARAMS_NAMED, 'se');
+            $semsess = $DB->get_records_sql_menu("SELECT id, sessionid FROM {local_ulms_semesters} WHERE id $sein", $separams);
+            foreach ($semsess as $ssid) {
+                $ssid = (int)$ssid;
+                if ($ssid > 0 && !in_array($ssid, $scoped_sessionids, true)) {
+                    $scoped_sessionids[] = $ssid;
+                }
+            }
+        }
+
+        $flat = static function(string $table, ?array $ids, string $orderby = 'name ASC', ?string $extrawhere = null, array $extraparams = []): array {
+            global $DB;
+            if (!$DB->get_manager()->table_exists(new \xmldb_table($table))) {
+                return [];
+            }
+            $where = [];
+            $params = $extraparams;
+            if ($extrawhere !== null && $extrawhere !== '') {
+                $where[] = $extrawhere;
+            }
+            if ($ids !== null && !empty($ids)) {
+                [$in, $inparams] = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, 'flt');
+                $where[] = "id $in";
+                $params = array_merge($params, $inparams);
+            }
+            $sql = "SELECT id, name FROM {{$table}}";
+            if (!empty($where)) {
+                $sql .= ' WHERE ' . implode(' AND ', $where);
+            }
+            $sql .= " ORDER BY {$orderby}";
+            return array_map(static fn($v): string => format_string($v), $DB->get_records_sql_menu($sql, $params));
+        };
+
+        $faculties = $flat('local_ulms_faculties', empty($scoped_facultyids) ? null : $scoped_facultyids, 'name ASC');
+        $departments = $flat('local_ulms_departments', empty($scoped_departmentids) ? null : $scoped_departmentids, 'name ASC');
+        $programmes = $flat('local_ulms_programmes', empty($scoped_programmeids) ? null : $scoped_programmeids, 'name ASC', 'status = :st', ['st' => 'active']);
+        $levels = $DB->get_manager()->table_exists(new \xmldb_table('local_ulms_levels'))
+            ? $flat('local_ulms_levels', empty($scoped_levelids) ? null : $scoped_levelids, 'sortorder ASC, code ASC', 'status = :st', ['st' => 'active'])
+            : [];
+        $sessions = $flat('local_ulms_sessions', empty($scoped_sessionids) ? null : $scoped_sessionids, 'startdate DESC, name ASC');
+        $semesters = $flat('local_ulms_semesters', empty($scoped_semesterids) ? null : $scoped_semesterids, 'startdate DESC, code ASC');
         $courses = [];
-        foreach ($mycourses as $c) {
-            $courses[(int)$c->id] = format_string($c->fullname);
+        if (!empty($scoped_courseids)) {
+            [$cin, $cparams] = $DB->get_in_or_equal($scoped_courseids, SQL_PARAMS_NAMED, 'co');
+            $crs = $DB->get_records_sql_menu("SELECT id, fullname FROM {course} WHERE id $cin ORDER BY fullname ASC", $cparams);
+            unset($crs[1]);
+            $courses = array_map(static fn($v): string => format_string($v), $crs);
         }
-        return ['courses' => $courses, 'programmes' => $programmes, 'semesters' => $semesters, 'mappings' => array_keys($mappings)];
+
+        $hierarchy = [];
+        foreach ($mappings_by_course as $pid => $levelmap) {
+            if (!isset($programmes[$pid])) {
+                continue;
+            }
+            $hierarchy[$pid] = [];
+            foreach ($levelmap as $lid => $semmap) {
+                $hierarchy[$pid][$lid] = [];
+                foreach ($semmap as $sid => $coursearr) {
+                    $hierarchy[$pid][$lid][$sid] = array_values(array_unique(array_map(static fn($v): int => (int)$v, $coursearr)));
+                }
+            }
+        }
+
+        $session_semesters = [];
+        if (!empty($scoped_semesterids)) {
+            [$sein, $separams] = $DB->get_in_or_equal($scoped_semesterids, SQL_PARAMS_NAMED, 'sm');
+            $rs = $DB->get_recordset_sql("SELECT id, sessionid FROM {local_ulms_semesters} WHERE id $sein", $separams);
+            foreach ($rs as $row) {
+                $sid = (int)$row->sessionid;
+                $seid = (int)$row->id;
+                if ($sid <= 0) {
+                    continue;
+                }
+                if (!isset($session_semesters[$sid])) {
+                    $session_semesters[$sid] = [];
+                }
+                if (!in_array($seid, $session_semesters[$sid], true)) {
+                    $session_semesters[$sid][] = $seid;
+                }
+            }
+            $rs->close();
+        }
+
+        $programme_sessions = [];
+        foreach ($mappings_all as $m) {
+            $pid = $m['programmeid'];
+            $semid = $m['semesterid'];
+            if ($semid <= 0) {
+                continue;
+            }
+            $sessid = (int)($DB->get_field('local_ulms_semesters', 'sessionid', ['id' => $semid]) ?: 0);
+            if ($sessid <= 0) {
+                continue;
+            }
+            if (!isset($programme_sessions[$pid])) {
+                $programme_sessions[$pid] = [];
+            }
+            if (!in_array($sessid, $programme_sessions[$pid], true)) {
+                $programme_sessions[$pid][] = $sessid;
+            }
+        }
+
+        return [
+            'faculties' => $faculties,
+            'departments' => $departments,
+            'programmes' => $programmes,
+            'levels' => $levels,
+            'sessions' => $sessions,
+            'semesters' => $semesters,
+            'courses' => $courses,
+            'hierarchy' => $hierarchy,
+            'session_semesters' => $session_semesters,
+            'programme_sessions' => $programme_sessions,
+            'mappings' => array_values($mappings_all),
+            'mappings_flat_keys' => $mappings_flat_keys,
+        ];
     }
 
     public function create_exam(array $data): stdClass {
@@ -175,17 +445,28 @@ class exam_service {
         }
         $this->validate_exam_window($data);
         $pid = (int)($data['programmeid'] ?? 0);
-        $sid = (int)($data['semesterid'] ?? 0);
+        $lid = (int)($data['levelid'] ?? 0);
+        $sid = (int)($data['sessionid'] ?? 0);
+        $emid = (int)($data['semesterid'] ?? 0);
         $cid = (int)($data['courseid'] ?? 0);
-        if ($pid > 0 && $sid > 0 && $cid > 0) {
-            $mappingexists = $DB->record_exists_select(
-                'local_ulms_programme_courses',
-                'programmeid = :pid AND semesterid = :sid AND moodlecourseid = :cid',
-                ['pid' => $pid, 'sid' => $sid, 'cid' => $cid]
-            );
+        if ($pid > 0 && $cid > 0) {
+            $mappingconditions = ['programmeid' => $pid, 'moodlecourseid' => $cid];
+            if ($emid > 0) {
+                $mappingconditions['semesterid'] = $emid;
+            }
+            if ($lid > 0) {
+                $mappingconditions['levelid'] = $lid;
+            }
+            try {
+                $repository = new \local_ulms_academics\local\repository\academic_repository();
+                $existing = $repository->get_course_mapping_by_hierarchy($pid, $cid, $emid, $lid);
+                $mappingexists = (bool)$existing;
+            } catch (\Throwable $e) {
+                $mappingexists = $DB->record_exists('local_ulms_programme_courses', $mappingconditions);
+            }
             if (!$mappingexists) {
                 throw new moodle_exception('coursetypenotinprogramme', 'local_ulms_exam', '', null,
-                    "programme={$pid} semester={$sid} course={$cid}");
+                    "programme={$pid} level={$lid} session={$sid} semester={$emid} course={$cid}");
             }
         }
         $now = time();
@@ -575,7 +856,19 @@ class exam_service {
                 'friendly' => get_string('noprogrammeassignederror', 'local_ulms_exam'),
             ];
         }
+        $levelid = 0;
+        if (!empty($profile->studylevel) && $DB->get_manager()->table_exists(new \xmldb_table('local_ulms_levels'))) {
+            $levelrow = $DB->get_record('local_ulms_levels', ['code' => trim((string)$profile->studylevel), 'status' => 'active'], 'id', IGNORE_MISSING);
+            if ($levelrow) { $levelid = (int)$levelrow->id; }
+        }
         $now = time();
+        $levelwhere = '';
+        $levelparams = [];
+        if ($levelid > 0) {
+            $levelwhere = ' AND (e.levelid = :lvlmatch0 OR e.levelid = :lvlmatch1 OR e.levelid IS NULL)';
+            $levelparams['lvlmatch0'] = $levelid;
+            $levelparams['lvlmatch1'] = 0;
+        }
         $rows = $DB->get_records_sql(
             "SELECT e.*,
                     CASE WHEN s.id IS NOT NULL THEN s.status ELSE '' END AS submissionstatus,
@@ -586,13 +879,14 @@ class exam_service {
               WHERE e.programmeid = :pid
                 AND e.status <> :draftstat
                 AND (e.start_ts <= :window1)
+                {$levelwhere}
            ORDER BY e.start_ts DESC",
             [
                 'uid' => $studentuserid,
                 'pid' => (int)$profile->programmeid,
                 'draftstat' => self::STATUS_DRAFT,
                 'window1' => $now + 7 * 86400,
-            ]
+            ] + $levelparams
         );
         $enrolledcourseids = [];
         try {
@@ -1119,6 +1413,8 @@ class exam_service {
         $normalised = [];
         $fieldmap = [
             'programmeid' => 'int',
+            'levelid' => 'int',
+            'sessionid' => 'int',
             'semesterid' => 'int',
             'courseid' => 'int',
             'title' => 'string',
@@ -1134,6 +1430,8 @@ class exam_service {
         ];
         $defaults = [
             'programmeid' => (int)($existing->programmeid ?? 0),
+            'levelid' => (int)($existing->levelid ?? 0),
+            'sessionid' => (int)($existing->sessionid ?? 0),
             'semesterid' => (int)($existing->semesterid ?? 0),
             'courseid' => (int)($existing->courseid ?? 0),
             'title' => (string)($existing->title ?? ''),

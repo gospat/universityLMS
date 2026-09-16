@@ -84,6 +84,7 @@ class admin_portal_service {
             '/local/ulms_dashboard/settings.php' => ['section' => 'settings', 'header' => 'settings'],
             $n('management.academics') => ['section' => 'academics', 'header' => 'academics'],
             $n('management.academicsmanage') => ['section' => 'academics', 'header' => 'academics'],
+            $n('management.academicslevels') => ['section' => 'academics', 'header' => 'academics'],
             $n('management.academicsreports') => ['section' => 'academics', 'header' => 'academics'],
             $n('management.academicsmappings') => ['section' => 'academics', 'header' => 'academics'],
             $n('management.academicsimport') => ['section' => 'academics', 'header' => 'academics'],
@@ -92,6 +93,7 @@ class admin_portal_service {
             '/local/ulms_academics/report.php' => ['section' => 'academics', 'header' => 'academics'],
             '/local/ulms_academics/course_mappings.php' => ['section' => 'academics', 'header' => 'academics'],
             '/local/ulms_academics/import.php' => ['section' => 'academics', 'header' => 'academics'],
+            '/local/ulms_dashboard/academics_levels.php' => ['section' => 'academics', 'header' => 'academics'],
             $n('management.courses') => ['section' => 'courses', 'header' => 'courses'],
             '/course/edit.php' => ['section' => 'courses', 'header' => 'courses'],
             '/course/management.php' => ['section' => 'courses', 'header' => 'courses'],
@@ -472,6 +474,14 @@ class admin_portal_service {
         $iconprovisioning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
         $iconbulk = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/><rect x="3" y="15" width="18" height="6" rx="1"/></svg>';
         $iconacademics = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2L2 8l10 6 10-6L12 2z"/><path d="M2 17l10 6 10-6"/><path d="M2 12l10 6 10-6"/></svg>';
+        $iconcollege = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 21h18"/><path d="M5 21V9l7-5 7 5v12"/><path d="M9 21V12h6v9"/></svg>';
+        $icondepartment = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h12"/><path d="M6 8h12"/><path d="M6 13h12"/><path d="M6 18h6"/><path d="M4 3v18l16-9v18"/></svg>';
+        $iconprogramme = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>';
+        $iconsession = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+        $iconsemester = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M7 9h10M7 14h10"/></svg>';
+        $iconlevel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 20L10 13l4 4 7-7"/><polyline points="14 10 17 10 17 7"/></svg>';
+        $iconmapping = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12h20"/><circle cx="6" cy="12" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="18" cy="12" r="2.5"/></svg>';
+        $iconimport = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
         $iconcourses = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
         $iconanalytics = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="m7 14 4-3 3 3 5-5"/></svg>';
         $iconreports = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 18V12"/><path d="M12 18v-6"/><path d="M15 18v-3"/></svg>';
@@ -521,6 +531,54 @@ class admin_portal_service {
                         'label' => get_string('adminnavacademics', 'local_ulms_dashboard'),
                         'url' => $routingservice->get_url_for_route('management.academics')->out(false),
                         'icon' => $iconacademics,
+                    ],
+                    [
+                        'key' => 'academics.colleges',
+                        'label' => get_string('adminnavcolleges', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsmanage', ['entity' => 'faculties'])->out(false),
+                        'icon' => $iconcollege,
+                    ],
+                    [
+                        'key' => 'academics.departments',
+                        'label' => get_string('adminnavdepartments', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsmanage', ['entity' => 'departments'])->out(false),
+                        'icon' => $icondepartment,
+                    ],
+                    [
+                        'key' => 'academics.programmes',
+                        'label' => get_string('adminnavprogrammes', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsmanage', ['entity' => 'programmes'])->out(false),
+                        'icon' => $iconprogramme,
+                    ],
+                    [
+                        'key' => 'academics.sessions',
+                        'label' => get_string('adminnavsessions', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsmanage', ['entity' => 'sessions'])->out(false),
+                        'icon' => $iconsession,
+                    ],
+                    [
+                        'key' => 'academics.semesters',
+                        'label' => get_string('adminnavsemesters', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsmanage', ['entity' => 'semesters'])->out(false),
+                        'icon' => $iconsemester,
+                    ],
+                    [
+                        'key' => 'academics.levels',
+                        'label' => get_string('adminnavlevels', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicslevels')->out(false),
+                        'icon' => $iconlevel,
+                    ],
+                    [
+                        'key' => 'academics.mappings',
+                        'label' => get_string('adminnavmappings', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsmappings')->out(false),
+                        'icon' => $iconmapping,
+                    ],
+                    [
+                        'key' => 'academics.import',
+                        'label' => get_string('adminnavimport', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('management.academicsimport')->out(false),
+                        'icon' => $iconimport,
                     ],
                     [
                         'key' => 'courses',

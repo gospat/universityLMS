@@ -61,6 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim(required_param('title', PARAM_TEXT));
     $instructions = trim(optional_param('instructions', '', PARAM_RAW));
     $programmeid = max(0, (int)required_param('programmeid', PARAM_INT));
+    $levelid = max(0, (int)required_param('levelid', PARAM_INT));
+    $sessionid = max(0, (int)required_param('sessionid', PARAM_INT));
     $semesterid = max(0, (int)required_param('semesterid', PARAM_INT));
     $courseid = max(0, (int)required_param('courseid', PARAM_INT));
     $startraw = trim(required_param('start_ts', PARAM_RAW));
@@ -77,7 +79,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $payload = [
             'title' => $title, 'instructions' => $instructions,
-            'programmeid' => $programmeid, 'semesterid' => $semesterid, 'courseid' => $courseid,
+            'programmeid' => $programmeid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'courseid' => $courseid,
             'start_ts' => $startts, 'end_ts' => $endts,
             'durationsec' => $durationmin * 60,
             'passpct' => $passpct,
@@ -102,7 +108,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$scope = $examservice->get_programme_course_options_for_lecturer();
+$scope = $examservice->get_lecturer_hierarchy_scope();
+
+$programmedepts = [];
+$programmelevelmap = [];
+if (!empty($scope['departments']) && !empty($scope['programmes'])) {
+    [$din, $dparams] = $DB->get_in_or_equal(array_keys($scope['programmes']), SQL_PARAMS_NAMED, 'dpm');
+    $rs = $DB->get_recordset_sql("SELECT id, departmentid FROM {local_ulms_programmes} WHERE id $din", $dparams);
+    foreach ($rs as $r) {
+        $programmedepts[(int)$r->id] = (int)$r->departmentid;
+    }
+    $rs->close();
+}
+$deptfaculties = [];
+if (!empty($programmedepts)) {
+    [$din, $dparams] = $DB->get_in_or_equal(array_unique(array_values($programmedepts)), SQL_PARAMS_NAMED, 'dfm');
+    $rs = $DB->get_recordset_sql("SELECT id, facultyid FROM {local_ulms_departments} WHERE id $din", $dparams);
+    foreach ($rs as $r) {
+        $deptfaculties[(int)$r->id] = (int)$r->facultyid;
+    }
+    $rs->close();
+}
+
+$currentfacultyid = 0;
+$currentdepartmentid = 0;
+if ($examid > 0 && !empty($exam->programmeid)) {
+    $currentdepartmentid = (int)($programmedepts[(int)$exam->programmeid] ?? 0);
+    $currentfacultyid = (int)($deptfaculties[$currentdepartmentid] ?? 0);
+    if (empty($exam->sessionid) && !empty($exam->semesterid)) {
+        $exam->sessionid = (int)($DB->get_field('local_ulms_semesters', 'sessionid', ['id' => (int)$exam->semesterid]) ?: 0);
+    }
+} else {
+    $exam->levelid = 0;
+    $exam->sessionid = 0;
+}
+
+$hierarchy_json = json_encode([
+    'departments_by_faculty' => (object)array_map(static fn($fid): array => array_values(
+        array_filter(array_map(static function ($deptid, $f) use ($fid, $deptfaculties): ?int {
+            $myfac = $deptfaculties[$deptid] ?? 0;
+            return $myfac === (int)$fid ? (int)$deptid : null;
+        }, array_keys($scope['departments']), array_fill(0, count($scope['departments']), null))
+    )), array_keys($scope['faculties'])),
+    'programmes_by_department' => (object)array_map(static fn($did): array => array_values(
+        array_keys(array_filter($programmedepts, static fn($dpid): bool => (int)$dpid === (int)$did))
+    ), array_keys($scope['departments'])),
+    'levels_by_programme' => (object)array_map(static fn($pid): array => isset($scope['hierarchy'][$pid])
+        ? array_values(array_unique(array_map(static fn($v): int => (int)$v, array_keys($scope['hierarchy'][$pid]))))
+        : [], array_keys($scope['programmes'])),
+    'sessions_by_programme' => (object)($scope['programme_sessions'] ?? []),
+    'semesters_by_session' => (object)($scope['session_semesters'] ?? []),
+    'courses_by_combination' => (function() use ($scope): array {
+        $out = [];
+        foreach (($scope['hierarchy'] ?? []) as $pid => $levelmap) {
+            foreach ($levelmap as $lid => $semmap) {
+                foreach ($semmap as $sid => $courseids) {
+                    $out["{$pid}_{$lid}_{$sid}"] = array_values(array_map(static fn($c): int => (int)$c, $courseids));
+                }
+            }
+        }
+        return $out;
+    })(),
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+$facultyopts = [0 => get_string('selectfaculty', 'local_ulms_exam')] + ($scope['faculties'] ?? []);
+$departmentopts = [0 => get_string('selectdepartment', 'local_ulms_exam')] + ($scope['departments'] ?? []);
+$programmeopts = [0 => get_string('selectprogramme', 'local_ulms_exam')] + ($scope['programmes'] ?? []);
+$levelopts = [0 => get_string('selectlevel', 'local_ulms_exam')] + ($scope['levels'] ?? []);
+$sessionopts = [0 => get_string('selectsession', 'local_ulms_exam')] + ($scope['sessions'] ?? []);
+$semesteropts = [0 => get_string('selectsemester', 'local_ulms_exam')] + ($scope['semesters'] ?? []);
+$courseopts = [0 => get_string('selectcourse', 'local_ulms_exam')] + ($scope['courses'] ?? []);
 
 echo $OUTPUT->header();
 $headsection = $mode === 'edit' ? 'edit' : 'exams';
@@ -192,17 +267,39 @@ $form .= $f(get_string('examtitle', 'local_ulms_exam'),
 $form .= $f(get_string('examinstructions', 'local_ulms_exam'),
     '<textarea class="form-control" rows="4" name="instructions" id="instructions">'.s($exam->instructions ?? '').'</textarea>',
 );
-$form .= '<div class="row g-3 mb-3">';
-$form .= '<div class="col-md-4">'. $f(get_string('examprogramme', 'local_ulms_exam'),
-    html_writer::select($programmeopts, 'programmeid', (int)($exam->programmeid ?? 0), false, ['class' => 'form-select', 'required' => 'required'])
-) . '</div>';
-$form .= '<div class="col-md-4">'. $f(get_string('examsemester', 'local_ulms_exam'),
-    html_writer::select($semesteropts, 'semesterid', (int)($exam->semesterid ?? 0), false, ['class' => 'form-select', 'required' => 'required'])
-) . '</div>';
-$form .= '<div class="col-md-4">'. $f(get_string('examcourse', 'local_ulms_exam'),
-    html_writer::select($courseopts, 'courseid', (int)($exam->courseid ?? 0), false, ['class' => 'form-select', 'required' => 'required'])
-) . '</div>';
-$form .= '</div>';
+echo '<div class="card mb-4 shadow-sm p-4">
+  <div class="mb-2">
+    <div class="fw-semibold mb-1">'.get_string('examscopeheading', 'local_ulms_exam').'</div>
+    <div class="text-muted small">'.get_string('examscopedesc', 'local_ulms_exam').'</div>
+  </div>
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">'. $f(get_string('examfaculty', 'local_ulms_exam'),
+      html_writer::select($facultyopts, 'facultyid', $currentfacultyid, false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_facultyid'])
+    ) . '</div>
+    <div class="col-md-4">'. $f(get_string('examdepartment', 'local_ulms_exam'),
+      html_writer::select($departmentopts, 'departmentid', $currentdepartmentid, false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_departmentid'])
+    ) . '</div>
+    <div class="col-md-4">'. $f(get_string('examprogramme', 'local_ulms_exam'),
+      html_writer::select($programmeopts, 'programmeid', (int)($exam->programmeid ?? 0), false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_programmeid'])
+    ) . '</div>
+  </div>
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">'. $f(get_string('examlevel', 'local_ulms_exam'),
+      html_writer::select($levelopts, 'levelid', (int)($exam->levelid ?? 0), false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_levelid'])
+    ) . '</div>
+    <div class="col-md-4">'. $f(get_string('examsession', 'local_ulms_exam'),
+      html_writer::select($sessionopts, 'sessionid', (int)($exam->sessionid ?? 0), false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_sessionid'])
+    ) . '</div>
+    <div class="col-md-4">'. $f(get_string('examsemester', 'local_ulms_exam'),
+      html_writer::select($semesteropts, 'semesterid', (int)($exam->semesterid ?? 0), false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_semesterid'])
+    ) . '</div>
+  </div>
+  <div class="row g-3 mb-3">
+    <div class="col-md-12">'. $f(get_string('examcourse', 'local_ulms_exam'),
+      html_writer::select($courseopts, 'courseid', (int)($exam->courseid ?? 0), false, ['class' => 'form-select', 'required' => 'required', 'id' => 'f_courseid'])
+    ) . '</div>
+  </div>
+</div>';
 
 $form .= '<div class="row g-3 mb-3">';
 $form .= '<div class="col-md-5">'. $f(get_string('examstart', 'local_ulms_exam'),
@@ -245,6 +342,118 @@ echo local_ulms_dashboard_render_panel([
     'subtitle' => get_string('examcreatedesc', 'local_ulms_exam'),
     'items' => [['title' => get_string('examcreateheading', 'local_ulms_exam'), 'meta' => '', 'footer' => $form]],
 ]);
+
+echo html_writer::script("
+(function(){
+  var scope = " . $hierarchy_json . ";
+  var facultySel = document.getElementById('f_facultyid');
+  var deptSel = document.getElementById('f_departmentid');
+  var progSel = document.getElementById('f_programmeid');
+  var levelSel = document.getElementById('f_levelid');
+  var sessionSel = document.getElementById('f_sessionid');
+  var semSel = document.getElementById('f_semesterid');
+  var courseSel = document.getElementById('f_courseid');
+  function opt(label, value){ return '<option value=\"'+String(value)+'\">'+String(label).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>'; }
+  function rebuild(sel, zeroLabel, ids, labelMap, currentVal){
+    var html = opt(zeroLabel, 0);
+    for (var i = 0; i < ids.length; i++){
+      var id = ids[i];
+      if (Object.prototype.hasOwnProperty.call(labelMap, id)) {
+        html += opt(labelMap[id], id);
+      }
+    }
+    sel.innerHTML = html;
+    if (currentVal != null && ids.indexOf(parseInt(currentVal,10)) !== -1) {
+      sel.value = String(currentVal);
+    } else {
+      sel.value = '0';
+    }
+  }
+  function hasInt(arr, val){ for (var i=0;i<arr.length;i++){ if (parseInt(arr[i],10)===parseInt(val,10)){return true;}} return false; }
+  function applyCascade(resetChildren){
+    var facultyVal = parseInt(facultySel.value,10) || 0;
+    var deptPool = (facultyVal > 0 && scope.departments_by_faculty && scope.departments_by_faculty[facultyVal])
+      ? scope.departments_by_faculty[facultyVal] : " . json_encode(array_keys($scope['departments'] ?? [])) . ";
+    rebuild(deptSel, " . json_encode(get_string('selectdepartment', 'local_ulms_exam')) . ", deptPool, " . json_encode((object)($scope['departments'] ?? [])) . ", resetChildren ? null : deptSel.value);
+    var deptVal = parseInt(deptSel.value,10) || 0;
+    var progPool = [];
+    if (deptVal > 0 && scope.programmes_by_department && scope.programmes_by_department[deptVal]) {
+      progPool = scope.programmes_by_department[deptVal];
+    } else {
+      progPool = " . json_encode(array_keys($scope['programmes'] ?? [])) . ";
+      if (deptVal > 0) {
+        var subP = [];
+        for (var j=0;j<progPool.length;j++){
+          var pid = progPool[j];
+          var p2d = " . json_encode((object)array_map('intval', $programmedepts ?? [])) . ";
+          if (parseInt(p2d[pid],10) === deptVal) subP.push(parseInt(pid,10));
+        }
+        progPool = subP;
+      }
+    }
+    rebuild(progSel, " . json_encode(get_string('selectprogramme', 'local_ulms_exam')) . ", progPool, " . json_encode((object)($scope['programmes'] ?? [])) . ", resetChildren ? null : progSel.value);
+    var progVal = parseInt(progSel.value,10) || 0;
+    var levelPool = (progVal > 0 && scope.levels_by_programme && scope.levels_by_programme[progVal])
+      ? scope.levels_by_programme[progVal] : " . json_encode(array_keys($scope['levels'] ?? [])) . ";
+    rebuild(levelSel, " . json_encode(get_string('selectlevel', 'local_ulms_exam')) . ", levelPool, " . json_encode((object)($scope['levels'] ?? [])) . ", resetChildren ? null : levelSel.value);
+    var sessionPool = (progVal > 0 && scope.sessions_by_programme && scope.sessions_by_programme[progVal])
+      ? scope.sessions_by_programme[progVal] : " . json_encode(array_keys($scope['sessions'] ?? [])) . ";
+    rebuild(sessionSel, " . json_encode(get_string('selectsession', 'local_ulms_exam')) . ", sessionPool, " . json_encode((object)($scope['sessions'] ?? [])) . ", resetChildren ? null : sessionSel.value);
+    var sessionVal = parseInt(sessionSel.value,10) || 0;
+    var semPool = (sessionVal > 0 && scope.semesters_by_session && scope.semesters_by_session[sessionVal])
+      ? scope.semesters_by_session[sessionVal] : " . json_encode(array_keys($scope['semesters'] ?? [])) . ";
+    rebuild(semSel, " . json_encode(get_string('selectsemester', 'local_ulms_exam')) . ", semPool, " . json_encode((object)($scope['semesters'] ?? [])) . ", resetChildren ? null : semSel.value);
+    var progV = parseInt(progSel.value,10) || 0;
+    var levelV = parseInt(levelSel.value,10) || 0;
+    var sessionV = parseInt(sessionSel.value,10) || 0;
+    var semesterV = parseInt(semSel.value,10) || 0;
+    var combos = scope.courses_by_combination || {};
+    var allCourses = " . json_encode((object)($scope['courses'] ?? [])) . ";
+    var coursePool = [];
+    var usedComboKeys = Object.keys(combos);
+    if (progV > 0 && levelV > 0 && semesterV > 0) {
+      var k1 = progV+'_'+levelV+'_'+semesterV;
+      var k2 = progV+'_0_'+semesterV;
+      if (Object.prototype.hasOwnProperty.call(combos, k1)) coursePool = coursePool.concat(combos[k1]);
+      else if (Object.prototype.hasOwnProperty.call(combos, k2)) coursePool = coursePool.concat(combos[k2]);
+    } else if (progV > 0 && levelV > 0) {
+      var k3 = progV+'_'+levelV+'_0';
+      if (Object.prototype.hasOwnProperty.call(combos, k3)) coursePool = coursePool.concat(combos[k3]);
+      var prefilt = [];
+      for (var ck=0; ck<usedComboKeys.length; ck++){
+        var parts = usedComboKeys[ck].split('_');
+        if (parseInt(parts[0],10) === progV && parseInt(parts[1],10) === levelV) {
+          var cs = combos[usedComboKeys[ck]];
+          for (var ci=0; ci<cs.length; ci++) if (prefilt.indexOf(cs[ci]) === -1) prefilt.push(cs[ci]);
+        }
+      }
+      if (prefilt.length > 0) coursePool = prefilt;
+    }
+    if (coursePool.length === 0 && progV > 0) {
+      var fall = [];
+      for (var ck2=0; ck2<usedComboKeys.length; ck2++){
+        var parts2 = usedComboKeys[ck2].split('_');
+        if (parseInt(parts2[0],10) === progV) {
+          var cs2 = combos[usedComboKeys[ck2]];
+          for (var ci2=0; ci2<cs2.length; ci2++) if (fall.indexOf(cs2[ci2]) === -1) fall.push(cs2[ci2]);
+        }
+      }
+      coursePool = fall;
+    }
+    if (coursePool.length === 0) {
+      coursePool = Object.keys(allCourses).map(function(x){return parseInt(x,10);});
+    }
+    rebuild(courseSel, " . json_encode(get_string('selectcourse', 'local_ulms_exam')) . ", coursePool, allCourses, resetChildren ? null : courseSel.value);
+  }
+  facultySel.addEventListener('change', function(){ applyCascade(true); });
+  deptSel.addEventListener('change', function(){ applyCascade(true); });
+  progSel.addEventListener('change', function(){ applyCascade(true); });
+  levelSel.addEventListener('change', function(){ applyCascade(false); });
+  sessionSel.addEventListener('change', function(){ applyCascade(false); });
+  semSel.addEventListener('change', function(){ applyCascade(false); });
+  applyCascade(false);
+})();
+");
 
 local_ulms_dashboard_end_shell_wrap();
 echo $OUTPUT->footer();

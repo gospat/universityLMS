@@ -18,7 +18,7 @@ defined('MOODLE_INTERNAL') || die();
 
 /** @var stdClass $plugin */
 $plugin->component = 'local_ulms_dashboard';
-$plugin->version = 2026091100;
+$plugin->version = 2026091501;
 $plugin->requires = 2024042200;
 $plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+$plugin->release = '0.2.0';

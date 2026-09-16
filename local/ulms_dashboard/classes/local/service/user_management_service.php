@@ -1936,12 +1936,32 @@ class user_management_service {
             return;
         }
 
+        $facultyid = (int)($data['facultyid'] ?? 0);
+        $departmentid = (int)($data['departmentid'] ?? 0);
+        $programmeid = (int)($data['programmeid'] ?? 0);
+        $studylevel = trim((string)($data['studylevel'] ?? ''));
+
+        if ($facultyid > 0 && !$DB->record_exists('local_ulms_faculties', ['id' => $facultyid])) {
+            throw new \InvalidArgumentException('Selected college/faculty does not exist.');
+        }
+        if ($departmentid > 0 && !$DB->record_exists('local_ulms_departments', ['id' => $departmentid])) {
+            throw new \InvalidArgumentException('Selected department does not exist.');
+        }
+        if ($programmeid > 0 && !$DB->record_exists('local_ulms_programmes', ['id' => $programmeid])) {
+            throw new \InvalidArgumentException('Selected programme does not exist.');
+        }
+        if ($studylevel !== '' && $DB->get_manager()->table_exists('local_ulms_levels')) {
+            if (!$DB->record_exists('local_ulms_levels', ['code' => $studylevel])) {
+                throw new \InvalidArgumentException('Selected study level code does not exist.');
+            }
+        }
+
         $record = (object)[
             'userid' => $userid,
-            'facultyid' => (int)($data['facultyid'] ?? 0),
-            'departmentid' => (int)($data['departmentid'] ?? 0),
-            'programmeid' => (int)($data['programmeid'] ?? 0),
-            'studylevel' => trim((string)($data['studylevel'] ?? '')),
+            'facultyid' => $facultyid,
+            'departmentid' => $departmentid,
+            'programmeid' => $programmeid,
+            'studylevel' => $studylevel,
             'staffid' => trim((string)($data['staffid'] ?? '')),
             'timemodified' => time(),
         ];

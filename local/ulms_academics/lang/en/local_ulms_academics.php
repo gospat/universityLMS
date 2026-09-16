@@ -151,3 +151,16 @@ $string['timecreated'] = 'Created';
 $string['timemodified'] = 'Last updated';
 $string['unknownentity'] = 'Unknown entity';
 $string['validation'] = 'Validation';
+
+$string['levels'] = 'Study levels';
+$string['level'] = 'Study level';
+$string['recordcreated'] = 'Record created successfully.';
+$string['recordupdated'] = 'Record updated successfully.';
+$string['recordnotsaved'] = 'An error occurred while saving the record. Please try again.';
+$string['mappings'] = 'Course mappings';
+$string['mappingrequiredfieldprogramme'] = 'Programme is required.';
+$string['mappingrequiredfieldcourse'] = 'Moodle course is required.';
+$string['mappinginvalidsitecourse'] = 'The system site course cannot be used in academic mappings.';
+$string['mappinginvalidlevel'] = 'The selected study level does not exist.';
+$string['mappinglevelwide'] = 'All levels (level-wide)';
+$string['mappingcsvinvalidlevel'] = 'Line {$a}: the study level code does not exist in the academic levels table.';
