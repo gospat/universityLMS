@@ -95,11 +95,21 @@ class adoption_service {
                 (object)['a' => $this->describe_isbn_error((string)($data['isbn'] ?? ''))]
             );
         }
+        $levelid = isset($data['levelid']) ? (int)$data['levelid'] : 0;
+        $sessionid = isset($data['sessionid']) ? (int)$data['sessionid'] : 0;
+        if ($levelid > 0 && !$DB->record_exists('local_ulms_levels', ['id' => $levelid])) {
+            throw new \invalid_parameter_exception(get_string('field_level_invalid', 'local_ulms_kortext'));
+        }
+        if ($sessionid > 0 && !$DB->record_exists('local_ulms_sessions', ['id' => $sessionid])) {
+            throw new \invalid_parameter_exception(get_string('field_session_invalid', 'local_ulms_kortext'));
+        }
         $now = time();
         $record = (object)[
             'programmeid'    => (int)$data['programmeid'],
             'moodlecourseid' => (int)$data['moodlecourseid'],
             'semesterid'     => (int)$data['semesterid'],
+            'levelid'        => $levelid,
+            'sessionid'      => $sessionid,
             'isbn'           => (string)$data['isbn'],
             'ebook_id'       => isset($data['ebook_id']) ? (string)$data['ebook_id'] : null,
             'deeplink_url'   => isset($data['deeplink_url']) ? (string)$data['deeplink_url'] : null,
@@ -127,6 +137,8 @@ class adoption_service {
                     'programmeid'    => $record->programmeid,
                     'moodlecourseid' => $record->moodlecourseid,
                     'semesterid'     => $record->semesterid,
+                    'levelid'        => $record->levelid,
+                    'sessionid'      => $record->sessionid,
                     'isbn'           => $record->isbn,
                 ],
             ]);
@@ -147,7 +159,7 @@ class adoption_service {
         global $DB;
         $existing = $DB->get_record('local_ulms_kortext_adoptions', ['id' => $id], '*', MUST_EXIST);
         $changed = false;
-        foreach (['programmeid', 'moodlecourseid', 'semesterid', 'isbn', 'ebook_id', 'deeplink_url', 'status'] as $_key) {
+        foreach (['programmeid', 'moodlecourseid', 'semesterid', 'levelid', 'sessionid', 'isbn', 'ebook_id', 'deeplink_url', 'status'] as $_key) {
             if (!array_key_exists($_key, $data)) {
                 continue;
             }
@@ -155,7 +167,19 @@ class adoption_service {
             if ($_key === 'isbn' && !$this->validate_isbn((string)$newval)) {
                 throw new \invalid_parameter_exception(get_string('isbn_invalid', 'local_ulms_kortext', $this->describe_isbn_error((string)$newval)));
             }
-            $existing->{$_key} = $_key === 'programmeid' || $_key === 'moodlecourseid' || $_key === 'semesterid'
+            if ($_key === 'levelid') {
+                $lv = (int)$newval;
+                if ($lv > 0 && !$DB->record_exists('local_ulms_levels', ['id' => $lv])) {
+                    throw new \invalid_parameter_exception(get_string('field_level_invalid', 'local_ulms_kortext'));
+                }
+            }
+            if ($_key === 'sessionid') {
+                $sv = (int)$newval;
+                if ($sv > 0 && !$DB->record_exists('local_ulms_sessions', ['id' => $sv])) {
+                    throw new \invalid_parameter_exception(get_string('field_session_invalid', 'local_ulms_kortext'));
+                }
+            }
+            $existing->{$_key} = in_array($_key, ['programmeid', 'moodlecourseid', 'semesterid', 'levelid', 'sessionid'], true)
                 ? (int)$newval
                 : (is_scalar($newval) || $newval === null ? $newval : $existing->{$_key});
             $changed = true;
@@ -215,13 +239,25 @@ class adoption_service {
         global $DB;
         [$where, $params] = $this->build_list_where($filters);
         $total = (int)$DB->count_records_sql(
-            'SELECT COUNT(1) FROM {local_ulms_kortext_adoptions} a LEFT JOIN {local_ulms_programmes} p ON p.id = a.programmeid ' . $where,
+            'SELECT COUNT(1) FROM {local_ulms_kortext_adoptions} a ' .
+            'LEFT JOIN {local_ulms_programmes} p ON p.id = a.programmeid ' .
+            'LEFT JOIN {local_ulms_levels} lv ON lv.id = a.levelid ' .
+            'LEFT JOIN {local_ulms_semesters} s ON s.id = a.semesterid ' .
+            'LEFT JOIN {local_ulms_sessions} sess ON sess.id = COALESCE(s.sessionid, a.sessionid, 0) ' .
+            $where,
             $params
         );
         $order = 'a.timemodified DESC, a.id DESC';
-        $fields = 'a.*, p.code AS programmecode, p.name AS programmename';
+        $fields = 'a.*, p.code AS programmecode, p.name AS programmename, ' .
+                  'lv.code AS levelcode, lv.name AS levelname, ' .
+                  's.code AS semestercode, s.name AS semestername, s.sessionid AS semestersessionid, ' .
+                  'sess.code AS sessioncode, sess.name AS sessionname';
         $records = $DB->get_records_sql(
-            "SELECT {$fields} FROM {local_ulms_kortext_adoptions} a LEFT JOIN {local_ulms_programmes} p ON p.id = a.programmeid " .
+            "SELECT {$fields} FROM {local_ulms_kortext_adoptions} a " .
+            "LEFT JOIN {local_ulms_programmes} p ON p.id = a.programmeid " .
+            "LEFT JOIN {local_ulms_levels} lv ON lv.id = a.levelid " .
+            "LEFT JOIN {local_ulms_semesters} s ON s.id = a.semesterid " .
+            "LEFT JOIN {local_ulms_sessions} sess ON sess.id = COALESCE(s.sessionid, a.sessionid, 0) " .
             $where . " ORDER BY " . $order,
             $params,
             $page * $perpage,
@@ -250,6 +286,15 @@ class adoption_service {
         if (!empty($filters['semesterid'])) {
             $where[] = 'a.semesterid = :fsid';
             $params['fsid'] = (int)$filters['semesterid'];
+        }
+        if (array_key_exists('levelid', $filters) && $filters['levelid'] !== '' && $filters['levelid'] !== null && (int)$filters['levelid'] > 0) {
+            $where[] = 'a.levelid = :flvid';
+            $params['flvid'] = (int)$filters['levelid'];
+        }
+        if (array_key_exists('sessionid', $filters) && $filters['sessionid'] !== '' && $filters['sessionid'] !== null && (int)$filters['sessionid'] > 0) {
+            $where[] = '(s.sessionid = :fsessid OR a.sessionid = :fsessid2)';
+            $params['fsessid'] = (int)$filters['sessionid'];
+            $params['fsessid2'] = (int)$filters['sessionid'];
         }
         if (!empty($filters['status'])) {
             $where[] = 'a.status = :fstatus';
@@ -360,10 +405,12 @@ class adoption_service {
         global $DB;
         [$where, $params] = $this->build_list_where($filters);
         $sql = "SELECT a.*, p.code AS programmecode, c.shortname AS courseshort, c.fullname AS coursefull, " .
-            "s.code AS semestercode, u.username AS adopted_by_username " .
+            "s.code AS semestercode, lv.code AS levelcode, sess.code AS sessioncode, u.username AS adopted_by_username " .
             "FROM {local_ulms_kortext_adoptions} a " .
             "LEFT JOIN {local_ulms_programmes} p ON p.id = a.programmeid " .
             "LEFT JOIN {local_ulms_semesters} s ON s.id = a.semesterid " .
+            "LEFT JOIN {local_ulms_levels} lv ON lv.id = a.levelid " .
+            "LEFT JOIN {local_ulms_sessions} sess ON sess.id = COALESCE(s.sessionid, a.sessionid, 0) " .
             "LEFT JOIN {course} c ON c.id = a.moodlecourseid " .
             "LEFT JOIN {user} u ON u.id = a.adopted_by " .
             $where . " ORDER BY a.timemodified DESC";
@@ -375,7 +422,9 @@ class adoption_service {
         fputcsv($out, [
             get_string('csvcol_programmecode', 'local_ulms_kortext'),
             get_string('csvcol_courseid', 'local_ulms_kortext'),
+            get_string('csvcol_sessioncode', 'local_ulms_kortext'),
             get_string('csvcol_semestercode', 'local_ulms_kortext'),
+            get_string('csvcol_levelcode', 'local_ulms_kortext'),
             get_string('csvcol_isbn', 'local_ulms_kortext'),
             get_string('csvcol_ebookid', 'local_ulms_kortext'),
             get_string('csvcol_status', 'local_ulms_kortext'),
@@ -386,7 +435,9 @@ class adoption_service {
             fputcsv($out, [
                 (string)($_r->programmecode ?? ''),
                 (string)($_r->courseshort ?? $_r->coursefull ?? $_r->moodlecourseid),
+                (string)($_r->sessioncode ?? ''),
                 (string)($_r->semestercode ?? ''),
+                (string)($_r->levelcode ?? ''),
                 (string)$_r->isbn,
                 (string)($_r->ebook_id ?? ''),
                 (string)$_r->status,

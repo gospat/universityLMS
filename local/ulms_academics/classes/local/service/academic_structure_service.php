@@ -639,7 +639,9 @@ class academic_structure_service {
         string $sort = 'faculty',
         string $direction = 'ASC',
         int $limitfrom = 0,
-        int $limitnum = 0
+        int $limitnum = 0,
+        int $levelid = -1,
+        int $sessionid = -1
     ): array {
         return $this->repository->get_course_mappings(
             $search,
@@ -651,7 +653,9 @@ class academic_structure_service {
             $sort,
             $direction,
             $limitfrom,
-            $limitnum
+            $limitnum,
+            $levelid,
+            $sessionid
         );
     }
 
@@ -667,6 +671,8 @@ class academic_structure_service {
             'department' => \get_string('departments', 'local_ulms_academics'),
             'faculty' => \get_string('faculties', 'local_ulms_academics'),
             'semester' => \get_string('semesters', 'local_ulms_academics'),
+            'level' => \get_string('mappingcolumnlevel', 'local_ulms_academics'),
+            'session' => \get_string('mappingcolumnsession', 'local_ulms_academics'),
             'coursetype' => \get_string('mappingcoursetype', 'local_ulms_academics'),
             'iscore' => \get_string('mappingiscore', 'local_ulms_academics'),
         ];
@@ -687,7 +693,9 @@ class academic_structure_service {
         int $departmentid = 0,
         int $programmeid = 0,
         int $semesterfilter = -1,
-        string $coursetype = ''
+        string $coursetype = '',
+        int $levelid = -1,
+        int $sessionid = -1
     ): int {
         return $this->repository->count_course_mappings(
             $search,
@@ -695,7 +703,9 @@ class academic_structure_service {
             $departmentid,
             $programmeid,
             $semesterfilter,
-            $coursetype
+            $coursetype,
+            $levelid,
+            $sessionid
         );
     }
 
@@ -714,7 +724,9 @@ class academic_structure_service {
         int $departmentid = 0,
         int $programmeid = 0,
         int $semesterfilter = -1,
-        string $coursetype = ''
+        string $coursetype = '',
+        int $levelid = -1,
+        int $sessionid = -1
     ): array {
         return $this->repository->get_course_mapping_summary(
             $search,
@@ -722,7 +734,9 @@ class academic_structure_service {
             $departmentid,
             $programmeid,
             $semesterfilter,
-            $coursetype
+            $coursetype,
+            $levelid,
+            $sessionid
         );
     }
 
@@ -1026,7 +1040,9 @@ class academic_structure_service {
         int $semesterfilter = -1,
         string $coursetype = '',
         string $sort = 'faculty',
-        string $direction = 'ASC'
+        string $direction = 'ASC',
+        int $levelid = -1,
+        int $sessionid = -1
     ): array {
         global $DB;
         $rows = [[
@@ -1036,6 +1052,7 @@ class academic_structure_service {
             'coursename',
             'moodlecourseid',
             'levelcode',
+            'sessioncode',
             'semestercode',
             'semestername',
             'coursetype',
@@ -1043,8 +1060,12 @@ class academic_structure_service {
         ]];
 
         $levelbyid = [];
+        $sessionbyid = [];
         if ($DB->get_manager()->table_exists('local_ulms_levels')) {
             $levelbyid = $DB->get_records_menu('local_ulms_levels', [], '', 'id, code');
+        }
+        if ($DB->get_manager()->table_exists('local_ulms_sessions')) {
+            $sessionbyid = $DB->get_records_menu('local_ulms_sessions', [], '', 'id, code');
         }
 
         foreach ($this->get_course_mappings(
@@ -1055,16 +1076,22 @@ class academic_structure_service {
             $semesterfilter,
             $coursetype,
             $sort,
-            $direction
+            $direction,
+            0,
+            0,
+            $levelid,
+            $sessionid
         ) as $mapping) {
-            $levelid = (int)($mapping->levelid ?? 0);
+            $levelidval = (int)($mapping->levelid ?? 0);
+            $semestersessionid = (int)($mapping->semestersessionid ?? 0);
             $rows[] = [
                 $mapping->programmecode ?? '',
                 $mapping->programmename ?? '',
                 $mapping->courseshortname ?? '',
                 $mapping->coursename ?? '',
                 (string)$mapping->moodlecourseid,
-                $levelid > 0 && isset($levelbyid[$levelid]) ? (string)$levelbyid[$levelid] : '',
+                $levelidval > 0 && isset($levelbyid[$levelidval]) ? (string)$levelbyid[$levelidval] : '',
+                $semestersessionid > 0 && isset($sessionbyid[$semestersessionid]) ? (string)$sessionbyid[$semestersessionid] : '',
                 $mapping->semestercode ?? '',
                 $mapping->semestername ?? '',
                 $mapping->coursetype ?? 'core',

@@ -27,9 +27,17 @@ $syscontext = \context_system::instance();
 require_capability('local/ulms_kortext:manageadoptions', $syscontext);
 
 $programmeid = required_param('programmeid', PARAM_INT);
+$levelid = optional_param('levelid', 0, PARAM_INT);
+$semesterid = optional_param('semesterid', 0, PARAM_INT);
+$sessionid = optional_param('sessionid', 0, PARAM_INT);
 
 $PAGE->set_context($syscontext);
-$PAGE->set_url('/local/ulms_kortext/api_courses_for_programme.php', ['programmeid' => $programmeid]);
+$PAGE->set_url('/local/ulms_kortext/api_courses_for_programme.php', [
+    'programmeid' => $programmeid,
+    'levelid' => $levelid,
+    'semesterid' => $semesterid,
+    'sessionid' => $sessionid,
+]);
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -41,15 +49,30 @@ if ($programmeid <= 0) {
 }
 
 try {
+    $where = ["programmeid = :pid"];
+    $params = ['pid' => $programmeid];
+    if ($levelid > 0) {
+        $where[] = "(levelid = :lvl OR levelid IS NULL OR levelid = 0)";
+        $params['lvl'] = $levelid;
+    }
+    if ($semesterid > 0) {
+        $where[] = "(semesterid = :sem OR semesterid IS NULL OR semesterid = 0)";
+        $params['sem'] = $semesterid;
+    }
+    if ($sessionid > 0) {
+        $where[] = "EXISTS (SELECT 1 FROM {local_ulms_semesters} s2 WHERE s2.id = semesterid AND s2.sessionid = :sess)";
+        $params['sess'] = $sessionid;
+    }
+    $wheresql = implode(' AND ', $where);
     $courseids = $DB->get_fieldset_sql(
-        "SELECT DISTINCT moodlecourseid FROM {local_ulms_programme_courses} WHERE programmeid = :pid",
-        ['pid' => $programmeid]
+        "SELECT DISTINCT moodlecourseid FROM {local_ulms_programme_courses} WHERE {$wheresql}",
+        $params
     );
     if (count($courseids) > 0) {
-        [$in, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'cid');
+        [$in, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'cid');
         $rs = $DB->get_records_sql(
             "SELECT id, shortname, fullname FROM {course} WHERE id {$in} ORDER BY shortname ASC",
-            $params
+            $inparams
         );
         foreach ($rs as $c) {
             $out['courses'][] = [

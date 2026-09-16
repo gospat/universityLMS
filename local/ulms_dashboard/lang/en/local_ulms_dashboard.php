@@ -1016,3 +1016,15 @@ $string['nolevels'] = 'No study levels are defined yet. Create at least 100, 200
 $string['sortorder'] = 'Display order';
 $string['showingxofyresults'] = 'Showing {$a->start}-{$a->end} of {$a->total} study levels';
 $string['inactive'] = 'Inactive';
+
+$string['profile_faculty'] = 'College / Faculty';
+$string['profile_department'] = 'Department';
+$string['profile_programme'] = 'Programme';
+$string['profile_student_level'] = 'Study Level';
+$string['profile_lecturer_staffid'] = 'Staff ID';
+$string['profile_student_heading'] = 'Academic Profile';
+$string['profile_student_subtitle'] = 'Your institutional academic placement and enrolled courses.';
+$string['profile_lecturer_heading'] = 'Academic Profile';
+$string['profile_lecturer_subtitle'] = 'Your departmental placement and allocated teaching courses.';
+$string['profile_enrolled_courses_heading'] = 'Enrolled Courses';
+$string['profile_allocated_courses_heading'] = 'Allocated Teaching Courses';

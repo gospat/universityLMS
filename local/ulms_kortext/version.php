@@ -18,11 +18,11 @@ defined('MOODLE_INTERNAL') || die();
 
 /** @var stdClass $plugin */
 $plugin->component = 'local_ulms_kortext';
-$plugin->version = 2026091300;
+$plugin->version = 2026091601;
 $plugin->requires = 2024042200;
 $plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+$plugin->release = '0.2.0';
 $plugin->dependencies = [
-    'local_ulms_dashboard' => 2026091100,
-    'local_ulms_academics' => 2026091100,
+    'local_ulms_dashboard' => 2026091501,
+    'local_ulms_academics' => 2026091501,
 ];

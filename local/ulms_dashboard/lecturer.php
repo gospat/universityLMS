@@ -80,6 +80,60 @@ if (!empty($data['summary'])) {
     echo local_ulms_dashboard_render_summary_cards($normalisedsummary);
 }
 
+$prof = $data['academic_profile'] ?? ['available' => false];
+$pills = $data['course_pills'] ?? [];
+$profrendered = '';
+if (!empty($prof['available'])) {
+    $rows = [];
+    if (!empty($prof['staffid'])) {
+        $rows[] = ['label' => get_string('profile_lecturer_staffid', 'local_ulms_dashboard'), 'value' => s($prof['staffid'])];
+    }
+    if (!empty($prof['facultyname'])) {
+        $rows[] = ['label' => get_string('profile_faculty', 'local_ulms_dashboard'), 'value' => s($prof['facultyname'])];
+    }
+    if (!empty($prof['departmentname'])) {
+        $rows[] = ['label' => get_string('profile_department', 'local_ulms_dashboard'), 'value' => s($prof['departmentname'])];
+    }
+    if (!empty($prof['programmename'])) {
+        $display = trim(s($prof['programme_code'] ? ($prof['programme_code'] . ' — ') : '') . s($prof['programmename']));
+        $rows[] = ['label' => get_string('profile_programme', 'local_ulms_dashboard'), 'value' => $display];
+    }
+    $rowhtml = '';
+    foreach ($rows as $r) {
+        $rowhtml .= html_writer::start_div('form-group row')
+            . html_writer::tag('div', html_writer::tag('strong', $r['label']), ['class' => 'col-md-4 col-form-label text-right'])
+            . html_writer::tag('div', $r['value'], ['class' => 'col-md-8 form-control-plaintext'])
+            . html_writer::end_div();
+    }
+    $pillshtml = '';
+    if (count($pills) > 0) {
+        $badges = [];
+        foreach ($pills as $p) {
+            $badges[] = html_writer::link(
+                $p['url'],
+                html_writer::tag('span', s($p['shortname']), ['class' => 'badge badge-' . ($p['badge'] ?? 'primary') . ' px-3 py-2 mx-1'])
+                ,
+                ['class' => 'text-decoration-none']
+            );
+        }
+        $pillshtml = html_writer::tag('h3', get_string('profile_allocated_courses_heading', 'local_ulms_dashboard'), ['class' => 'mt-4 mb-2 h5'])
+            . html_writer::div(implode('', $badges), 'p-3 bg-light rounded');
+    }
+    $profrendered = html_writer::start_div('ulms-panel mb-4')
+        . html_writer::start_div('ulms-panel__header')
+        . html_writer::tag('h2', get_string('profile_lecturer_heading', 'local_ulms_dashboard'), ['class' => 'ulms-panel__title'])
+        . html_writer::tag('p', get_string('profile_lecturer_subtitle', 'local_ulms_dashboard'), ['class' => 'ulms-panel__subtitle'])
+        . html_writer::end_div()
+        . html_writer::start_div('ulms-panel__body')
+        . html_writer::start_div('container-fluid px-0')
+        . $rowhtml
+        . html_writer::end_div()
+        . $pillshtml
+        . html_writer::end_div()
+        . html_writer::end_div();
+}
+echo $profrendered;
+
 echo html_writer::start_div('ulms-dashboard-primary');
 
 echo html_writer::start_div('ulms-panel ulms-dashboard-primary__main');

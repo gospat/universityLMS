@@ -19,7 +19,7 @@ require_once($CFG->libdir . '/adminlib.php');
 require_once(__DIR__ . '/locallib.php');
 require_once($CFG->dirroot . '/local/ulms_dashboard/lib.php');
 
-global $PAGE, $OUTPUT;
+global $DB, $PAGE, $OUTPUT;
 
 /**
  * Builds a sortable column header link.
@@ -75,6 +75,8 @@ $facultyfilter = optional_param('facultyfilter', 0, PARAM_INT);
 $departmentfilter = optional_param('departmentfilter', 0, PARAM_INT);
 $programmefilter = optional_param('programmefilter', 0, PARAM_INT);
 $semesterfilter = optional_param('semesterfilter', -1, PARAM_INT);
+$levelfilter = optional_param('levelfilter', -1, PARAM_INT);
+$sessionfilter = optional_param('sessionfilter', -1, PARAM_INT);
 $coursetypefilter = optional_param('coursetypefilter', '', PARAM_ALPHA);
 $sort = optional_param('sort', 'faculty', PARAM_ALPHA);
 $dir = optional_param('dir', 'ASC', PARAM_ALPHA);
@@ -95,6 +97,8 @@ $mappingstateparams = [
     'departmentfilter' => $departmentfilter,
     'programmefilter' => $programmefilter,
     'semesterfilter' => $semesterfilter,
+    'levelfilter' => $levelfilter,
+    'sessionfilter' => $sessionfilter,
     'coursetypefilter' => $coursetypefilter,
     'sort' => $sort,
     'dir' => $dir,
@@ -159,7 +163,9 @@ if ($export === 'csv') {
         $semesterfilter,
         $coursetypefilter,
         $sort,
-        $dir
+        $dir,
+        $levelfilter,
+        $sessionfilter
     ) as $row) {
         fputcsv($output, $row);
     }
@@ -275,6 +281,8 @@ $levels = $DB->get_manager()->table_exists('local_ulms_levels')
     ? $DB->get_records_menu('local_ulms_levels', ['status' => 'active'], 'sortorder ASC, id ASC', 'id, name')
     : [];
 $leveloptions = [0 => get_string('mappinglevelwide', 'local_ulms_academics')] + $levels;
+$levelfilteroptions = [-1 => get_string('all')] + $levels;
+$sessionfilteroptions = [-1 => get_string('all')] + $sessionoptions;
 $coursetypes = $service->get_course_type_options();
 $facultyfilters = [0 => get_string('all')] + $faculties;
 $departmentfilters = [0 => get_string('all')] + $departments;
@@ -285,13 +293,23 @@ $perpageoptions = [10 => 10, 20 => 20, 50 => 50, 100 => 100];
 if (!array_key_exists($perpage, $perpageoptions)) {
     $perpage = 20;
 }
+if ($levelfilter > 0 && !array_key_exists($levelfilter, $levels)) {
+    $levelfilter = -1;
+    $filtermessages[] = get_string('mappingfilterlevelreset', 'local_ulms_academics');
+}
+if ($sessionfilter > 0 && !isset($sessions[$sessionfilter])) {
+    $sessionfilter = -1;
+    $filtermessages[] = get_string('mappingfiltersessionreset', 'local_ulms_academics');
+}
 $summary = $service->get_course_mapping_summary(
     $search,
     $facultyfilter,
     $departmentfilter,
     $programmefilter,
     $semesterfilter,
-    $coursetypefilter
+    $coursetypefilter,
+    $levelfilter,
+    $sessionfilter
 );
 $totalmappings = $service->count_course_mappings(
     $search,
@@ -299,7 +317,9 @@ $totalmappings = $service->count_course_mappings(
     $departmentfilter,
     $programmefilter,
     $semesterfilter,
-    $coursetypefilter
+    $coursetypefilter,
+    $levelfilter,
+    $sessionfilter
 );
 $mappings = $service->get_course_mappings(
     $search,
@@ -311,7 +331,9 @@ $mappings = $service->get_course_mappings(
     $sort,
     $dir,
     $page * $perpage,
-    $perpage
+    $perpage,
+    $levelfilter,
+    $sessionfilter
 );
 $editmapping = $editid > 0 ? $service->get_course_mapping($editid) : false;
 $formvalues = [
@@ -456,6 +478,16 @@ if ($semesterfilter === 0) {
 } else if ($semesterfilter > 0 && isset($semesters[$semesterfilter])) {
     $activefilters[] = get_string('semesters', 'local_ulms_academics') . ': ' . $semesters[$semesterfilter];
 }
+if ($levelfilter === 0) {
+    $activefilters[] = get_string('levels', 'local_ulms_academics') . ': ' . get_string('mappinglevelwide', 'local_ulms_academics');
+} else if ($levelfilter > 0 && isset($levels[$levelfilter])) {
+    $activefilters[] = get_string('levels', 'local_ulms_academics') . ': ' . $levels[$levelfilter];
+}
+if ($sessionfilter === 0) {
+    $activefilters[] = get_string('academicsessions', 'local_ulms_academics') . ': ' . get_string('notset', 'local_ulms_academics');
+} else if ($sessionfilter > 0 && isset($sessionoptions[$sessionfilter])) {
+    $activefilters[] = get_string('academicsessions', 'local_ulms_academics') . ': ' . $sessionoptions[$sessionfilter];
+}
 if ($coursetypefilter !== '' && isset($coursetypes[$coursetypefilter])) {
     $activefilters[] = get_string('mappingcoursetype', 'local_ulms_academics') . ': ' . $coursetypes[$coursetypefilter];
 }
@@ -559,7 +591,9 @@ if ($previewdata !== null) {
         get_string('line', 'local_ulms_academics'),
         get_string('programmes', 'local_ulms_academics'),
         get_string('mappingmoodlecourse', 'local_ulms_academics'),
+        get_string('academicsessions', 'local_ulms_academics'),
         get_string('semesters', 'local_ulms_academics'),
+        get_string('levels', 'local_ulms_academics'),
         get_string('mappingcoursetype', 'local_ulms_academics'),
         get_string('mappingiscore', 'local_ulms_academics'),
         get_string('actions', 'local_ulms_academics'),
@@ -571,7 +605,9 @@ if ($previewdata !== null) {
             (string)$row['linenumber'],
             s((string)$row['programme']),
             s((string)$row['course']),
+            s((string)($row['session'] ?? '')),
             s((string)$row['semester']),
+            s((string)($row['level'] ?? '')),
             s((string)$row['coursetype']),
             s((string)$row['iscore']),
             s((string)$row['action']),
@@ -677,6 +713,20 @@ echo html_writer::select($semesterfilters, 'semesterfilter', $semesterfilter, fa
 ]);
 echo html_writer::end_div();
 echo html_writer::start_div('ulms-filter-field');
+echo html_writer::label(get_string('levels', 'local_ulms_academics'), 'id_levelfilter');
+echo html_writer::select($levelfilteroptions, 'levelfilter', $levelfilter, false, [
+    'id' => 'id_levelfilter',
+    'class' => 'custom-select',
+]);
+echo html_writer::end_div();
+echo html_writer::start_div('ulms-filter-field');
+echo html_writer::label(get_string('academicsessions', 'local_ulms_academics'), 'id_sessionfilter');
+echo html_writer::select($sessionfilteroptions, 'sessionfilter', $sessionfilter, false, [
+    'id' => 'id_sessionfilter',
+    'class' => 'custom-select',
+]);
+echo html_writer::end_div();
+echo html_writer::start_div('ulms-filter-field');
 echo html_writer::label(get_string('mappingcoursetype', 'local_ulms_academics'), 'id_coursetypefilter');
 echo html_writer::select($coursetypefilters, 'coursetypefilter', $coursetypefilter, false, [
     'id' => 'id_coursetypefilter',
@@ -735,6 +785,8 @@ $sortableparams = local_ulms_academics_select_request_params($mappingstateparams
     'departmentfilter',
     'programmefilter',
     'semesterfilter',
+    'levelfilter',
+    'sessionfilter',
     'coursetypefilter',
     'perpage',
 ]);
@@ -782,6 +834,22 @@ $table->head = [
     local_ulms_academics_course_mapping_sort_link(
         $routingservice->get_path_for_route('management.academicsmappings'),
         $sortableparams,
+        'level',
+        get_string('mappingcolumnlevel', 'local_ulms_academics'),
+        $sort,
+        $dir
+    ),
+    local_ulms_academics_course_mapping_sort_link(
+        $routingservice->get_path_for_route('management.academicsmappings'),
+        $sortableparams,
+        'session',
+        get_string('mappingcolumnsession', 'local_ulms_academics'),
+        $sort,
+        $dir
+    ),
+    local_ulms_academics_course_mapping_sort_link(
+        $routingservice->get_path_for_route('management.academicsmappings'),
+        $sortableparams,
         'coursetype',
         get_string('mappingcoursetype', 'local_ulms_academics'),
         $sort,
@@ -808,12 +876,27 @@ foreach ($mappings as $mapping) {
         'editid' => $mapping->id,
     ] + $filterparams);
 
+    $leveldisplay = get_string('mappinglevelwide', 'local_ulms_academics');
+    if (!empty($mapping->levelname) || !empty($mapping->levelcode)) {
+        $leveldisplay = trim(sprintf('%s %s', $mapping->levelcode ?? '', $mapping->levelname ?? ''));
+    }
+    $sessionname = '';
+    if (!empty($mapping->semestersessionid) && isset($sessions[$mapping->semestersessionid])) {
+        $s = $sessions[$mapping->semestersessionid];
+        $sessionname = trim(sprintf('%s %s', $s->code ?? '', $s->name ?? ''));
+    }
+    if ($sessionname === '') {
+        $sessionname = get_string('notset', 'local_ulms_academics');
+    }
+
     $table->data[] = [
         format_string($mapping->coursename),
         format_string($mapping->programmename),
         format_string($mapping->departmentname),
         format_string($mapping->facultyname),
         format_string($mapping->semestername ?? get_string('notset', 'local_ulms_academics')),
+        format_string($leveldisplay),
+        format_string($sessionname),
         format_string($coursetypes[$mapping->coursetype] ?? $mapping->coursetype),
         !empty($mapping->iscore) ? get_string('yes') : get_string('no'),
         html_writer::link($editurl, get_string('edit')) . ' | ' . html_writer::link($deleteurl, get_string('delete')),

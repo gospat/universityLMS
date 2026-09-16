@@ -42,6 +42,8 @@ $filters = [
     'programmeid'  => optional_param('programmeid', 0, PARAM_INT),
     'departmentid' => optional_param('departmentid', 0, PARAM_INT),
     'semesterid'   => optional_param('semesterid', 0, PARAM_INT),
+    'levelid'      => optional_param('levelid', 0, PARAM_INT),
+    'sessionid'    => optional_param('sessionid', 0, PARAM_INT),
     'moodlecourseid' => optional_param('moodlecourseid', 0, PARAM_INT),
     'status'       => optional_param('status', '', PARAM_ALPHA),
     'q'            => optional_param('q', '', PARAM_TEXT),
@@ -87,6 +89,8 @@ if ($action === 'save' && data_submitted() && confirm_sesskey()) {
         'programmeid'    => required_param('programmeid', PARAM_INT),
         'moodlecourseid' => required_param('moodlecourseid', PARAM_INT),
         'semesterid'     => required_param('semesterid', PARAM_INT),
+        'levelid'        => optional_param('levelid', 0, PARAM_INT),
+        'sessionid'      => optional_param('sessionid', 0, PARAM_INT),
         'isbn'           => trim(required_param('isbn', PARAM_TEXT)),
         'ebook_id'       => trim(optional_param('ebook_id', '', PARAM_ALPHANUMEXT)),
         'deeplink_url'   => trim(optional_param('deeplink_url', '', PARAM_URL)),
@@ -184,6 +188,14 @@ if ($action === 'create' || $action === 'edit') {
     }
     $programmes = $DB->get_records_menu('local_ulms_programmes', ['status' => 'active'], 'name ASC', 'id, name');
     $semesters   = $DB->get_records_menu('local_ulms_semesters', [], 'startdate DESC', 'id, name');
+    $levels   = $DB->get_manager()->table_exists('local_ulms_levels')
+        ? $DB->get_records_menu('local_ulms_levels', ['status' => 'active'], 'sortorder ASC, id ASC', 'id, name')
+        : [];
+    $sessions   = $DB->get_manager()->table_exists('local_ulms_sessions')
+        ? $DB->get_records_menu('local_ulms_sessions', [], 'startdate DESC', 'id, name')
+        : [];
+    $leveloptions = ['' => get_string('field_level', 'local_ulms_kortext')] + $levels + [0 => get_string('field_level_all', 'local_ulms_kortext')];
+    $sessionoptions = ['' => get_string('field_session', 'local_ulms_kortext')] + $sessions + [0 => get_string('field_session_all', 'local_ulms_kortext')];
     $coursesel   = ['' => get_string('field_course', 'local_ulms_kortext')];
     $pid = (int)($record->programmeid ?? $filters['programmeid'] ?? 0);
     if ($pid > 0) {
@@ -195,6 +207,15 @@ if ($action === 'create' || $action === 'edit') {
             [$in, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'cid');
             $coursesel = $coursesel + $DB->get_records_sql_menu("SELECT id, CONCAT(shortname, ' — ', fullname) FROM {course} WHERE id {$in}", $params);
         }
+    }
+    // Cascade session → semester: group semesters by sessionid.
+    $semsbysession = [];
+    foreach ($DB->get_records('local_ulms_semesters', [], 'startdate DESC', 'id, sessionid, name') as $sm) {
+        $sid = (int)($sm->sessionid ?? 0);
+        if (!isset($semsbysession[$sid])) {
+            $semsbysession[$sid] = [];
+        }
+        $semsbysession[$sid][(int)$sm->id] = $sm->name;
     }
     echo html_writer::start_div('ulms-layout-grid');
     echo html_writer::start_div('ulms-panel');
@@ -217,10 +238,14 @@ if ($action === 'create' || $action === 'edit') {
     };
     $selprogramme = html_writer::select($programmes, 'programmeid', (int)($record->programmeid ?? $filters['programmeid']), ['' => get_string('field_programme', 'local_ulms_kortext')], ['id' => 'id_programmeid', 'class' => 'form-control']);
     echo $renderfield('field_programme', $selprogramme, 'id_programmeid');
-    $selcourse = html_writer::select($coursesel, 'moodlecourseid', (int)($record->moodlecourseid ?? $filters['moodlecourseid']), ['' => get_string('field_course', 'local_ulms_kortext')], ['id' => 'id_moodlecourseid', 'class' => 'form-control']);
-    echo $renderfield('field_course', $selcourse, 'id_moodlecourseid');
+    $selsession = html_writer::select($sessionoptions, 'sessionid', (int)($record->sessionid ?? $filters['sessionid'] ?? 0), false, ['id' => 'id_sessionid', 'class' => 'form-control']);
+    echo $renderfield('field_session', $selsession, 'id_sessionid');
     $selsemester = html_writer::select($semesters, 'semesterid', (int)($record->semesterid ?? 0), ['' => get_string('field_semester', 'local_ulms_kortext')], ['id' => 'id_semesterid', 'class' => 'form-control']);
     echo $renderfield('field_semester', $selsemester, 'id_semesterid');
+    $sellevel = html_writer::select($leveloptions, 'levelid', (int)($record->levelid ?? 0), false, ['id' => 'id_levelid', 'class' => 'form-control']);
+    echo $renderfield('field_level', $sellevel, 'id_levelid');
+    $selcourse = html_writer::select($coursesel, 'moodlecourseid', (int)($record->moodlecourseid ?? $filters['moodlecourseid']), ['' => get_string('field_course', 'local_ulms_kortext')], ['id' => 'id_moodlecourseid', 'class' => 'form-control']);
+    echo $renderfield('field_course', $selcourse, 'id_moodlecourseid');
     $inpisbn = html_writer::empty_tag('input', [
         'type' => 'text', 'name' => 'isbn', 'id' => 'id_isbn', 'class' => 'form-control',
         'value' => $record->isbn ?? '', 'required' => 'required', 'maxlength' => 17,
@@ -254,6 +279,38 @@ if ($action === 'create' || $action === 'edit') {
     echo html_writer::link($redirectback, get_string('cancel', 'core'), ['class' => 'btn btn-secondary']);
     echo html_writer::end_div();
     echo html_writer::end_tag('form');
+    $choose = get_string('field_semester', 'local_ulms_kortext');
+    echo html_writer::start_tag('script');
+    echo '(function(){'
+        . 'const semsBySession=' . json_encode($semsbysession) . ';'
+        . 'const choose=' . json_encode($choose) . ';'
+        . 'const fsess=document.getElementById("id_sessionid");'
+        . 'const fsem=document.getElementById("id_semesterid");'
+        . 'if(!fsess||!fsem){return;}'
+        . 'const allSemesters = {};'
+        . 'Array.prototype.forEach.call(fsem.options,function(o){allSemesters[o.value]=o.textContent;});'
+        . 'function rebuild(parent,items,activeVal){'
+            . 'parent.innerHTML="";'
+            . 'const p=document.createElement("option");p.value="";p.textContent=choose;parent.appendChild(p);'
+            . 'const expected=String(activeVal||"");'
+            . 'for(const k of Object.keys(items)){'
+                . 'const o=document.createElement("option");o.value=String(k);o.textContent=items[k];'
+                . 'if(String(k)===expected){o.selected=true;}'
+                . 'parent.appendChild(o);'
+            . '}'
+            . 'if(!Object.prototype.hasOwnProperty.call(items,expected)&&expected!==""){'
+                . 'const fallback=document.createElement("option");'
+                . 'fallback.value=expected;fallback.textContent=allSemesters[expected]||expected;fallback.selected=true;'
+                . 'parent.appendChild(fallback);'
+            . '}'
+        . '}'
+        . 'fsess.addEventListener("change",function(){'
+            . 'const sid=parseInt(fsess.value||"0",10)||0;'
+            . 'const items=sid>0?(semsBySession[sid]||{}):allSemesters;'
+            . 'rebuild(fsem,items,"");'
+        . '});'
+        . '})();';
+    echo html_writer::end_tag('script');
     echo html_writer::end_div();
     echo html_writer::end_div();
     local_ulms_dashboard_end_shell_wrap();
@@ -348,13 +405,21 @@ echo local_ulms_dashboard_render_summary_cards($service->kpi_summary());
 
 $programmesmenu = $DB->get_records_menu('local_ulms_programmes', ['status' => 'active'], 'name ASC', 'id, name');
 $semestersmenu = $DB->get_records_menu('local_ulms_semesters', [], 'startdate DESC', 'id, name');
+$levelsmenu   = $DB->get_manager()->table_exists('local_ulms_levels')
+    ? $DB->get_records_menu('local_ulms_levels', ['status' => 'active'], 'sortorder ASC, id ASC', 'id, name')
+    : [];
+$sessionsmenu   = $DB->get_manager()->table_exists('local_ulms_sessions')
+    ? $DB->get_records_menu('local_ulms_sessions', [], 'startdate DESC', 'id, name')
+    : [];
 $statusmenu     = ['active' => get_string('status_active', 'local_ulms_kortext'), 'archived' => get_string('status_archived', 'local_ulms_kortext')];
 
 $filterform = '';
 $filterform .= html_writer::start_tag('form', ['method' => 'get', 'class' => 'ulms-filters form-inline', 'action' => (string)$redirectback]);
 $filterform .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'list']);
 $filterform .= html_writer::select($programmesmenu, 'programmeid', $filters['programmeid'], ['' => get_string('filter_programme', 'local_ulms_kortext')], ['class' => 'form-control mr-2 mb-2']);
+$filterform .= html_writer::select($sessionsmenu, 'sessionid', $filters['sessionid'], ['' => get_string('filter_session', 'local_ulms_kortext')], ['class' => 'form-control mr-2 mb-2']);
 $filterform .= html_writer::select($semestersmenu, 'semesterid', $filters['semesterid'], ['' => get_string('filter_semester', 'local_ulms_kortext')], ['class' => 'form-control mr-2 mb-2']);
+$filterform .= html_writer::select($levelsmenu, 'levelid', $filters['levelid'], ['' => get_string('filter_level', 'local_ulms_kortext')], ['class' => 'form-control mr-2 mb-2']);
 $filterform .= html_writer::select($statusmenu, 'status', $filters['status'], ['' => get_string('filter_clear', 'local_ulms_kortext')], ['class' => 'form-control mr-2 mb-2']);
 $filterform .= html_writer::empty_tag('input', ['type' => 'search', 'name' => 'q', 'value' => $filters['q'], 'placeholder' => get_string('filter_search_placeholder', 'local_ulms_kortext'), 'class' => 'form-control mr-2 mb-2']);
 $filterform .= html_writer::empty_tag('input', ['type' => 'submit', 'class' => 'btn btn-secondary mb-2 mr-2', 'value' => get_string('go', 'core')]);
@@ -390,16 +455,15 @@ foreach ($listdata['items'] as $_it) {
     } catch (\Throwable) {
         $coursetext = '#' . $_it->moodlecourseid;
     }
-    try {
-        $s = $DB->get_record('local_ulms_semesters', ['id' => (int)$_it->semesterid], 'code, name');
-        if ($s) {
-            $semtext = ($s->code ?? '') . ' ' . ($s->name ?? '');
-        } else {
-            $semtext = '#' . $_it->semesterid;
-        }
-    } catch (\Throwable) {
-        $semtext = '#' . $_it->semesterid;
-    }
+    $semtext = !empty($_it->semestername)
+        ? trim(($_it->semestercode ?? '') . ' ' . $_it->semestername)
+        : ('#' . $_it->semesterid);
+    $leveltext = !empty($_it->levelname)
+        ? trim(($_it->levelcode ?? '') . ' ' . $_it->levelname)
+        : get_string('field_level_all', 'local_ulms_kortext');
+    $sessiontext = !empty($_it->sessionname)
+        ? trim(($_it->sessioncode ?? '') . ' ' . $_it->sessionname)
+        : get_string('field_session_all', 'local_ulms_kortext');
     $badgeclass = $_it->status === 'active' ? 'badge badge-success' : 'badge badge-secondary';
     $actionbtns = '';
     $actionbtns .= html_writer::link(
@@ -419,7 +483,9 @@ foreach ($listdata['items'] as $_it) {
     }
 $rows[] = [
     'col_programme' => s($pname) . ($coursetext ? ' <small class="text-muted">' . s($coursetext) . '</small>' : ''),
+    'col_session'   => s($sessiontext),
     'col_semester'  => s($semtext),
+    'col_level'     => s($leveltext),
     'col_isbn'      => s($_it->isbn),
     'col_status'    => html_writer::tag('span', get_string('status_' . ($_it->status ?? 'active'), 'local_ulms_kortext'), ['class' => $badgeclass]),
     'col_actions'   => $actionbtns,
@@ -427,7 +493,9 @@ $rows[] = [
 }
 $columns = [
     'col_programme' => get_string('list_col_programme', 'local_ulms_kortext'),
+    'col_session'   => get_string('list_col_session', 'local_ulms_kortext'),
     'col_semester'  => get_string('list_col_semester', 'local_ulms_kortext'),
+    'col_level'     => get_string('list_col_level', 'local_ulms_kortext'),
     'col_isbn'      => get_string('list_col_isbn', 'local_ulms_kortext'),
     'col_status'    => get_string('list_col_status', 'local_ulms_kortext'),
     'col_actions'   => get_string('list_col_actions', 'local_ulms_kortext'),

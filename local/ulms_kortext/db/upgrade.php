@@ -33,5 +33,31 @@ function xmldb_local_ulms_kortext_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091300, 'local', 'ulms_kortext');
     }
 
+    if ($oldversion < 2026091601) {
+        $table = new xmldb_table('local_ulms_kortext_adoptions');
+
+        $levelidfield = new xmldb_field('levelid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'semesterid');
+        if (!$dbman->field_exists($table, $levelidfield)) {
+            $dbman->add_field($table, $levelidfield);
+        }
+
+        $sessionidfield = new xmldb_field('sessionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'levelid');
+        if (!$dbman->field_exists($table, $sessionidfield)) {
+            $dbman->add_field($table, $sessionidfield);
+        }
+
+        $levelidx = new xmldb_index('level_idx', XMLDB_INDEX_NOTUNIQUE, ['levelid']);
+        if (!$dbman->index_exists($table, $levelidx)) {
+            $dbman->add_index($table, $levelidx);
+        }
+
+        $sessionidx = new xmldb_index('session_idx', XMLDB_INDEX_NOTUNIQUE, ['sessionid']);
+        if (!$dbman->index_exists($table, $sessionidx)) {
+            $dbman->add_index($table, $sessionidx);
+        }
+
+        upgrade_plugin_savepoint(true, 2026091601, 'local', 'ulms_kortext');
+    }
+
     return true;
 }

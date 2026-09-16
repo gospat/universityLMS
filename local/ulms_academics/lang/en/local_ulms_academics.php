@@ -164,3 +164,7 @@ $string['mappinginvalidsitecourse'] = 'The system site course cannot be used in 
 $string['mappinginvalidlevel'] = 'The selected study level does not exist.';
 $string['mappinglevelwide'] = 'All levels (level-wide)';
 $string['mappingcsvinvalidlevel'] = 'Line {$a}: the study level code does not exist in the academic levels table.';
+$string['mappingcolumnlevel'] = 'Level';
+$string['mappingcolumnsession'] = 'Academic Session';
+$string['mappingfilterlevelreset'] = 'The applied level filter did not match any active level and has been reset.';
+$string['mappingfiltersessionreset'] = 'The applied academic session filter did not match any session and has been reset.';

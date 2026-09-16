@@ -105,6 +105,145 @@ class dashboard_service {
     }
 
     /**
+     * Returns the enrolled / allocated course IDs for a user in a portal role.
+     *
+     * @param int $userid
+     * @param string $role one of 'student' or 'lecturer'
+     * @return int[]
+     */
+    private function resolve_courseids_for_user(int $userid, string $role): array {
+        $courseids = [];
+        try {
+            if (!class_exists(\local_ulms_kortext\local\service\adoption_service::class)) {
+                require_once($GLOBALS['CFG']->dirroot . '/local/ulms_kortext/classes/local/service/adoption_service.php');
+            }
+            $svc = new \local_ulms_kortext\local\service\adoption_service();
+            if (method_exists($svc, 'resolve_courseids_for_user')) {
+                $result = $svc->resolve_courseids_for_user($userid, $role);
+                if (is_array($result)) {
+                    foreach ($result as $cid) {
+                        $courseids[] = (int)$cid;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+            $courseids = [];
+        }
+        if (count($courseids) === 0) {
+            foreach (enrol_get_all_users_courses($userid, false, ['id']) as $rec) {
+                $courseids[] = (int)($rec->id ?? 0);
+            }
+            $courseids = array_values(array_unique(array_filter($courseids)));
+        }
+        return $courseids;
+    }
+
+    /**
+     * Builds a course pills list suitable for profile card rendering.
+     *
+     * @param int[] $courseids
+     * @return array<int, array{id:int, shortname:string, fullname:string, url:string, badge:string}>
+     */
+    private function build_course_pills(array $courseids): array {
+        global $CFG;
+        $out = [];
+        $courseids = array_values(array_filter(array_map('intval', $courseids)));
+        if (count($courseids) === 0) {
+            return $out;
+        }
+        [$in, $params] = $GLOBALS['DB']->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'cid');
+        $rs = $GLOBALS['DB']->get_records_sql("SELECT id, shortname, fullname FROM {course} WHERE id {$in}", $params);
+        $i = 0;
+        $palette = ['primary', 'secondary', 'success', 'info', 'warning'];
+        foreach ($rs as $c) {
+            $out[] = [
+                'id' => (int)$c->id,
+                'shortname' => (string)$c->shortname,
+                'fullname' => (string)$c->fullname,
+                'url' => (string)(new \moodle_url('/course/view.php', ['id' => (int)$c->id])),
+                'badge' => $palette[$i % count($palette)],
+            ];
+            $i++;
+        }
+        return $out;
+    }
+
+    /**
+     * Returns a user's academic profile based on ULMS user_profile / hierarchy tables.
+     *
+     * @param int $userid
+     * @param string $role 'student' or 'lecturer'
+     * @return array
+     */
+    public function get_user_academic_profile(int $userid, string $role): array {
+        global $DB;
+        $out = [
+            'available' => false,
+            'facultyid' => 0,
+            'facultyname' => '',
+            'departmentid' => 0,
+            'departmentname' => '',
+            'programmeid' => 0,
+            'programmename' => '',
+            'programme_code' => '',
+            'staffid' => '',
+            'levelid' => 0,
+            'levelname' => '',
+            'levelcode' => '',
+        ];
+        if (!$DB->get_manager()->table_exists('local_ulms_user_profile')) {
+            return $out;
+        }
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $userid]);
+        if (!$profile) {
+            return $out;
+        }
+        $out['available'] = true;
+        $out['staffid'] = (string)($profile->staff_id ?? '');
+        $facid = (int)($profile->facultyid ?? 0);
+        $deptid = (int)($profile->departmentid ?? 0);
+        $progid = (int)($profile->programmeid ?? 0);
+        $lvlid  = (int)($profile->studylevel ?? 0);
+        if ($facid > 0 && $DB->get_manager()->table_exists('local_ulms_faculties')) {
+            $fac = $DB->get_record('local_ulms_faculties', ['id' => $facid], 'id, name, code');
+            if ($fac) {
+                $out['facultyid'] = (int)$fac->id;
+                $out['facultyname'] = trim((string)($fac->code ? ($fac->code . ' — ') : '') . (string)$fac->name);
+            }
+        }
+        if ($deptid > 0 && $DB->get_manager()->table_exists('local_ulms_departments')) {
+            $dep = $DB->get_record('local_ulms_departments', ['id' => $deptid], 'id, name, code');
+            if ($dep) {
+                $out['departmentid'] = (int)$dep->id;
+                $out['departmentname'] = trim((string)($dep->code ? ($dep->code . ' — ') : '') . (string)$dep->name);
+            }
+        }
+        if ($progid > 0 && $DB->get_manager()->table_exists('local_ulms_programmes')) {
+            $prog = $DB->get_record('local_ulms_programmes', ['id' => $progid], 'id, name, code');
+            if ($prog) {
+                $out['programmeid'] = (int)$prog->id;
+                $out['programmename'] = (string)$prog->name;
+                $out['programme_code'] = (string)($prog->code ?? '');
+            }
+        }
+        if ($role === 'student' && $lvlid > 0 && $DB->get_manager()->table_exists('local_ulms_levels')) {
+            $lv = $DB->get_record('local_ulms_levels', ['id' => $lvlid], 'id, name, code');
+            if (!$lv && is_numeric($profile->studylevel)) {
+                $lv = $DB->get_record('local_ulms_levels', ['code' => (string)$profile->studylevel], 'id, name, code');
+            }
+            if (!$lv) {
+                $lv = $DB->get_record('local_ulms_levels', ['code' => (string)$lvlid], 'id, name, code');
+            }
+            if ($lv) {
+                $out['levelid'] = (int)$lv->id;
+                $out['levelname'] = (string)$lv->name;
+                $out['levelcode'] = (string)($lv->code ?? '');
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Returns the canonical dashboard key for the current user.
      *
      * @return string
@@ -373,6 +512,9 @@ class dashboard_service {
         $currentperiod = $this->get_current_academic_period_label();
         $routingservice = $this->get_routing_service();
         [$upcomingexams, $openexams, $gradedexams] = $this->get_student_exam_summary((int)$USER->id);
+        $academicprofile = $this->get_user_academic_profile((int)$USER->id, 'student');
+        $cids = $this->resolve_courseids_for_user((int)$USER->id, 'student');
+        $coursepills = $this->build_course_pills($cids);
 
         return [
             'title' => \get_string('studentdashboard', 'local_ulms_dashboard'),
@@ -380,6 +522,8 @@ class dashboard_service {
             'focusheading' => \get_string('studentdashboardfocusheading', 'local_ulms_dashboard', fullname($USER)),
             'focusintro' => \get_string('studentdashboardfocusintro', 'local_ulms_dashboard'),
             'currentperiod' => $currentperiod,
+            'academic_profile' => $academicprofile,
+            'course_pills' => $coursepills,
             'summary' => [
                 ['label' => \get_string('coursecountsummary', 'local_ulms_dashboard'), 'value' => $snapshot['coursecount']],
                 ['label' => \get_string('upcomingdeadlinessummary', 'local_ulms_dashboard'), 'value' => count($snapshot['deadlines'])],
@@ -434,6 +578,9 @@ class dashboard_service {
         $currentperiod = $this->get_current_academic_period_label();
         $routingservice = $this->get_routing_service();
         [$draftexams, $openwindowexams, $pendinggradeexams] = $this->get_lecturer_exam_summary((int)$USER->id);
+        $academicprofile = $this->get_user_academic_profile((int)$USER->id, 'lecturer');
+        $cids = $this->resolve_courseids_for_user((int)$USER->id, 'lecturer');
+        $coursepills = $this->build_course_pills($cids);
 
         return [
             'title' => \get_string('lecturerdashboard', 'local_ulms_dashboard'),
@@ -441,6 +588,8 @@ class dashboard_service {
             'focusheading' => \get_string('lecturerdashboardfocusheading', 'local_ulms_dashboard', fullname($USER)),
             'focusintro' => \get_string('lecturerdashboardfocusintro', 'local_ulms_dashboard'),
             'currentperiod' => $currentperiod,
+            'academic_profile' => $academicprofile,
+            'course_pills' => $coursepills,
             'summary' => [
                 ['label' => \get_string('allocatedcoursessummary', 'local_ulms_dashboard'), 'value' => $snapshot['coursecount']],
                 ['label' => \get_string('gradingqueuesummary', 'local_ulms_dashboard'), 'value' => $this->get_pending_grading_count($gradingqueue)],
