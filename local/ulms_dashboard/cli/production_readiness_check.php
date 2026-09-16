@@ -108,7 +108,7 @@ if ($transport === 'resend') {
     );
     $recordcheck(
         'mail:http-client',
-        class_exists(\Symfony\Component\HttpClient\HttpClient::class),
+        class_exists('Symfony\Component\HttpClient\HttpClient'),
         'Symfony HTTP client dependency is available.'
     );
     $recordcheck(
@@ -525,7 +525,6 @@ try {
     $routeservice = new \local_ulms_auth\local\service\landing_page_service();
     $reflection = new \ReflectionClass($routeservice);
     $method = $reflection->getMethod('get_route_definitions');
-    $method->setAccessible(true);
     $routedefs = $method->invoke($routeservice);
     $totalroutes = is_array($routedefs) ? count($routedefs) : 0;
     $allowed = [200, 301, 302, 303, 403];
@@ -584,7 +583,6 @@ try {
     $checks_crud['validate_form_manual'] = is_array($vf) && !empty($vf['valid']) ? 'ok' : 'fail';
     $reflection2 = new \ReflectionClass($ps);
     $method2 = $reflection2->getMethod('validate_row');
-    $method2->setAccessible(true);
     $seens = ['emails' => [], 'usernames' => [], 'idnumbers' => []];
     $vr = $method2->invokeArgs($ps, [[
         'firstname' => 'Csv',

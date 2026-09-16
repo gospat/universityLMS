@@ -1474,7 +1474,7 @@ class academic_structure_service {
      *
      * @param string $entity
      * @param \stdClass $record
-     * @return int
+     * @return array{success:bool,id:int,message:string}
      */
     public function save_entity_record(string $entity, \stdClass $record): array {
         try {

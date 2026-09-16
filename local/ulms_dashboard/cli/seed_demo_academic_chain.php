@@ -248,7 +248,7 @@ $levelsneeded = [
     ['code' => '400', 'name' => 'Level 400 (Year 4)'],
 ];
 $levelmap = [];
-foreach ($levelsneeded as $idx => $lvl) {
+foreach ($levelsneeded as $lvl) {
     $existinglvl = $DB->get_record('local_ulms_levels', ['code' => $lvl['code']], '*', IGNORE_MISSING);
     if ($existinglvl) {
         $levelmap[$lvl['code']] = (int)$existinglvl->id;
@@ -274,14 +274,14 @@ foreach ($levelsneeded as $idx => $lvl) {
         $levelmap[$lvl['code']] = 0;
         continue;
     }
-    $levelres = $structservice->save_level((array)$lvlrec);
-    if (empty($levelres['success']) || empty($levelres['level'])) {
-        cli_writeln(sprintf('[ERROR LEVEL_FAIL] %s | %s', $lvl['code'], $levelres['message'] ?? 'unknown error'));
+    $levelres = save_entity_or_idempotent('levels', $lvlrec, ['code'], $lvl['name'] . ' (' . $lvl['code'] . ')', $apply, $verbose);
+    if (empty($levelres['success'])) {
+        cli_writeln(sprintf('[ERROR LEVEL_FAIL] %s | %s', $lvl['code'], 'save_entity_or_idempotent returned non-success'));
         exit(2);
     }
-    $lid = (int)$levelres['level']->id;
+    $lid = (int)$levelres['id'];
     $levelmap[$lvl['code']] = $lid;
-    if ($verbose) {
+    if ($verbose && !empty($levelres['created'])) {
         cli_writeln(sprintf('[LEVEL_CREATED ] %s id=%d', $lvl['code'], $lid));
     }
 }
