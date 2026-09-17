@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/ulms_dashboard/db" VERSION="2026091100" COMMENT="XMLDB file for local_ulms_dashboard"
+<XMLDB PATH="local/ulms_dashboard/db" VERSION="2026091700" COMMENT="XMLDB file for local_ulms_dashboard"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -121,6 +121,80 @@
                 <INDEX NAME="action_idx" UNIQUE="false" FIELDS="action"/>
                 <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
                 <INDEX NAME="timecreated_idx" UNIQUE="false" FIELDS="timecreated"/>
+            </INDEXES>
+        </TABLE>
+        <TABLE NAME="local_ulms_dashboard_session" COMMENT="Weekly class session rows tied to ULMS 6-tier academic structure">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="facultyid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_faculties"/>
+                <FIELD NAME="departmentid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_departments"/>
+                <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_programmes"/>
+                <FIELD NAME="sessionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_sessions (academic year)"/>
+                <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_semesters"/>
+                <FIELD NAME="levelid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_levels"/>
+                <FIELD NAME="moodlecourseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to Moodle core course table"/>
+                <FIELD NAME="lecturer_userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to user.id of the session owner-lecturer"/>
+                <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" SEQUENCE="false"/>
+                <FIELD NAME="delivery_mode" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="lecture" SEQUENCE="false" COMMENT="lecture/tutorial/lab/seminar/workshop/office_hour/online_live"/>
+                <FIELD NAME="weekday" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1=Mon..7=Sun"/>
+                <FIELD NAME="start_minutes" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="540" SEQUENCE="false" COMMENT="Minutes since 00:00 (e.g. 540=09:00)"/>
+                <FIELD NAME="duration_minutes" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="90" SEQUENCE="false"/>
+                <FIELD NAME="term_start_date" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Unix timestamp of first effective date"/>
+                <FIELD NAME="term_end_date" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Unix timestamp of last effective date"/>
+                <FIELD NAME="skipdates" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array of Y-m-d date strings explicitly cancelled"/>
+                <FIELD NAME="location_mode" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="physical" SEQUENCE="false" COMMENT="physical|online"/>
+                <FIELD NAME="location_label" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="Room label (physical) or provider label (online)"/>
+                <FIELD NAME="provider_key" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="bigbluebutton" SEQUENCE="false" COMMENT="bigbluebutton/lti_zoom/lti_msft_teams/custom_url"/>
+                <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="FK to course_modules id (BBB/LTI provisioned)"/>
+                <FIELD NAME="join_url_custom" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Raw URL when provider_key=custom_url"/>
+                <FIELD NAME="recurrence" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="weekly" SEQUENCE="false" COMMENT="weekly|once_off"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="scheduled" SEQUENCE="false" COMMENT="scheduled|cancelled|completed|rescheduled"/>
+                <FIELD NAME="notes_public" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Notes visible to students"/>
+                <FIELD NAME="notes_private" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Notes visible to lecturer/manager only"/>
+                <FIELD NAME="eventid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="FK to mdl_event id for calendar sync"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="faculty_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id"/>
+                <KEY NAME="department_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id"/>
+                <KEY NAME="programme_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+                <KEY NAME="session_academic_fk" TYPE="foreign" FIELDS="sessionid" REFTABLE="local_ulms_sessions" REFFIELDS="id"/>
+                <KEY NAME="semester_fk" TYPE="foreign" FIELDS="semesterid" REFTABLE="local_ulms_semesters" REFFIELDS="id"/>
+                <KEY NAME="level_fk" TYPE="foreign" FIELDS="levelid" REFTABLE="local_ulms_levels" REFFIELDS="id"/>
+                <KEY NAME="moodlecourse_fk" TYPE="foreign" FIELDS="moodlecourseid" REFTABLE="course" REFFIELDS="id"/>
+                <KEY NAME="lecturer_userid_fk" TYPE="foreign" FIELDS="lecturer_userid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="mdl_locaulmsdashsess_lec_ix" UNIQUE="false" FIELDS="lecturer_userid, weekday, start_minutes"/>
+                <INDEX NAME="mdl_locaulmsdashsess_cou_ix" UNIQUE="false" FIELDS="moodlecourseid, semesterid, levelid"/>
+                <INDEX NAME="mdl_locaulmsdashsess_loc_ix" UNIQUE="false" FIELDS="location_label, weekday, start_minutes"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
+            </INDEXES>
+        </TABLE>
+        <TABLE NAME="local_ulms_dashboard_attendance" COMMENT="Attendance per session occurrence per student (4 statuses)">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="sessionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to local_ulms_dashboard_session"/>
+                <FIELD NAME="session_occurrence_date" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Unix timestamp of the actual attendance date"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to user.id of the student"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="present" SEQUENCE="false" COMMENT="present|absent|late|excused"/>
+                <FIELD NAME="marked_by" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="FK to user.id of lecturer/manager who marked"/>
+                <FIELD NAME="marked_at" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Unix timestamp of mark action"/>
+                <FIELD NAME="comment" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="sessionid_fk" TYPE="foreign" FIELDS="sessionid" REFTABLE="local_ulms_dashboard_session" REFFIELDS="id"/>
+                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="mdl_locaulmsdashatte_sesuseocc_uix" UNIQUE="true" FIELDS="sessionid, userid, session_occurrence_date"/>
+                <INDEX NAME="mdl_locaulmsdashatte_ses_ix" UNIQUE="false" FIELDS="sessionid, session_occurrence_date"/>
+                <INDEX NAME="mdl_locaulmsdashatte_use_ix" UNIQUE="false" FIELDS="userid, session_occurrence_date"/>
+                <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
             </INDEXES>
         </TABLE>
     </TABLES>

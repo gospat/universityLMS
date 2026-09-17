@@ -52,6 +52,7 @@ class landing_page_service {
             'student.announcements' => ['path' => '/student/announcements', 'params' => ['view' => 'announcements']],
             'student.messages' => ['path' => '/student/messages', 'params' => ['view' => 'messages']],
             'student.profile' => ['path' => '/student/profile', 'params' => ['view' => 'profile']],
+            'student.attendance' => ['path' => '/student/attendance', 'params' => ['view' => 'attendance']],
 
             'lecturer.login' => ['path' => '/lecturer/login/'],
             'lecturer.passwordreset' => ['path' => '/lecturer/password-reset/', 'params' => ['portal' => 'lecturer']],
@@ -71,6 +72,10 @@ class landing_page_service {
             'lecturer.announcements' => ['path' => '/lecturer/announcements', 'params' => ['view' => 'announcements']],
             'lecturer.messages' => ['path' => '/lecturer/messages', 'params' => ['view' => 'messages']],
             'lecturer.profile' => ['path' => '/lecturer/profile', 'params' => ['view' => 'profile']],
+            'lecturer.schedule' => ['path' => '/lecturer/schedule', 'params' => ['view' => 'schedule']],
+            'lecturer.schedulecreate' => ['path' => '/lecturer/schedule/create', 'params' => ['view' => 'schedule', 'page' => 'create']],
+            'lecturer.scheduleedit' => ['path' => '/lecturer/schedule/edit', 'params' => ['view' => 'schedule', 'page' => 'edit']],
+            'lecturer.live' => ['path' => '/lecturer/live', 'params' => ['view' => 'live']],
 
             'management.login' => ['path' => '/management/login/'],
             'management.passwordreset' => ['path' => '/management/password-reset/', 'params' => ['portal' => 'administrator']],
@@ -90,6 +95,8 @@ class landing_page_service {
             'management.academicsreports' => ['path' => '/management/academics/reports/'],
             'management.academics' => ['path' => '/management/academics/'],
             'management.courses' => ['path' => '/management/courses', 'params' => ['view' => 'courses']],
+            'management.academicsschedule' => ['path' => '/management/academics/schedule', 'params' => ['view' => 'schedule']],
+            'management.academicsattendanceaudit' => ['path' => '/management/academics/attendance-audit', 'params' => ['view' => 'attendanceaudit']],
             'management.reports' => ['path' => '/management/reports', 'params' => ['view' => 'reports']],
             'management.auditlogs' => ['path' => '/management/audit-logs', 'params' => ['view' => 'auditlogs']],
             'management.settings' => ['path' => '/management/settings'],

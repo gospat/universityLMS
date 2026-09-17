@@ -2181,3 +2181,178 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 @media (min-width:1200px){.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar{width:5.5rem!important;flex:0 0 5.5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner>*+*{margin-top:1.25rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__brand{padding:0 0 1rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__eyebrow,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__title,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group__title,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h2,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h3,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label{display:none!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link{padding:0!important;justify-content:center!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__icon{margin-right:0!important}}
 .theme-ulms-university .badge.badge-primary,.theme-ulms-university .badge:not([class*="badge-"]){padding:.35rem .65rem;border-radius:999px;font-size:.72rem;font-weight:700;display:inline-flex;align-items:center;gap:.3rem}
 @media (prefers-reduced-motion:reduce){.theme-ulms-university *,.theme-ulms-university *::before,.theme-ulms-university *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+
+// ============================================================
+// T17: Timetable + Attendance Register Responsive Tail
+// (Appended after T16; XL ≥1280 untouched)
+// ============================================================
+
+// --- Timetable grid (base: XL untouched, just structure tokens)
+.ulms-timetable-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 16px;
+}
+.ulms-timetable-grid th,
+.ulms-timetable-grid td {
+  border: 1px solid #e1e7ee;
+  padding: 8px;
+  vertical-align: top;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ulms-timetable-grid th {
+  background: #f4f7fb;
+  font-weight: 600;
+  color: #0f4c81;
+  text-align: left;
+}
+.ulms-timetable-slot {
+  border-radius: 4px;
+  padding: 8px;
+  margin: 2px 0;
+  background: #eaf1fa;
+  border-left: 3px solid #0f4c81;
+  min-height: 44px;
+}
+.ulms-timetable-slot--online { border-left-color: #1a7f37; }
+.ulms-timetable-slot--cancelled { opacity: 0.5; text-decoration: line-through; }
+.ulms-slot-btn,
+.ulms-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  margin: 2px;
+  font-weight: 500;
+}
+.ulms-btn--primary { background: #0f4c81; color: #fff; border-color: #0f4c81; }
+.ulms-btn--primary:hover { background: #0a3a63; color: #fff; }
+.ulms-btn--success { background: #1a7f37; color: #fff; border-color: #1a7f37; }
+.ulms-btn--danger  { background: #c8352a; color: #fff; border-color: #c8352a; }
+.ulms-btn--warning { background: #c76a00; color: #fff; border-color: #c76a00; }
+.ulms-btn--info    { background: #0969da; color: #fff; border-color: #0969da; }
+.ulms-btn--full    { width: 100%; }
+.ulms-mark-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+.ulms-mark-btn     { flex: 1 1 calc(50% - 8px); max-width: calc(50% - 8px); }
+
+.ulms-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ulms-status-badge--live    { background: #ffe1dc; color: #c8352a; animation: none; }
+.ulms-status-badge--present { background: #d7f5e1; color: #1a7f37; }
+.ulms-status-badge--absent  { background: #ffe1dc; color: #c8352a; }
+.ulms-status-badge--late    { background: #fff2d6; color: #c76a00; }
+.ulms-status-badge--excused { background: #dbe8fb; color: #0969da; }
+
+.ulms-attendance-register {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+.ulms-attendance-register th,
+.ulms-attendance-register td {
+  border: 1px solid #e1e7ee;
+  padding: 8px;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ulms-attendance-register th {
+  background: #f4f7fb;
+  color: #0f4c81;
+  font-weight: 600;
+}
+
+// --- Mobile ≤ 767px: table → stacked day cards (XL untouched per user rule)
+@media (max-width: 767px) {
+  .ulms-timetable-grid,
+  .ulms-timetable-grid thead,
+  .ulms-timetable-grid tbody,
+  .ulms-timetable-grid th,
+  .ulms-timetable-grid td,
+  .ulms-timetable-grid tr { display: block; width: 100%; }
+  .ulms-timetable-grid thead tr { position: absolute; top: -9999px; left: -9999px; }
+  .ulms-timetable-grid tr {
+    margin-bottom: 16px;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    background: #fff;
+  }
+  .ulms-timetable-grid td {
+    border: none;
+    position: relative;
+    padding-left: 35%;
+    min-height: 44px;
+  }
+  .ulms-timetable-grid td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    width: 30%;
+    font-weight: 600;
+    color: #0f4c81;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .ulms-slot-btn, .ulms-btn { width: 100%; margin: 4px 0; }
+
+  // Attendance register mobile: td stacked data-label
+  .ulms-attendance-register,
+  .ulms-attendance-register thead,
+  .ulms-attendance-register tbody,
+  .ulms-attendance-register th,
+  .ulms-attendance-register td,
+  .ulms-attendance-register tr { display: block; width: 100%; }
+  .ulms-attendance-register thead tr { position: absolute; top: -9999px; left: -9999px; }
+  .ulms-attendance-register tr {
+    margin-bottom: 16px;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    background: #fff;
+  }
+  .ulms-attendance-register td {
+    border: none;
+    position: relative;
+    padding-left: 35%;
+    min-height: 44px;
+  }
+  .ulms-attendance-register td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    width: 30%;
+    font-weight: 600;
+    color: #0f4c81;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .ulms-mark-btn {
+    min-width: 44px;
+    min-height: 44px;
+    flex: 1 1 calc(50% - 8px);
+    max-width: calc(50% - 8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ulms-status-badge,
+  .ulms-timetable-slot,
+  .ulms-btn { transition: none !important; animation: none !important; }
+}

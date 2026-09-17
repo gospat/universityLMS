@@ -22,7 +22,7 @@ if (!isset($plugin)) {
 
 /** @var stdClass $plugin */
 $plugin->component = 'local_ulms_dashboard';
-$plugin->version = 2026091602;
+$plugin->version = 2026091700;
 $plugin->requires = 2024042200;
 $plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.2.2';
+$plugin->release = '0.3.0';

@@ -505,4 +505,578 @@ if ($dryrun) {
 } else {
     cli_writeln('Seed apply complete. Re-running without --force flags should be a no-op.');
 }
+
+// ============================================================
+if ($apply) {
+    global $CFG;
+    require_once($CFG->dirroot . '/lib/enrollib.php');
+    require_once($CFG->dirroot . '/local/ulms_dashboard/classes/local/service/schedule_service.php');
+    $svc = \local_ulms_dashboard\local\service\schedule_service::instance();
+
+    $lecturer_uid = 65;
+    $student_sample_uid = 66;
+
+    $faculty = $DB->get_record('local_ulms_faculties', [], '*', IGNORE_MULTIPLE);
+    $facultyid = (int)($faculty->id ?? 1);
+    $dept = $DB->get_record('local_ulms_departments', ['facultyid' => $facultyid], '*', IGNORE_MULTIPLE);
+    $deptid = (int)($dept->id ?? 1);
+    $prog = $DB->get_record('local_ulms_programmes', ['departmentid' => $deptid], '*', IGNORE_MULTIPLE);
+    $progid = (int)($prog->id ?? 1);
+    $asession = $DB->get_record('local_ulms_sessions', ['iscurrent' => 1], '*', IGNORE_MULTIPLE);
+    $sessionid = (int)($asession->id ?? 5);
+    $semester = $DB->get_record('local_ulms_semesters', ['sessionid' => $sessionid, 'code' => 'FIRST'], '*', IGNORE_MULTIPLE);
+    $semesterid = (int)($semester->id ?? 1);
+    $level100 = $DB->get_record('local_ulms_levels', ['code' => '100'], '*', IGNORE_MISSING);
+    $levelid = (int)($level100->id ?? 1);
+
+    $DB->execute('DELETE FROM {local_ulms_dashboard_attendance} WHERE sessionid IN (SELECT id FROM {local_ulms_dashboard_session} WHERE title LIKE ?)', ['[DEMO] %']);
+    $DB->execute('DELETE FROM {local_ulms_dashboard_session} WHERE title LIKE ?', ['[DEMO] %']);
+
+    $allprogs = $DB->get_records('local_ulms_programmes', null, '', 'id,id', 0, 10);
+    $allprogids = [];
+    foreach ($allprogs as $p) $allprogids[] = (int)$p->id;
+    $pcmaps = [];
+    foreach ($allprogids as $apid) {
+        $maps = $DB->get_records('local_ulms_programme_courses', ['programmeid' => $apid]);
+        foreach ($maps as $m) $pcmaps[] = $m;
+    }
+    $courseids = [];
+    foreach ($pcmaps as $map) {
+        if (!empty($map->moodlecourseid)) {
+            $courseids[] = (int)$map->moodlecourseid;
+        }
+    }
+    $realdb = $DB->get_records('course', null, '', 'id,id', 0, 20);
+    foreach ($realdb as $r) {
+        if ((int)$r->id > 1) $courseids[] = (int)$r->id;
+    }
+    $validated = [];
+    foreach ($courseids as $cid_raw) {
+        $tc = (int)$cid_raw;
+        if ($tc <= 0) continue;
+        if (in_array($tc, $validated, true)) continue;
+        if ($DB->record_exists('course', ['id' => $tc])) {
+            $validated[] = $tc;
+            if (count($validated) >= 6) break;
+        }
+    }
+    for ($i = 2; count($validated) < 6 && $i < 50; $i++) {
+        if ($DB->record_exists('course', ['id' => $i]) && !in_array($i, $validated, true)) {
+            $validated[] = $i;
+        }
+    }
+    $courseids = array_values($validated);
+
+    $term_start = strtotime('2026-09-15');
+    $term_end = strtotime('2026-12-12');
+
+    $c0 = $courseids[0] ?? 2;
+    $c1 = $courseids[1] ?? $c0;
+    $c2 = $courseids[2] ?? $c0;
+    $c3 = $courseids[3] ?? $c0;
+    $c4 = $courseids[4] ?? $c0;
+    $c5 = $courseids[5] ?? $c0;
+
+    $sessdefs = [
+        [
+            'title' => '[DEMO] CS101 Intro to CS — Lecture',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c0,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'lecture',
+            'weekday' => 1,
+            'start_minutes' => 540,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'online',
+            'location_label' => 'BBB Room A-101',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Bring laptop. Slides on VLE.',
+            'notes_private' => 'Cover chapters 1-3; quiz at 30min.',
+        ],
+        [
+            'title' => '[DEMO] CS101 Intro to CS — Tutorial',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c0,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'tutorial',
+            'weekday' => 3,
+            'start_minutes' => 660,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Tutorial Hall B2',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Problem sheet 1 review.',
+            'notes_private' => 'Focus on recursion exercises.',
+        ],
+        [
+            'title' => '[DEMO] CS201 Data Structures — Lecture',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c1,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'lecture',
+            'weekday' => 2,
+            'start_minutes' => 600,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'online',
+            'location_label' => 'Zoom Room CS201',
+            'provider_key' => 'lti_zoom',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Linked lists and arrays.',
+            'notes_private' => 'Big-O analysis primer.',
+        ],
+        [
+            'title' => '[DEMO] CS201 Data Structures — Lab',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c1,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'tutorial',
+            'weekday' => 2,
+            'start_minutes' => 600,
+            'duration_minutes' => 90,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Computer Lab 3',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Hands-on linked list implementation.',
+            'notes_private' => 'Conflict pair with CS201 Tue 10:00 lecture.',
+        ],
+        [
+            'title' => '[DEMO] MA101 Calculus I — Lecture',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c2,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'lecture',
+            'weekday' => 1,
+            'start_minutes' => 840,
+            'duration_minutes' => 90,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Lecture Theatre 1',
+            'provider_key' => 'lti_msft_teams',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Limits and continuity.',
+            'notes_private' => 'Board examples from textbook §1.2-1.5.',
+        ],
+        [
+            'title' => '[DEMO] MA101 Calculus I — Workshop',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c2,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'workshop',
+            'weekday' => 4,
+            'start_minutes' => 540,
+            'duration_minutes' => 90,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'online',
+            'location_label' => 'Teams Live Session',
+            'provider_key' => 'lti_msft_teams',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Group problem solving.',
+            'notes_private' => 'Split into breakout rooms of 4.',
+        ],
+        [
+            'title' => '[DEMO] MA201 Real Analysis — Lecture',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c3,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'lecture',
+            'weekday' => 3,
+            'start_minutes' => 840,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Lecture Theatre 2',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Sequences and convergence.',
+            'notes_private' => 'Cauchy criterion proof walkthrough.',
+        ],
+        [
+            'title' => '[DEMO] MA201 Real Analysis — Tutorial',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c3,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'tutorial',
+            'weekday' => 5,
+            'start_minutes' => 660,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'online',
+            'location_label' => 'Custom Stream URL',
+            'provider_key' => 'custom_url',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Tutorial sheet 2 solutions.',
+            'notes_private' => 'Go through Q5 carefully.',
+        ],
+        [
+            'title' => '[DEMO] CS101 Intro to CS — Lab',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c0,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'lab',
+            'weekday' => 4,
+            'start_minutes' => 840,
+            'duration_minutes' => 90,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Computer Lab 1',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Python setup and first programs.',
+            'notes_private' => 'Ensure Anaconda installed on lab PCs.',
+        ],
+        [
+            'title' => '[DEMO] CS201 Data Structures — Workshop',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c1,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'workshop',
+            'weekday' => 5,
+            'start_minutes' => 540,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'online',
+            'location_label' => 'Zoom Workshop Room',
+            'provider_key' => 'lti_zoom',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Stacks and queues whiteboarding.',
+            'notes_private' => 'Pair programming exercise.',
+        ],
+        [
+            'title' => '[DEMO] MA101 Calculus I — Seminar',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c2,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'seminar',
+            'weekday' => 2,
+            'start_minutes' => 840,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Seminar Room C',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'History of calculus discussion.',
+            'notes_private' => 'Assign reading Newton vs Leibniz.',
+        ],
+        [
+            'title' => '[DEMO] MA201 Real Analysis — Office Hour',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c3,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'office_hour',
+            'weekday' => 1,
+            'start_minutes' => 660,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'online',
+            'location_label' => 'BBB Office Hours',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Drop-in Q&A. No appointment needed.',
+            'notes_private' => 'Prioritise MA201 students with problem sheets.',
+        ],
+        [
+            'title' => '[DEMO] CS101 Intro to CS — Office Hour',
+            'facultyid' => $facultyid,
+            'departmentid' => $deptid,
+            'moodlecourseid' => $c0,
+            'programmeid' => $progid,
+            'levelid' => $levelid,
+            'sessionid' => $sessionid,
+            'semesterid' => $semesterid,
+            'lecturer_userid' => $lecturer_uid,
+            'delivery_mode' => 'office_hour',
+            'weekday' => 3,
+            'start_minutes' => 540,
+            'duration_minutes' => 60,
+            'term_start_date' => $term_start,
+            'term_end_date' => $term_end,
+            'location_mode' => 'physical',
+            'location_label' => 'Staff Office 4B',
+            'provider_key' => 'bigbluebutton',
+            'recurrence' => 'weekly',
+            'status' => 'scheduled',
+            'notes_public' => 'Help with assignment 1 setup.',
+            'notes_private' => 'Expect many Python install questions.',
+        ],
+    ];
+
+    $studentids = array_values($DB->get_records_sql_menu('SELECT id,id FROM {user} WHERE deleted=0 AND confirmed=1 AND id != 1 AND id != ? AND id != ? LIMIT 60', [$lecturer_uid, 64]));
+    if (count($studentids) < 12) {
+        for ($i = 100; $i <= 200; $i++) {
+            $studentids[] = $i;
+        }
+    }
+    if (!in_array($student_sample_uid, $studentids, true)) {
+        array_unshift($studentids, $student_sample_uid);
+    }
+    $studentids = array_values(array_unique(array_map('intval', $studentids)));
+
+    foreach ($courseids as $cid_raw) {
+        $ecid = (int)$cid_raw;
+        if ($ecid <= 0) continue;
+        try {
+            enrol_try_internal_enrol($ecid, $lecturer_uid, 'editingteacher');
+        } catch (\Throwable $e) {
+        }
+    }
+
+    $admin_ids = array_values($DB->get_records_sql_menu('SELECT id,id FROM {user} WHERE deleted=0 AND confirmed=1 AND id > 0 LIMIT 5'));
+    $actor_uid = !empty($admin_ids[0]) ? (int)$admin_ids[0] : 1;
+    if (function_exists('is_siteadmin')) {
+        foreach ($admin_ids as $aid) {
+            if (is_siteadmin((int)$aid)) {
+                $actor_uid = (int)$aid;
+                break;
+            }
+        }
+    }
+
+    $course_rosters = [];
+    for ($ci = 0; $ci < count($courseids); $ci++) {
+        $cid = (int)$courseids[$ci];
+        if ($cid <= 0) continue;
+        $start = $ci * 10;
+        $slice = array_slice($studentids, $start, 10);
+        if (count($slice) < 10) {
+            for ($fi = 0; count($slice) < 10; $fi++) {
+                $slice[] = 100 + $fi + $start;
+            }
+        }
+        if (!in_array($student_sample_uid, $slice, true)) {
+            $slice[0] = $student_sample_uid;
+        }
+        $course_rosters[$cid] = array_values(array_map('intval', $slice));
+        foreach ($course_rosters[$cid] as $uid) {
+            try {
+                enrol_try_internal_enrol($cid, $uid, 'student');
+            } catch (\Throwable $e) {
+            }
+        }
+    }
+
+    $created_ids = [];
+    foreach ($sessdefs as $sd) {
+        try {
+            $res = $svc->save_session($sd, $actor_uid);
+        } catch (\Throwable $e) {
+            $res = ['success' => false, 'message' => $e->getMessage()];
+        }
+        if (!empty($res['success'])) {
+            $created_ids[] = (int)$res['id'];
+        } else {
+            $warnings[] = 'session save: ' . ($res['message'] ?? 'unknown') . ' ' . json_encode($res['errors'] ?? []);
+        }
+    }
+
+    $attendance_target = array_slice($created_ids, 0, 6);
+    if (count($attendance_target) < 6) {
+        $attendance_target = $created_ids;
+    }
+
+    $occ_mon = strtotime('monday this week', $term_start);
+    $occ_tue = strtotime('tuesday this week', $term_start);
+
+    $roster_map = [];
+    foreach ($created_ids as $sid) {
+        $sessionrec = $DB->get_record('local_ulms_dashboard_session', ['id' => $sid], '*', IGNORE_MISSING);
+        if (!$sessionrec) continue;
+        $cid = (int)$sessionrec->moodlecourseid;
+        if (isset($course_rosters[$cid])) {
+            $roster_map[$sid] = $course_rosters[$cid];
+        } else {
+            $roster_map[$sid] = array_slice($studentids, 0, 10);
+        }
+    }
+
+    foreach ($attendance_target as $sidx => $sid) {
+        $roster = $roster_map[$sid] ?? array_slice($studentids, 0, 10);
+        foreach ($roster as $uid) {
+            $hash = crc32($sid . '_' . $uid) % 100;
+            if ($hash < 70) {
+                $status = 'present';
+            } elseif ($hash < 81) {
+                $status = 'absent';
+            } elseif ($hash < 93) {
+                $status = 'late';
+            } else {
+                $status = 'excused';
+            }
+            try {
+                $svc->mark_attendance($sid, $occ_mon, $uid, $status, $actor_uid);
+            } catch (\Throwable $e) {
+            }
+        }
+        if ($sidx === 1 && !empty($created_ids[2])) {
+            try {
+                $svc->bulk_mark_all_present((int)$created_ids[2], $occ_tue, $actor_uid);
+            } catch (\Throwable $e) {
+            }
+        }
+    }
+
+    if (count($attendance_target) >= 1) {
+        $sid_extra = (int)$attendance_target[count($attendance_target) - 1];
+        try {
+            $svc->bulk_mark_all_present($sid_extra, $occ_tue, $actor_uid);
+        } catch (\Throwable $e) {
+        }
+    }
+
+    $nowts = time();
+    $markdates = [$occ_mon, $occ_tue];
+    foreach ($created_ids as $csid) {
+        if ($csid <= 0) continue;
+        $srec = $DB->get_record('local_ulms_dashboard_session', ['id' => $csid], '*', IGNORE_MISSING);
+        if (!$srec) continue;
+        $mcid = (int)$srec->moodlecourseid;
+        $roster = $course_rosters[$mcid] ?? $studentids;
+        if (count($roster) < 10) {
+            for ($ri = 100; count($roster) < 10; $ri++) {
+                if (!in_array($ri, $roster, true)) $roster[] = $ri;
+            }
+        }
+        if (!in_array($student_sample_uid, $roster, true)) {
+            $roster[0] = $student_sample_uid;
+        }
+        $roster = array_slice(array_values(array_map('intval', $roster)), 0, 10);
+        foreach ($markdates as $md_idx => $md_ts) {
+            foreach ($roster as $pos => $uid) {
+                $existing = $DB->record_exists('local_ulms_dashboard_attendance', [
+                    'sessionid' => $csid,
+                    'session_occurrence_date' => (int)$md_ts,
+                    'userid' => (int)$uid,
+                ]);
+                if ($existing) continue;
+                $hash = crc32($csid . '_' . $md_idx . '_' . $uid) % 100;
+                if ($hash < 70) $st = 'present';
+                elseif ($hash < 81) $st = 'absent';
+                elseif ($hash < 93) $st = 'late';
+                else $st = 'excused';
+                if ($uid === $student_sample_uid && $md_idx === 0 && $pos < 7) $st = 'present';
+                try {
+                    $o = new \stdClass();
+                    $o->sessionid = $csid;
+                    $o->session_occurrence_date = (int)$md_ts;
+                    $o->userid = (int)$uid;
+                    $o->status = $st;
+                    $o->marked_by = $lecturer_uid;
+                    $o->marked_at = $nowts;
+                    $o->comment = null;
+                    $DB->insert_record('local_ulms_dashboard_attendance', $o, false);
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+    }
+
+    $sesscnt = (int)$DB->count_records_select('local_ulms_dashboard_session', 'title LIKE ?', ['[DEMO] %']);
+    $attcnt  = (int)$DB->count_records_select('local_ulms_dashboard_attendance', 'sessionid IN (SELECT id FROM {local_ulms_dashboard_session} WHERE title LIKE ?)', ['[DEMO] %']);
+    $s66cnt  = (int)$DB->count_records_select('local_ulms_dashboard_attendance', 'userid = ? AND sessionid IN (SELECT id FROM {local_ulms_dashboard_session} WHERE title LIKE ?)', [$student_sample_uid, '[DEMO] %']);
+    $confl   = $svc->find_conflicts(0, is_int($term_start) ? $term_start : strtotime('monday this week'));
+    $conflcnt = count($confl);
+    cli_writeln('');
+    cli_writeln(sprintf('[DEMO_CLASS_DELIVERY] sessions=%d attendance=%d student66_rows=%d conflict_pairs=%d', $sesscnt, $attcnt, $s66cnt, $conflcnt));
+    if ($sesscnt < 12 || $attcnt < 60 || $s66cnt < 6 || $conflcnt < 1) {
+        $warnings[] = 'demo seed AC threshold not met (need sessions>=12 attendance>=60 s66>=6 conflicts>=1)';
+    }
+    if ($warnings) {
+        cli_writeln('');
+        cli_writeln('Demo class-delivery warnings:');
+        foreach ($warnings as $w) cli_writeln('  - ' . $w);
+    }
+}
+// ===================== END DEMO CLASS-DELIVERY SEED =======
+
 exit(0);

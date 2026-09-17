@@ -67,6 +67,10 @@ class lecturer_portal_service {
             $n('lecturer.examspreview') => ['section' => 'exams', 'header' => 'preview'],
             $n('lecturer.students') => ['section' => 'students', 'header' => 'students'],
             $n('lecturer.attendance') => ['section' => 'attendance', 'header' => 'attendance'],
+            $n('lecturer.schedule') => ['section' => $this->normalise_portal_view(optional_param('view', 'schedule', PARAM_ALPHA)), 'header' => $this->normalise_portal_view(optional_param('view', 'schedule', PARAM_ALPHA))],
+            $n('lecturer.schedulecreate') => ['section' => $this->normalise_portal_view(optional_param('view', 'schedule', PARAM_ALPHA)), 'header' => 'create'],
+            $n('lecturer.scheduleedit') => ['section' => $this->normalise_portal_view(optional_param('view', 'schedule', PARAM_ALPHA)), 'header' => 'edit'],
+            $n('lecturer.live') => ['section' => $this->normalise_portal_view(optional_param('view', 'live', PARAM_ALPHA)), 'header' => $this->normalise_portal_view(optional_param('view', 'live', PARAM_ALPHA))],
             $n('lecturer.grades') => ['section' => 'grades', 'header' => 'grades'],
             $n('lecturer.announcements') => ['section' => 'announcements', 'header' => 'announcements'],
             $n('lecturer.messages') => ['section' => 'messages', 'header' => 'messages'],
@@ -110,12 +114,14 @@ class lecturer_portal_service {
             'dashboard', 'workspaces', 'course', 'catalog', 'files', 'privatefiles',
             'materials', 'assignments', 'quizzes', 'exams', 'students', 'attendance',
             'grades', 'announcements', 'messages', 'grading', 'profile', 'preferences',
+            'schedule', 'live',
         ];
         $allowedheaders = [
             'dashboard', 'workspaces', 'course', 'catalog', 'files', 'privatefiles',
             'materials', 'assignments', 'quizzes', 'exams', 'students', 'attendance',
             'grades', 'announcements', 'messages', 'grading', 'profile', 'preferences',
             'create', 'edit', 'questions', 'preview',
+            'schedule', 'live',
         ];
         $errors = [];
         foreach ($routes as $path => $entry) {
@@ -262,6 +268,8 @@ class lecturer_portal_service {
             'exams' => get_string('lecturerexamstitle', 'local_ulms_dashboard'),
             'students' => get_string('lecturerstudentstitle', 'local_ulms_dashboard'),
             'attendance' => get_string('lecturerattendancetitle', 'local_ulms_dashboard'),
+            'schedule' => get_string('lecturerscheduletitle', 'local_ulms_dashboard'),
+            'live' => get_string('lecturerlivetitle', 'local_ulms_dashboard'),
             'grades' => get_string('lecturergradestitle', 'local_ulms_dashboard'),
             'announcements' => get_string('lecturerannouncementstitle', 'local_ulms_dashboard'),
             'messages' => get_string('lecturermessagespage', 'local_ulms_dashboard'),
@@ -281,6 +289,8 @@ class lecturer_portal_service {
             'exams' => get_string('lecturerexamsdesc', 'local_ulms_dashboard'),
             'students' => get_string('lecturerstudentsdesc', 'local_ulms_dashboard'),
             'attendance' => get_string('lecturerattendancedesc', 'local_ulms_dashboard'),
+            'schedule' => get_string('lecturerscheduledesc', 'local_ulms_dashboard'),
+            'live' => get_string('lecturerlivedesc', 'local_ulms_dashboard'),
             'grades' => get_string('lecturergradesdesc', 'local_ulms_dashboard'),
             'announcements' => get_string('lecturerannouncementsdesc', 'local_ulms_dashboard'),
             'messages' => get_string('lecturermessagespagedesc', 'local_ulms_dashboard'),
@@ -304,6 +314,8 @@ class lecturer_portal_service {
             'preview' => get_string('lecturer.preview.eyebrow', 'local_ulms_dashboard'),
             'students' => get_string('lecturer.students.eyebrow', 'local_ulms_dashboard'),
             'attendance' => get_string('lecturer.attendance.eyebrow', 'local_ulms_dashboard'),
+            'schedule' => get_string('lecturer.schedule.eyebrow', 'local_ulms_dashboard'),
+            'live' => get_string('lecturer.live.eyebrow', 'local_ulms_dashboard'),
             'grades' => get_string('lecturer.grades.eyebrow', 'local_ulms_dashboard'),
             'announcements' => get_string('lecturer.announcements.eyebrow', 'local_ulms_dashboard'),
             'messages' => get_string('lecturer.messages.eyebrow', 'local_ulms_dashboard'),
@@ -583,6 +595,14 @@ class lecturer_portal_service {
                 'label' => get_string('lecturernavstudents', 'local_ulms_dashboard'),
                 'url' => $routingservice->get_url_for_route('lecturer.students')->out(false),
             ],
+            'schedule' => [
+                'label' => get_string('lecturernavschedule', 'local_ulms_dashboard'),
+                'url' => $routingservice->get_url_for_route('lecturer.schedule')->out(false),
+            ],
+            'live' => [
+                'label' => get_string('lecturernavlive', 'local_ulms_dashboard'),
+                'url' => $routingservice->get_url_for_route('lecturer.live')->out(false),
+            ],
             'attendance' => [
                 'label' => get_string('lecturernavattendance', 'local_ulms_dashboard'),
                 'url' => $routingservice->get_url_for_route('lecturer.attendance')->out(false),
@@ -640,6 +660,8 @@ class lecturer_portal_service {
         $iconcatalog = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="m15.5 9.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0z"/><path d="M12 3v2"/><path d="M12 19v2"/><path d="m5.6 6.2 1.4 1.4"/><path d="m17 16.4 1.4 1.4"/><path d="M3 12h2"/><path d="M19 12h2"/><path d="m5.6 17.8 1.4-1.4"/><path d="m17 7.6 1.4-1.4"/></svg>';
         $iconstudents = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
         $iconattendance = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>';
+        $iconschedule = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><rect x="8" y="14" width="3" height="3" rx="0.5"/><rect x="13" y="14" width="3" height="3" rx="0.5"/><rect x="8" y="18" width="3" height="2" rx="0.5"/><rect x="13" y="18" width="3" height="2" rx="0.5"/></svg>';
+        $iconlive = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>';
         $icongrades = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>';
         $iconannouncements = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 11v2a1 1 0 0 0 1 1h2l4 3V7L6 10H4a1 1 0 0 0-1 1z"/><path d="M11.7 7a5 5 0 0 0 0 10"/><path d="M15 9.3a8 8 0 0 1 0 5.4"/></svg>';
         $iconmessages = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
@@ -666,6 +688,18 @@ class lecturer_portal_service {
                         'label' => get_string('lecturernavworkspaces', 'local_ulms_dashboard'),
                         'url' => $routingservice->get_url_for_route('lecturer.courses')->out(false),
                         'icon' => $iconworkspaces,
+                    ],
+                    [
+                        'key' => 'schedule',
+                        'label' => get_string('lecturernavschedule', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('lecturer.schedule')->out(false),
+                        'icon' => $iconschedule,
+                    ],
+                    [
+                        'key' => 'live',
+                        'label' => get_string('lecturernavlive', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('lecturer.live')->out(false),
+                        'icon' => $iconlive,
                     ],
                     [
                         'key' => 'materials',
@@ -1110,7 +1144,7 @@ class lecturer_portal_service {
      * @return string
      */
     private function normalise_portal_view(string $view): string {
-        $allowed = ['materials', 'assignments', 'quizzes', 'exams', 'students', 'attendance', 'grades', 'announcements', 'messages', 'profile'];
+        $allowed = ['materials', 'assignments', 'quizzes', 'exams', 'students', 'attendance', 'grades', 'announcements', 'messages', 'profile', 'schedule', 'live'];
         return in_array($view, $allowed, true) ? $view : 'materials';
     }
 }

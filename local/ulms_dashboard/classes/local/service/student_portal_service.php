@@ -54,6 +54,7 @@ class student_portal_service {
             $n('student.grades') => ['section' => 'grades', 'header' => 'grades'],
             $n('student.progress') => ['section' => 'progress', 'header' => 'progress'],
             $n('student.timetable') => ['section' => 'timetable', 'header' => 'timetable'],
+            $n('student.attendance') => ['section' => 'attendance', 'header' => 'attendance'],
             $n('student.announcements') => ['section' => 'announcements', 'header' => 'announcements'],
             $n('student.messages') => ['section' => 'messages', 'header' => 'messages'],
             $n('student.profile') => ['section' => 'profile', 'header' => 'profile'],
@@ -93,7 +94,7 @@ class student_portal_service {
     public function validate_canonical_route_consistency(): array {
         $routes = $this->get_canonical_student_portal_routes();
         $knownsections = ['dashboard', 'courses', 'course', 'catalog', 'assignments', 'quizzes', 'exams', 'take', 'result',
-            'grades', 'coursegrades', 'progress', 'timetable', 'announcements', 'messages',
+            'grades', 'coursegrades', 'progress', 'timetable', 'attendance', 'announcements', 'messages',
             'profile', 'preferences', 'privatefiles'];
         $errors = [];
         foreach ($routes as $path => $meta) {
@@ -177,6 +178,7 @@ class student_portal_service {
             '/student/quizzes' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
             '/student/progress' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
             '/student/timetable' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
+            '/student/attendance' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
             '/student/announcements' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
             '/student/messages' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
             '/student/profile' => $this->normalise_portal_view(optional_param('view', $headerseed, PARAM_ALPHA)),
@@ -208,6 +210,7 @@ class student_portal_service {
             'coursegrades' => get_string('studentcoursegradespage', 'local_ulms_dashboard'),
             'progress' => get_string('studentprogresstitle', 'local_ulms_dashboard'),
             'timetable' => get_string('studenttimetabletitle', 'local_ulms_dashboard'),
+            'attendance' => get_string('studentattendancetitle', 'local_ulms_dashboard'),
             'announcements' => get_string('studentannouncementstitle', 'local_ulms_dashboard'),
             'messages' => get_string('studentmessagespage', 'local_ulms_dashboard'),
             'profile' => get_string('studentprofiletitle', 'local_ulms_dashboard'),
@@ -229,6 +232,7 @@ class student_portal_service {
             'coursegrades' => get_string('studentcoursegradespagedesc', 'local_ulms_dashboard', $course->fullname ?? ''),
             'progress' => get_string('studentprogressdesc', 'local_ulms_dashboard'),
             'timetable' => get_string('studenttimetabledesc', 'local_ulms_dashboard'),
+            'attendance' => get_string('studentattendancedesc', 'local_ulms_dashboard'),
             'announcements' => get_string('studentannouncementsdesc', 'local_ulms_dashboard'),
             'messages' => get_string('studentmessagespagedesc', 'local_ulms_dashboard'),
             'profile' => get_string('studentprofiledesc', 'local_ulms_dashboard'),
@@ -250,6 +254,7 @@ class student_portal_service {
             'coursegrades' => get_string('student.progress.eyebrow', 'local_ulms_dashboard'),
             'progress' => get_string('student.progress.eyebrow', 'local_ulms_dashboard'),
             'timetable' => get_string('student.timetable.eyebrow', 'local_ulms_dashboard'),
+            'attendance' => get_string('student.attendance.eyebrow', 'local_ulms_dashboard'),
             'announcements' => get_string('student.announcements.eyebrow', 'local_ulms_dashboard'),
             'messages' => get_string('student.messages.eyebrow', 'local_ulms_dashboard'),
             'profile' => get_string('student.profile.eyebrow', 'local_ulms_dashboard'),
@@ -337,6 +342,7 @@ class student_portal_service {
             '/student/quizzes' => $this->normalise_portal_view(optional_param('view', $snapshot, PARAM_ALPHA)),
             '/student/progress' => $this->normalise_portal_view(optional_param('view', $snapshot, PARAM_ALPHA)),
             '/student/timetable' => $this->normalise_portal_view(optional_param('view', $snapshot, PARAM_ALPHA)),
+            '/student/attendance' => $this->normalise_portal_view(optional_param('view', $snapshot, PARAM_ALPHA)),
             '/student/announcements' => $this->normalise_portal_view(optional_param('view', $snapshot, PARAM_ALPHA)),
             '/student/profile' => $this->normalise_portal_view(optional_param('view', $snapshot, PARAM_ALPHA)),
             default => $snapshot,
@@ -593,6 +599,10 @@ class student_portal_service {
                 'label' => get_string('studentnavtimetable', 'local_ulms_dashboard'),
                 'url' => $routingservice->get_url_for_route('student.timetable')->out(false),
             ],
+            'attendance' => [
+                'label' => get_string('studentnavattendance', 'local_ulms_dashboard'),
+                'url' => $routingservice->get_url_for_route('student.attendance')->out(false),
+            ],
             'announcements' => [
                 'label' => get_string('studentnavannouncements', 'local_ulms_dashboard'),
                 'url' => $routingservice->get_url_for_route('student.announcements')->out(false),
@@ -635,6 +645,7 @@ class student_portal_service {
         $icongrades = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>';
         $iconprogress = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="m7 14 4-3 3-3"/><path d="m12 18 4-4 4 4"/></svg>';
         $icontimetable = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>';
+        $iconattendance = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>';
         $iconannouncements = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 11v2a1 1 0 0 0 1 1h2l4 3V7L6 10H4a1 1 0 0 0-1 1z"/><path d="M11.7 7a5 5 0 0 0 0 10"/><path d="M15 9.3a8 8 0 0 1 0 5.4"/></svg>';
         $iconmessages = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
         $iconprofile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
@@ -706,6 +717,12 @@ class student_portal_service {
                         'label' => get_string('studentnavtimetable', 'local_ulms_dashboard'),
                         'url' => $routingservice->get_url_for_route('student.timetable')->out(false),
                         'icon' => $icontimetable,
+                    ],
+                    [
+                        'key' => 'attendance',
+                        'label' => get_string('studentnavattendance', 'local_ulms_dashboard'),
+                        'url' => $routingservice->get_url_for_route('student.attendance')->out(false),
+                        'icon' => $iconattendance,
                     ],
                 ], $section),
             ],
@@ -824,6 +841,13 @@ class student_portal_service {
         if ($section === 'timetable') {
             $breadcrumbs[] = [
                 'label' => get_string('studenttimetabletitle', 'local_ulms_dashboard'),
+                'url' => null,
+            ];
+        }
+
+        if ($section === 'attendance') {
+            $breadcrumbs[] = [
+                'label' => get_string('studentattendancetitle', 'local_ulms_dashboard'),
                 'url' => null,
             ];
         }
@@ -1108,7 +1132,7 @@ class student_portal_service {
      * @return string
      */
     private function normalise_portal_view(string $view): string {
-        $allowed = ['catalog', 'assignments', 'quizzes', 'progress', 'timetable', 'announcements', 'messages', 'profile'];
+        $allowed = ['catalog', 'assignments', 'quizzes', 'progress', 'timetable', 'attendance', 'announcements', 'messages', 'profile'];
         return in_array($view, $allowed, true) ? $view : 'catalog';
     }
 }

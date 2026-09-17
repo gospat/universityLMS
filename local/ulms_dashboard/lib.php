@@ -247,6 +247,8 @@ function local_ulms_dashboard_render_panel(array $panel): string {
                 html_writer::tag('dd', format_string((string)($item['value'] ?? '')), ['class' => 'col-sm-8']);
         }
         $content .= html_writer::tag('dl', implode('', $rows), ['class' => 'row']);
+    } else if ($style === 'html') {
+        $content .= (string)($panel['html'] ?? '');
     } else {
         $cards = [];
         foreach ($items as $item) {

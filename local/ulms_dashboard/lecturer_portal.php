@@ -28,7 +28,7 @@ $context = \context::instance_by_id(\context_system::instance()->id);
 require_capability('local/ulms_dashboard:viewlecturerdashboard', $context);
 
 $view = optional_param('view', 'materials', PARAM_ALPHA);
-$allowedviews = ['materials', 'assignments', 'quizzes', 'students', 'attendance', 'grades', 'announcements', 'messages', 'profile'];
+$allowedviews = ['materials', 'assignments', 'quizzes', 'students', 'attendance', 'grades', 'announcements', 'messages', 'profile', 'schedule', 'live'];
 if (!in_array($view, $allowedviews, true)) {
     $view = 'materials';
 }
@@ -43,6 +43,8 @@ $routekey = match ($view) {
     'announcements' => 'lecturer.announcements',
     'messages' => 'lecturer.messages',
     'profile' => 'lecturer.profile',
+    'schedule' => 'lecturer.schedule',
+    'live' => 'lecturer.live',
     default => 'lecturer.materials',
 };
 $routingservice->maybe_redirect_legacy_request($routekey);

@@ -388,5 +388,71 @@ function xmldb_local_ulms_dashboard_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091501, 'local', 'ulms_dashboard');
     }
 
+    if ($oldversion < 2026091700) {
+        // T17: Class Delivery tables (session + attendance). Idempotent creation.
+
+        $sessiontable = new xmldb_table('local_ulms_dashboard_session');
+        $sessiontable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $sessiontable->add_field('facultyid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('departmentid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('programmeid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('sessionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('semesterid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('levelid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('moodlecourseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('lecturer_userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('title', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '');
+        $sessiontable->add_field('delivery_mode', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, 'lecture');
+        $sessiontable->add_field('weekday', XMLDB_TYPE_INTEGER, '2', null, XMLDB_NOTNULL, null, '1');
+        $sessiontable->add_field('start_minutes', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '540');
+        $sessiontable->add_field('duration_minutes', XMLDB_TYPE_INTEGER, '4', null, XMLDB_NOTNULL, null, '90');
+        $sessiontable->add_field('term_start_date', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('term_end_date', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('skipdates', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $sessiontable->add_field('location_mode', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'physical');
+        $sessiontable->add_field('location_label', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '');
+        $sessiontable->add_field('provider_key', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, 'bigbluebutton');
+        $sessiontable->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $sessiontable->add_field('join_url_custom', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $sessiontable->add_field('recurrence', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'weekly');
+        $sessiontable->add_field('status', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'scheduled');
+        $sessiontable->add_field('notes_public', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $sessiontable->add_field('notes_private', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $sessiontable->add_field('eventid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $sessiontable->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $sessiontable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $sessiontable->add_index('mdl_locaulmsdashsess_lec_ix', XMLDB_INDEX_NOTUNIQUE, ['lecturer_userid', 'weekday', 'start_minutes']);
+        $sessiontable->add_index('mdl_locaulmsdashsess_cou_ix', XMLDB_INDEX_NOTUNIQUE, ['moodlecourseid', 'semesterid', 'levelid']);
+        $sessiontable->add_index('mdl_locaulmsdashsess_loc_ix', XMLDB_INDEX_NOTUNIQUE, ['location_label', 'weekday', 'start_minutes']);
+        $sessiontable->add_index('status_idx', XMLDB_INDEX_NOTUNIQUE, ['status']);
+
+        if (!$dbman->table_exists($sessiontable)) {
+            $dbman->create_table($sessiontable);
+        }
+
+        $attendancetable = new xmldb_table('local_ulms_dashboard_attendance');
+        $attendancetable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $attendancetable->add_field('sessionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $attendancetable->add_field('session_occurrence_date', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $attendancetable->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $attendancetable->add_field('status', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'present');
+        $attendancetable->add_field('marked_by', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $attendancetable->add_field('marked_at', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $attendancetable->add_field('comment', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $attendancetable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $attendancetable->add_index('mdl_locaulmsdashatte_sesuseocc_uix', XMLDB_INDEX_UNIQUE, ['sessionid', 'userid', 'session_occurrence_date']);
+        $attendancetable->add_index('mdl_locaulmsdashatte_ses_ix', XMLDB_INDEX_NOTUNIQUE, ['sessionid', 'session_occurrence_date']);
+        $attendancetable->add_index('mdl_locaulmsdashatte_use_ix', XMLDB_INDEX_NOTUNIQUE, ['userid', 'session_occurrence_date']);
+        $attendancetable->add_index('status_idx', XMLDB_INDEX_NOTUNIQUE, ['status']);
+
+        if (!$dbman->table_exists($attendancetable)) {
+            $dbman->create_table($attendancetable);
+        }
+
+        upgrade_plugin_savepoint(true, 2026091700, 'local', 'ulms_dashboard');
+    }
+
     return true;
 }

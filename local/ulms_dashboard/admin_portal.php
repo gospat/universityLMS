@@ -29,7 +29,7 @@ $dashboardservice->require_admin_permissions();
 
 $context = \context::instance_by_id(\context_system::instance()->id);
 $view = optional_param('view', 'courses', PARAM_ALPHA);
-$allowedviews = ['courses', 'reports', 'auditlogs'];
+$allowedviews = ['courses', 'reports', 'auditlogs', 'schedule', 'attendanceaudit'];
 if (!in_array($view, $allowedviews, true)) {
     $view = 'courses';
 }
@@ -38,6 +38,8 @@ $routingservice = new \local_ulms_auth\local\service\landing_page_service();
 $routekey = match ($view) {
     'reports' => 'management.reports',
     'auditlogs' => 'management.auditlogs',
+    'schedule' => 'management.academicsschedule',
+    'attendanceaudit' => 'management.academicsattendanceaudit',
     default => 'management.courses',
 };
 $routingservice->maybe_redirect_legacy_request($routekey);

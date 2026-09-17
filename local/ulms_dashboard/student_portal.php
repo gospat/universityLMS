@@ -28,7 +28,7 @@ $context = \context::instance_by_id(\context_system::instance()->id);
 require_capability('local/ulms_dashboard:viewstudentdashboard', $context);
 
 $view = optional_param('view', 'catalog', PARAM_ALPHA);
-$allowedviews = ['catalog', 'assignments', 'quizzes', 'progress', 'timetable', 'announcements', 'messages', 'profile'];
+$allowedviews = ['catalog', 'assignments', 'quizzes', 'progress', 'timetable', 'announcements', 'messages', 'profile', 'attendance'];
 if (!in_array($view, $allowedviews, true)) {
     $view = 'catalog';
 }
@@ -42,6 +42,7 @@ $pagetitles = [
     'announcements' => get_string('studentannouncementstitle', 'local_ulms_dashboard'),
     'messages' => get_string('studentmessagespage', 'local_ulms_dashboard'),
     'profile' => get_string('studentprofiletitle', 'local_ulms_dashboard'),
+    'attendance' => get_string('studentattendancetitle', 'local_ulms_dashboard'),
 ];
 $pagetitle = $pagetitles[$view] ?? get_string('studentportalpagetitle', 'local_ulms_dashboard');
 
@@ -54,6 +55,7 @@ $routekey = match ($view) {
     'announcements' => 'student.announcements',
     'messages' => 'student.messages',
     'profile' => 'student.profile',
+    'attendance' => 'student.attendance',
     default => 'student.catalog',
 };
 $routingservice->maybe_redirect_legacy_request($routekey);

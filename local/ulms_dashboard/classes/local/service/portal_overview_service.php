@@ -18,6 +18,10 @@ namespace local_ulms_dashboard\local\service;
 
 defined('MOODLE_INTERNAL') || die();
 
+global $CFG;
+require_once($CFG->dirroot . '/lib/enrollib.php');
+require_once __DIR__ . '/../../../../../lib/enrollib.php';
+
 /**
  * Builds focused portal overview pages from existing Moodle data.
  */
@@ -48,6 +52,7 @@ class portal_overview_service {
             'quizzes' => $this->build_quiz_section_data($snapshot, false),
             'progress' => $this->build_progress_section_data($snapshot),
             'timetable' => $this->build_timetable_section_data($snapshot),
+            'attendance' => $this->build_student_attendance_section_data($snapshot),
             'announcements' => $this->build_announcement_section_data($snapshot, false),
             'messages' => $this->build_messages_section_data($snapshot, false),
             'profile' => $this->build_profile_section_data(false),
@@ -97,7 +102,9 @@ class portal_overview_service {
             'assignments' => $this->build_assignment_section_data($snapshot, true),
             'quizzes' => $this->build_quiz_section_data($snapshot, true),
             'students' => $this->build_students_section_data($snapshot),
-            'attendance' => $this->build_attendance_section_data($snapshot),
+            'schedule' => $this->build_lecturer_schedule_section_data($snapshot),
+            'live' => $this->build_lecturer_live_section_data($snapshot),
+            'attendance' => $this->build_lecturer_attendance_register_data($snapshot),
             'grades' => $this->build_lecturer_grades_section_data($snapshot),
             'announcements' => $this->build_announcement_section_data($snapshot, true),
             'messages' => $this->build_messages_section_data($snapshot, true),
@@ -143,6 +150,8 @@ class portal_overview_service {
         return match ($section) {
             'courses' => $this->build_admin_courses_section_data(),
             'reports' => $this->build_admin_reports_section_data(),
+            'schedule' => $this->build_admin_schedule_section_data(),
+            'attendanceaudit' => $this->build_admin_attendanceaudit_section_data(),
             default => $this->build_admin_audit_section_data(),
         };
     }
@@ -605,15 +614,96 @@ class portal_overview_service {
      * @return array<string, mixed>
      */
     private function build_timetable_section_data(array $snapshot): array {
+        global $USER;
+
+        $service = schedule_service::instance();
+        $weekstartparam = optional_param('weekstart', 0, PARAM_INT);
+        if ($weekstartparam > 0) {
+            $monday_ts = $weekstartparam;
+        } else {
+            $monday_ts = strtotime('monday this week 00:00:00');
+        }
+        $monday = date('Y-m-d', $monday_ts);
+
+        $cells = $service->get_timetable_cells_for_user((int)$USER->id, 'student', $monday_ts);
+
+        $sessioncount = count($cells);
+        $kpis = $service->get_dashboard_kpis();
+
+        $html = '';
+
+        $prevweek = $monday_ts - (7 * 86400);
+        $nextweek = $monday_ts + (7 * 86400);
+        $currenturl = new \moodle_url($this->get_routing_service()->get_url_for_route('student.timetable'));
+
+        $html .= '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">';
+        $html .= '<div style="font-weight:600;color:#0f4c81;">Week of ' . s(date('M j, Y', $monday_ts)) . '</div>';
+        $html .= '<div style="display:flex;gap:8px;">';
+        $prevurl = new \moodle_url($currenturl, ['weekstart' => $prevweek]);
+        $nexturl = new \moodle_url($currenturl, ['weekstart' => $nextweek]);
+        $html .= '<a href="' . s($prevurl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;">← Prev Week</a>';
+        $html .= '<a href="' . s($nexturl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;">Next Week →</a>';
+        $html .= '</div></div>';
+
+        $html .= '<h3 style="margin:16px 0 8px;font-size:1rem;font-weight:700;color:#0f4c81;">Weekly Timetable</h3>';
+        $html .= '<table class="ulms-timetable-grid" data-ulms-timetable="true">';
+        $html .= '<thead><tr><th data-label="Time">Time</th><th data-label="Mon">Mon</th><th data-label="Tue">Tue</th><th data-label="Wed">Wed</th><th data-label="Thu">Thu</th><th data-label="Fri">Fri</th></tr></thead>';
+        $html .= '<tbody>';
+
+        $_daysmap = [1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 => 5];
+
+        for ($hr = 8; $hr <= 17; $hr++) {
+            $slotstart = $hr * 60;
+            $time_label = sprintf('%02d:00–%02d:00', $hr, $hr + 1);
+            $html .= '<tr>';
+            $html .= '<td data-label="Time" style="font-weight:600;color:#0f4c81;">' . s($time_label) . '</td>';
+            for ($wd = 1; $wd <= 5; $wd++) {
+                $html .= '<td data-label="' . s(['Mon','Tue','Wed','Thu','Fri'][$wd - 1]) . '">';
+                foreach ($cells as $c) {
+                    $cwd = (int)($c['weekday'] ?? 0);
+                    $cstart = (int)($c['start_minutes'] ?? 0);
+                    $cend = $cstart + (int)($c['duration_minutes'] ?? 0);
+                    if ($cwd === $wd && $cstart >= $slotstart && $cstart < ($slotstart + 60)) {
+                        $starth = intdiv($cstart, 60);
+                        $startm = $cstart % 60;
+                        $endh = intdiv($cend, 60);
+                        $endm = $cend % 60;
+                        $timerange = sprintf('%02d:%02d–%02d:%02d', $starth, $startm, $endh, $endm);
+                        $locmode = (string)($c['location_mode'] ?? 'physical');
+                        $loclabel = (string)($c['location_label'] ?? '');
+                        $delivery = (string)($c['delivery_mode'] ?? 'lecture');
+                        $statusclass = ($locmode === 'online') ? 'ulms-timetable-slot--online' : '';
+                        $html .= '<div class="ulms-timetable-slot ' . $statusclass . '" style="background:#eaf1fa;border-left:3px solid #0f4c81;border-radius:4px;padding:8px;margin:2px 0;">';
+                        $html .= '<div style="font-weight:600;font-size:13px;color:#0f1a25;">' . format_string($c['title']) . '</div>';
+                        $html .= '<div style="margin-top:4px;"><span class="ulms-status-badge" style="background:#dbe8fb;color:#0969da;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">' . s($delivery) . '</span></div>';
+                        $html .= '<div style="margin-top:4px;font-size:12px;color:#5c6f82;">' . s($timerange) . ' · ' . s($loclabel ?: $locmode) . '</div>';
+                        if ($locmode === 'online') {
+                            $join = $service->resolve_join_url((int)$c['id'], 'student');
+                            if (!empty($join['url'])) {
+                                $html .= '<div style="margin-top:6px;"><a href="' . s($join['url']) . '" target="' . s($join['target']) . '" rel="' . s($join['rel']) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Join Class Now</a></div>';
+                            }
+                        }
+                        $html .= '</div>';
+                    }
+                }
+                $html .= '</td>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table>';
+        $html .= '<input type="hidden" name="weekstart" value="' . s($monday) . '">';
+
         return [
             'summarycards' => [
-                ['label' => get_string('upcomingeventssummary', 'local_ulms_dashboard'), 'value' => (string)count($snapshot['events']), 'description' => get_string('studenttimetabledesc', 'local_ulms_dashboard')],
+                ['label' => 'Sessions This Week', 'value' => (string)$sessioncount, 'description' => 'Timetable sessions for selected week'],
+                ['label' => 'Platform Attendance', 'value' => $kpis['avg_attendance_percent'] . '%', 'description' => 'Average attendance across sessions'],
+                ['label' => get_string('coursecountsummary', 'local_ulms_dashboard'), 'value' => (string)$snapshot['coursecount'], 'description' => get_string('studentcoursescountdesc', 'local_ulms_dashboard')],
             ],
             'mainpanel' => [
                 'title' => get_string('studenttimetabletitle', 'local_ulms_dashboard'),
                 'subtitle' => get_string('studenttimetabledesc', 'local_ulms_dashboard'),
-                'style' => 'list',
-                'items' => $this->map_event_items($snapshot['events']),
+                'style' => 'html',
+                'html' => $html,
                 'emptytitle' => get_string('studenttimetableempty', 'local_ulms_dashboard'),
                 'emptydesc' => get_string('studenttimetableemptydesc', 'local_ulms_dashboard'),
             ],
@@ -742,31 +832,6 @@ class portal_overview_service {
                 'items' => $items,
                 'emptytitle' => get_string('lecturerstudentsempty', 'local_ulms_dashboard'),
                 'emptydesc' => get_string('lecturerstudentsemptydesc', 'local_ulms_dashboard'),
-            ],
-            'secondarypanels' => [],
-        ];
-    }
-
-    /**
-     * Builds lecturer attendance section data.
-     *
-     * @param array<string, mixed> $snapshot
-     * @return array<string, mixed>
-     */
-    private function build_attendance_section_data(array $snapshot): array {
-        $items = $this->map_event_items($snapshot['events']);
-
-        return [
-            'summarycards' => [
-                ['label' => get_string('upcomingeventssummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => get_string('lecturerattendancedesc', 'local_ulms_dashboard')],
-            ],
-            'mainpanel' => [
-                'title' => get_string('lecturerattendancetitle', 'local_ulms_dashboard'),
-                'subtitle' => get_string('lecturerattendancedesc', 'local_ulms_dashboard'),
-                'style' => 'list',
-                'items' => $items,
-                'emptytitle' => get_string('lecturerattendanceempty', 'local_ulms_dashboard'),
-                'emptydesc' => get_string('lecturerattendanceemptydesc', 'local_ulms_dashboard'),
             ],
             'secondarypanels' => [],
         ];
@@ -1426,5 +1491,851 @@ class portal_overview_service {
         $xfo = !empty($_SERVER['HTTP_X_FRAME_OPTIONS']);
         $headers[] = ['label' => 'X-Frame-Options', 'meta' => $xfo ? 'ENABLED' : 'NOT ENFORCED'];
         return $headers;
+    }
+
+    private function build_student_attendance_section_data(array $snapshot): array {
+        global $USER;
+
+        $service = schedule_service::instance();
+        $history = $service->get_student_attendance_history((int)$USER->id);
+
+        $coursecount = (int)$snapshot['coursecount'];
+        $presentcount = 0;
+        $latecount = 0;
+        $totalmarked = 0;
+        foreach ($history as $h) {
+            $st = (string)($h->status ?? '');
+            if ($st === 'present') { $presentcount++; $totalmarked++; }
+            elseif ($st === 'late') { $latecount++; $totalmarked++; }
+            elseif ($st === 'absent' || $st === 'excused') { $totalmarked++; }
+        }
+        $overallpct = $totalmarked > 0 ? number_format(($presentcount / max(1, $totalmarked)) * 100, 1) : '0.0';
+
+        $coursegrouped = [];
+        global $DB;
+        foreach ($history as $h) {
+            $sid = (int)($h->sessionid ?? 0);
+            $session = $DB->get_record('local_ulms_dashboard_session', ['id' => $sid], 'id, title, moodlecourseid', IGNORE_MISSING);
+            if (!$session) continue;
+            $cid = (int)$session->moodlecourseid;
+            if (!isset($coursegrouped[$cid])) {
+                $course = $DB->get_record('course', ['id' => $cid], 'id, fullname', IGNORE_MISSING);
+                $coursegrouped[$cid] = [
+                    'courseid' => $cid,
+                    'coursename' => $course ? format_string($course->fullname) : 'Course #' . $cid,
+                    'total' => 0, 'present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0,
+                    'sessions' => [],
+                ];
+            }
+            $st = (string)($h->status ?? '');
+            $coursegrouped[$cid]['total']++;
+            if (isset($coursegrouped[$cid][$st])) { $coursegrouped[$cid][$st]++; }
+            $coursegrouped[$cid]['sessions'][] = [
+                'date' => (int)($h->session_occurrence_date ?? 0),
+                'status' => $st,
+                'title' => format_string($session->title),
+            ];
+        }
+
+        $cardsitems = [];
+        foreach ($coursegrouped as $cg) {
+            $c_total = (int)$cg['total'];
+            $c_present = (int)$cg['present'];
+            $c_pct = $c_total > 0 ? number_format(($c_present / $c_total) * 100, 0) : 0;
+            $barcolor = $c_pct >= 80 ? '#1a7f37' : ($c_pct >= 60 ? '#c76a00' : '#c8352a');
+            $meta = '<div style="margin-top:4px;">';
+            $meta .= '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+            $meta .= '<span class="ulms-status-badge ulms-status-badge--present">Present: ' . $cg['present'] . '</span>';
+            if ($cg['late'] > 0) $meta .= '<span class="ulms-status-badge ulms-status-badge--late">Late: ' . $cg['late'] . '</span>';
+            if ($cg['absent'] > 0) $meta .= '<span class="ulms-status-badge ulms-status-badge--absent">Absent: ' . $cg['absent'] . '</span>';
+            $meta .= '</div>';
+            $meta .= '<div style="margin-top:8px;background:#e8eef6;border-radius:999px;height:10px;overflow:hidden;"><div style="height:100%;width:' . s($c_pct) . '%;background:' . $barcolor . ';"></div></div>';
+            $meta .= '<div style="margin-top:4px;font-size:12px;color:#5c6f82;">' . s($c_pct) . '% Present · ' . $c_total . ' sessions</div>';
+            $meta .= '</div>';
+            $cardsitems[] = [
+                'title' => $cg['coursename'],
+                'meta' => $meta,
+            ];
+            foreach (array_slice($cg['sessions'], 0, 5) as $s) {
+                $datestr = $s['date'] > 0 ? userdate($s['date'], get_string('strftimedaydate')) : 'N/A';
+                $badgeclass = 'ulms-status-badge--' . $s['status'];
+                $cardsitems[] = [
+                    'title' => '  · ' . $s['title'],
+                    'meta' => $datestr . ' <span class="ulms-status-badge ' . $badgeclass . '" style="margin-left:8px;">' . s(ucfirst($s['status'])) . '</span>',
+                ];
+            }
+        }
+
+        return [
+            'summarycards' => [
+                ['label' => 'Enrolled Courses', 'value' => (string)$coursecount, 'description' => 'Courses in current programme'],
+                ['label' => 'Overall Attendance', 'value' => s($overallpct) . '%', 'description' => 'Present / total marked sessions'],
+                ['label' => 'Present Count', 'value' => (string)$presentcount, 'description' => 'Sessions marked present'],
+                ['label' => 'Late Count', 'value' => (string)$latecount, 'description' => 'Sessions marked late'],
+            ],
+            'mainpanel' => [
+                'title' => 'My Attendance History',
+                'subtitle' => 'Attendance records across all enrolled courses',
+                'style' => 'cards',
+                'items' => $cardsitems,
+                'emptytitle' => 'No Attendance Records',
+                'emptydesc' => 'Your attendance will appear here once your lecturer starts marking sessions.',
+            ],
+            'secondarypanels' => [],
+        ];
+    }
+
+    private function build_lecturer_schedule_section_data(array $_snapshot): array {
+        global $DB, $USER;
+
+        $service = schedule_service::instance();
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            confirm_sesskey();
+            $action = optional_param('action', '', PARAM_ALPHA);
+            if ($action === 'save_session') {
+                $payload = [];
+                $fkfields = ['facultyid', 'departmentid', 'programmeid', 'sessionid', 'semesterid', 'levelid', 'moodlecourseid', 'lecturer_userid'];
+                foreach ($fkfields as $f) {
+                    $payload[$f] = (int)optional_param($f, 0, PARAM_INT);
+                }
+                $payload['title'] = (string)optional_param('title', '', PARAM_TEXT);
+                $payload['delivery_mode'] = (string)optional_param('delivery_mode', 'lecture', PARAM_ALPHAEXT);
+                $payload['weekday'] = (int)optional_param('weekday', 1, PARAM_INT);
+                $payload['start_minutes'] = (int)optional_param('start_minutes', 480, PARAM_INT);
+                $payload['duration_minutes'] = (int)optional_param('duration_minutes', 60, PARAM_INT);
+                $tsd = (string)optional_param('term_start_date', '', PARAM_TEXT);
+                $ted = (string)optional_param('term_end_date', '', PARAM_TEXT);
+                $payload['term_start_date'] = $tsd !== '' ? strtotime($tsd . ' 00:00:00') : 0;
+                $payload['term_end_date'] = $ted !== '' ? strtotime($ted . ' 23:59:59') : 0;
+                $payload['location_mode'] = (string)optional_param('location_mode', 'physical', PARAM_ALPHA);
+                $payload['location_label'] = (string)optional_param('location_label', '', PARAM_TEXT);
+                $payload['provider_key'] = (string)optional_param('provider_key', 'bigbluebutton', PARAM_ALPHAEXT);
+                $rec = (string)optional_param('recurrence', 'weekly', PARAM_ALPHA);
+                $payload['recurrence'] = $rec === 'once' ? 'once_off' : $rec;
+                $payload['status'] = (string)optional_param('status', 'scheduled', PARAM_ALPHA);
+                $payload['notes_public'] = (string)optional_param('notes_public', '', PARAM_RAW);
+                $payload['notes_private'] = (string)optional_param('notes_private', '', PARAM_RAW);
+                $result = $service->save_session($payload, (int)$USER->id);
+                if (!empty($result['success'])) {
+                    \core\notification::add('Session scheduled successfully.', \core\output\notification::NOTIFY_SUCCESS);
+                } else {
+                    $errmsg = 'Failed to schedule session.';
+                    if (!empty($result['errors'])) {
+                        $errmsg .= ' Fields: ' . implode(', ', array_keys($result['errors']));
+                    }
+                    \core\notification::add($errmsg, \core\output\notification::NOTIFY_ERROR);
+                }
+                redirect(new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.schedule')));
+            }
+        }
+
+        $weekstartparam = optional_param('weekstart', 0, PARAM_INT);
+        if ($weekstartparam > 0) {
+            $monday_ts = $weekstartparam;
+        } else {
+            $monday_ts = strtotime('monday this week 00:00:00');
+        }
+        $monday = date('Y-m-d', $monday_ts);
+
+        $cells = $service->get_timetable_cells_for_user((int)$USER->id, 'editingteacher', $monday_ts);
+        $sessioncount = count($cells);
+        $kpis = $service->get_dashboard_kpis();
+        $conflicts = $service->find_conflicts(0, $monday_ts);
+        $conflictcount = count($conflicts);
+
+        $html = '';
+
+        $faculties = $DB->get_records_menu('local_ulms_faculties', null, 'name ASC', 'id, name');
+        $departments = $DB->get_records_menu('local_ulms_departments', null, 'name ASC', 'id, name');
+        $programmes = $DB->get_records_menu('local_ulms_programmes', null, 'name ASC', 'id, name');
+        $sessions = $DB->get_records_menu('local_ulms_sessions', null, 'name ASC', 'id, name');
+        $semesters = $DB->get_records_menu('local_ulms_semesters', null, 'name ASC', 'id, name');
+        $levels = $DB->get_records_menu('local_ulms_levels', null, 'name ASC', 'id, name');
+        $mycourses = [];
+        foreach (enrol_get_all_users_courses((int)$USER->id, false, ['id', 'fullname']) as $c) {
+            $mycourses[(int)$c->id] = format_string($c->fullname);
+        }
+
+        $html .= '<h3 style="margin:0 0 12px;font-size:1rem;font-weight:700;color:#0f4c81;">Schedule New Session</h3>';
+        $html .= '<form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;margin-bottom:24px;">';
+        $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
+        $html .= '<input type="hidden" name="action" value="save_session">';
+        $html .= '<input type="hidden" name="lecturer_userid" value="' . s((int)$USER->id) . '">';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Faculty</label><select name="facultyid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Faculty --</option>';
+        foreach ($faculties as $fid => $fname) {
+            $html .= '<option value="' . s($fid) . '">' . format_string($fname) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Department</label><select name="departmentid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Department --</option>';
+        foreach ($departments as $did => $dname) {
+            $html .= '<option value="' . s($did) . '">' . format_string($dname) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Programme</label><select name="programmeid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Programme --</option>';
+        foreach ($programmes as $pid => $pname) {
+            $html .= '<option value="' . s($pid) . '">' . format_string($pname) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Academic Session</label><select name="sessionid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Session --</option>';
+        foreach ($sessions as $sid => $sname) {
+            $html .= '<option value="' . s($sid) . '">' . format_string($sname) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Semester</label><select name="semesterid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Semester --</option>';
+        foreach ($semesters as $smid => $smname) {
+            $html .= '<option value="' . s($smid) . '">' . format_string($smname) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Level</label><select name="levelid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Level --</option>';
+        foreach ($levels as $lid => $lname) {
+            $html .= '<option value="' . s($lid) . '">' . format_string($lname) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field" style="grid-column:span 1;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Course</label><select name="moodlecourseid" class="form-control custom-select" required>';
+        $html .= '<option value="">-- Select Course --</option>';
+        foreach ($mycourses as $cid => $cname) {
+            $html .= '<option value="' . s($cid) . '">' . $cname . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field" style="grid-column:span 1;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Session Title</label><input type="text" name="title" class="form-control" required placeholder="e.g. Introduction to Programming"></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Delivery Mode</label><select name="delivery_mode" class="form-control custom-select">';
+        foreach ($service::DELIVERY_MODES as $dm) {
+            $html .= '<option value="' . s($dm) . '">' . s(ucwords(str_replace('_', ' ', $dm))) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Weekday</label><select name="weekday" class="form-control custom-select">';
+        $wdnames = [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday'];
+        foreach ($wdnames as $wdi => $wdn) {
+            $html .= '<option value="' . s($wdi) . '">' . s($wdn) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Start Time</label><select name="start_minutes" class="form-control custom-select">';
+        for ($tm = 480; $tm <= 1080; $tm += 30) {
+            $h = intdiv($tm, 60);
+            $m = $tm % 60;
+            $html .= '<option value="' . s($tm) . '">' . s(sprintf('%02d:%02d', $h, $m)) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Duration (minutes)</label><select name="duration_minutes" class="form-control custom-select">';
+        foreach ([30, 45, 60, 90, 120] as $d) {
+            $html .= '<option value="' . s($d) . '">' . s($d) . ' min</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Term Start Date</label><input type="date" name="term_start_date" class="form-control" value="' . s(date('Y-m-d', $monday_ts)) . '"></div>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Term End Date</label><input type="date" name="term_end_date" class="form-control" value="' . s(date('Y-m-d', $monday_ts + (12 * 7 * 86400))) . '"></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Location Mode</label><select name="location_mode" class="form-control custom-select">';
+        foreach ($service::LOCATION_MODES as $lm) {
+            $html .= '<option value="' . s($lm) . '">' . s(ucfirst($lm)) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Location / Room</label><input type="text" name="location_label" class="form-control" placeholder="Room 201 / Zoom link ID"></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Online Provider</label><select name="provider_key" class="form-control custom-select">';
+        foreach ($service::PROVIDERS as $pk) {
+            $lbl = str_replace('_', ' ', $pk);
+            $html .= '<option value="' . s($pk) . '">' . s(ucwords($lbl)) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Recurrence</label><select name="recurrence" class="form-control custom-select">';
+        $html .= '<option value="weekly">Weekly</option><option value="once">Once-off</option><option value="fortnightly">Fortnightly</option>';
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Status</label><select name="status" class="form-control custom-select">';
+        foreach ($service::STATUSES as $st) {
+            $html .= '<option value="' . s($st) . '">' . s(ucfirst($st)) . '</option>';
+        }
+        $html .= '</select></div>';
+
+        $html .= '<div class="ulms-form-field" style="grid-column:span 2;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Public Notes (visible to students)</label><textarea name="notes_public" rows="2" class="form-control" placeholder="Pre-reading, preparation notes..."></textarea></div>';
+        $html .= '<div class="ulms-form-field" style="grid-column:span 2;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Private Notes (lecturer only)</label><textarea name="notes_private" rows="2" class="form-control" placeholder="Internal reminders, seating plan..."></textarea></div>';
+
+        $html .= '<div style="grid-column:1 / -1;display:flex;justify-content:flex-end;"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;padding:10px 20px;font-weight:600;">Schedule Session</button></div>';
+        $html .= '</form>';
+
+        $prevweek = $monday_ts - (7 * 86400);
+        $nextweek = $monday_ts + (7 * 86400);
+        $currenturl = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.schedule'));
+
+        $html .= '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">';
+        $html .= '<h3 style="margin:0;font-size:1rem;font-weight:700;color:#0f4c81;">Weekly Timetable — Week of ' . s(date('M j, Y', $monday_ts)) . '</h3>';
+        $html .= '<div style="display:flex;gap:8px;">';
+        $prevurl = new \moodle_url($currenturl, ['weekstart' => $prevweek]);
+        $nexturl = new \moodle_url($currenturl, ['weekstart' => $nextweek]);
+        $html .= '<a href="' . s($prevurl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;">← Prev</a>';
+        $html .= '<a href="' . s($nexturl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;">Next →</a>';
+        $html .= '</div></div>';
+
+        $html .= '<table class="ulms-timetable-grid" data-ulms-timetable="true">';
+        $html .= '<thead><tr><th data-label="Time">Time</th><th data-label="Mon">Mon</th><th data-label="Tue">Tue</th><th data-label="Wed">Wed</th><th data-label="Thu">Thu</th><th data-label="Fri">Fri</th></tr></thead><tbody>';
+
+        for ($hr = 8; $hr <= 17; $hr++) {
+            $slotstart = $hr * 60;
+            $time_label = sprintf('%02d:00–%02d:00', $hr, $hr + 1);
+            $html .= '<tr>';
+            $html .= '<td data-label="Time" style="font-weight:600;color:#0f4c81;">' . s($time_label) . '</td>';
+            for ($wd = 1; $wd <= 5; $wd++) {
+                $html .= '<td data-label="' . s(['Mon','Tue','Wed','Thu','Fri'][$wd - 1]) . '">';
+                foreach ($cells as $c) {
+                    $cwd = (int)($c['weekday'] ?? 0);
+                    $cstart = (int)($c['start_minutes'] ?? 0);
+                    $cend = $cstart + (int)($c['duration_minutes'] ?? 0);
+                    if ($cwd === $wd && $cstart >= $slotstart && $cstart < ($slotstart + 60)) {
+                        $starth = intdiv($cstart, 60);
+                        $startm = $cstart % 60;
+                        $endh = intdiv($cend, 60);
+                        $endm = $cend % 60;
+                        $timerange = sprintf('%02d:%02d–%02d:%02d', $starth, $startm, $endh, $endm);
+                        $locmode = (string)($c['location_mode'] ?? 'physical');
+                        $loclabel = (string)($c['location_label'] ?? '');
+                        $delivery = (string)($c['delivery_mode'] ?? 'lecture');
+                        $statusclass = ($locmode === 'online') ? 'ulms-timetable-slot--online' : '';
+                        $html .= '<div class="ulms-timetable-slot ' . $statusclass . '" style="background:#eaf1fa;border-left:3px solid #0f4c81;border-radius:4px;padding:8px;margin:2px 0;min-height:44px;">';
+                        $html .= '<div style="font-weight:600;font-size:13px;color:#0f1a25;">' . format_string($c['title']) . '</div>';
+                        $html .= '<div style="margin-top:4px;"><span class="ulms-status-badge" style="background:#dbe8fb;color:#0969da;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">' . s($delivery) . '</span></div>';
+                        $html .= '<div style="margin-top:4px;font-size:12px;color:#5c6f82;">' . s($timerange) . ' · ' . s($loclabel ?: $locmode) . '</div>';
+                        $html .= '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">';
+                        $editurl = new \moodle_url('/course/view.php', ['id' => (int)($c['moodlecourseid'] ?? 1)]);
+                        $html .= '<a href="' . s($editurl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Edit</a>';
+                        if ($locmode === 'online') {
+                            $join = $service->resolve_join_url((int)$c['id'], 'lecturer');
+                            if (!empty($join['url'])) {
+                                $html .= '<a href="' . s($join['url']) . '" target="' . s($join['target']) . '" rel="' . s($join['rel']) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Join Class Now</a>';
+                            }
+                        }
+                        $html .= '</div></div>';
+                    }
+                }
+                $html .= '</td>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table>';
+        $html .= '<input type="hidden" name="weekstart" value="' . s($monday) . '">';
+
+        $listitems = [];
+        usort($cells, function ($a, $b) {
+            $wa = (int)($a['weekday'] ?? 0) * 1440 + (int)($a['start_minutes'] ?? 0);
+            $wb = (int)($b['weekday'] ?? 0) * 1440 + (int)($b['start_minutes'] ?? 0);
+            return $wa - $wb;
+        });
+        foreach ($cells as $c) {
+            $wdnames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri'];
+            $wd = (int)($c['weekday'] ?? 0);
+            $sm = (int)($c['start_minutes'] ?? 0);
+            $em = $sm + (int)($c['duration_minutes'] ?? 0);
+            $tr = sprintf('%s %02d:%02d–%02d:%02d', $wdnames[$wd] ?? '?', intdiv($sm, 60), $sm % 60, intdiv($em, 60), $em % 60);
+            $st = (string)($c['status'] ?? 'scheduled');
+            $listitems[] = [
+                'title' => format_string($c['title']),
+                'meta' => s($tr) . ' · ' . s($c['location_mode'] ?? 'physical') . ' ' . s($c['location_label'] ?? '') . ' · <span class="ulms-status-badge" style="margin-left:4px;">' . s(ucfirst($st)) . '</span>',
+            ];
+        }
+
+        return [
+            'summarycards' => [
+                ['label' => 'Sessions This Week', 'value' => (string)$sessioncount, 'description' => 'Timetable sessions for selected week'],
+                ['label' => 'Avg Attendance %', 'value' => $kpis['avg_attendance_percent'] . '%', 'description' => 'Platform-wide average attendance'],
+                ['label' => 'Conflict Count', 'value' => (string)$conflictcount, 'description' => 'Scheduling conflicts detected'],
+            ],
+            'mainpanel' => [
+                'title' => 'Schedule & Timetable Manager',
+                'subtitle' => 'Schedule new class sessions and manage your weekly teaching timetable',
+                'style' => 'html',
+                'html' => $html,
+            ],
+            'secondarypanels' => [
+                [
+                    'title' => 'Upcoming Sessions',
+                    'subtitle' => 'Sessions ordered by day and time',
+                    'style' => 'list',
+                    'soft' => true,
+                    'items' => $listitems,
+                    'emptytitle' => 'No sessions yet',
+                    'emptydesc' => 'Use the form above to schedule your first class session.',
+                ],
+            ],
+        ];
+    }
+
+    private function build_lecturer_live_section_data(array $_snapshot): array {
+        global $USER;
+
+        $service = schedule_service::instance();
+        $today = getdate();
+        $wdmap = [0 => 7, 1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 => 5, 6 => 6];
+        $today_wd = $wdmap[(int)($today['wday'] ?? 0)];
+        $now_minutes = ((int)($today['hours'] ?? 0)) * 60 + (int)($today['minutes'] ?? 0);
+
+        $monday_ts = strtotime('monday this week 00:00:00');
+        $all = $service->get_timetable_cells_for_user((int)$USER->id, 'editingteacher', $monday_ts);
+
+        $today_sessions = [];
+        foreach ($all as $c) {
+            if ((int)($c['weekday'] ?? 0) === $today_wd) {
+                $today_sessions[] = $c;
+            }
+        }
+        $scheduled_count = count($today_sessions);
+
+        $live_now = 0;
+        $completed_today = 0;
+        $cardsitems = [];
+
+        foreach ($today_sessions as $c) {
+            $sm = (int)($c['start_minutes'] ?? 0);
+            $em = $sm + (int)($c['duration_minutes'] ?? 0);
+            $is_live = ($now_minutes >= $sm && $now_minutes < $em);
+            $is_done = ($now_minutes >= $em);
+            if ($is_live) $live_now++;
+            if ($is_done) $completed_today++;
+
+            $starth = intdiv($sm, 60);
+            $startm = $sm % 60;
+            $endh = intdiv($em, 60);
+            $endm = $em % 60;
+            $timerange = sprintf('%02d:%02d–%02d:%02d', $starth, $startm, $endh, $endm);
+            $locmode = (string)($c['location_mode'] ?? 'physical');
+            $loclabel = (string)($c['location_label'] ?? '');
+            $delivery = (string)($c['delivery_mode'] ?? 'lecture');
+
+            $meta = 'Time: ' . s($timerange) . ' · ' . s($loclabel ?: $locmode) . ' · Delivery: ' . s($delivery);
+            if ($is_live) {
+                $meta .= ' <span class="ulms-status-badge ulms-status-badge--live" style="margin-left:8px;">LIVE NOW</span>';
+            }
+
+            $join = $service->resolve_join_url((int)$c['id'], 'lecturer');
+            $footer = '';
+            if ($locmode === 'online' && !empty($join['url'])) {
+                $footer = '<a href="' . s($join['url']) . '" target="' . s($join['target']) . '" rel="' . s($join['rel']) . '" class="ulms-btn ulms-btn--primary ulms-btn--full" style="display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;">Join Class Now</a>';
+            }
+
+            $cardsitems[] = [
+                'title' => format_string($c['title']),
+                'meta' => $meta,
+                'footer' => $footer,
+            ];
+        }
+
+        return [
+            'summarycards' => [
+                ['label' => 'Scheduled Today', 'value' => (string)$scheduled_count, 'description' => 'Class sessions scheduled for today'],
+                ['label' => 'Live Now', 'value' => (string)$live_now, 'description' => 'Sessions currently in progress'],
+                ['label' => 'Completed Today', 'value' => (string)$completed_today, 'description' => 'Sessions already finished today'],
+            ],
+            'mainpanel' => [
+                'title' => 'Today — Live Sessions',
+                'subtitle' => 'Live class sessions occurring today with one-click join access',
+                'style' => 'cards',
+                'items' => $cardsitems,
+                'emptytitle' => 'No Sessions Today',
+                'emptydesc' => 'There are no class sessions on the timetable for today.',
+            ],
+            'secondarypanels' => [],
+        ];
+    }
+
+    /** @noinspection PhpUndefinedFunctionInspection */
+    private function build_lecturer_attendance_register_data(array $_snapshot): array {
+        global $DB, $USER;
+
+        $service = schedule_service::instance();
+
+        $selected_sessionid = optional_param('sessionid', 0, PARAM_INT);
+        $selected_occurrence_raw = optional_param('occurrence_date', '', PARAM_TEXT);
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            confirm_sesskey();
+            $action = optional_param('action', '', PARAM_ALPHA);
+
+            if ($action === 'mark') {
+                $sid = (int)optional_param('sessionid', 0, PARAM_INT);
+                $od_raw = (string)optional_param('occurrence_date', '', PARAM_TEXT);
+                $od = $od_raw !== '' ? (int)strtotime($od_raw . ' 00:00:00') : (int)strtotime('today 00:00:00');
+                $uid = (int)optional_param('userid', 0, PARAM_INT);
+                $st = (string)optional_param('status', 'present', PARAM_ALPHA);
+                $r = $service->mark_attendance($sid, $od, $uid, $st, (int)$USER->id);
+                if (!empty($r['success'])) {
+                    \core\notification::add('Attendance marked.', \core\output\notification::NOTIFY_SUCCESS);
+                } else {
+                    \core\notification::add('Failed to mark attendance: ' . s($r['message'] ?? 'error'), \core\output\notification::NOTIFY_ERROR);
+                }
+                $redir = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.attendance'), ['sessionid' => $sid, 'occurrence_date' => $od_raw !== '' ? date('Y-m-d', $od) : '']);
+                redirect($redir);
+            }
+
+            if ($action === 'bulk_present') {
+                $sid = (int)optional_param('sessionid', 0, PARAM_INT);
+                $od_raw = (string)optional_param('occurrence_date', '', PARAM_TEXT);
+                $od = $od_raw !== '' ? (int)strtotime($od_raw . ' 00:00:00') : (int)strtotime('today 00:00:00');
+                $r = $service->bulk_mark_all_present($sid, $od, (int)$USER->id);
+                \core\notification::add(
+                    'Bulk present complete: ' . (int)($r['newly_marked'] ?? 0) . ' newly marked, ' . (int)($r['skipped_existing'] ?? 0) . ' skipped out of ' . (int)($r['total_count'] ?? 0) . ' total.',
+                    \core\output\notification::NOTIFY_SUCCESS
+                );
+                $redir = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.attendance'), ['sessionid' => $sid, 'occurrence_date' => $od_raw !== '' ? date('Y-m-d', $od) : '']);
+                redirect($redir);
+            }
+
+            if ($action === 'export_csv') {
+                $sid = (int)optional_param('sessionid', 0, PARAM_INT);
+                $od_raw = (string)optional_param('occurrence_date', '', PARAM_TEXT);
+                $od = $od_raw !== '' ? (int)strtotime($od_raw . ' 00:00:00') : (int)strtotime('today 00:00:00');
+                local_ulms_dashboard_emit_security_headers();
+                $service->export_attendance_csv($sid, $od);
+                exit;
+            }
+        }
+
+        $mycourses = [];
+        foreach (enrol_get_all_users_courses((int)$USER->id, false, ['id', 'fullname']) as $c) {
+            $mycourses[(int)$c->id] = format_string($c->fullname);
+        }
+        $sessionsmenu = [0 => '-- Select a Session --'];
+        if (count($mycourses) > 0) {
+            [$insql, $inparams] = $DB->get_in_or_equal(array_keys($mycourses), SQL_PARAMS_NAMED, 'mc');
+            $sessrows = $DB->get_records_select('local_ulms_dashboard_session', "status <> 'cancelled' AND moodlecourseid " . $insql, $inparams, 'title ASC', 'id, title, moodlecourseid');
+            foreach ($sessrows as $sr) {
+                $cname = $mycourses[(int)$sr->moodlecourseid] ?? ('Course #' . $sr->moodlecourseid);
+                $sessionsmenu[(int)$sr->id] = $cname . ' — ' . format_string($sr->title);
+            }
+        }
+
+        $summarycards = [
+            ['label' => 'Allocated Courses', 'value' => (string)count($mycourses), 'description' => 'Courses you are teaching'],
+            ['label' => 'Available Sessions', 'value' => (string)(count($sessionsmenu) - 1), 'description' => 'Scheduled class sessions'],
+        ];
+
+        $html = '';
+        $html .= '<form method="get" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;align-items:flex-end;">';
+        $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
+        $html .= '<div class="ulms-form-field" style="flex:1 1 320px;min-width:220px;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Select Session</label>';
+        $html .= '<select name="sessionid" class="form-control custom-select" onchange="this.form.submit()">';
+        foreach ($sessionsmenu as $sidopt => $slbl) {
+            $sel = ((int)$sidopt === (int)$selected_sessionid) ? ' selected' : '';
+            $html .= '<option value="' . s($sidopt) . '"' . $sel . '>' . s($slbl) . '</option>';
+        }
+        $html .= '</select></div>';
+        $html .= '<div class="ulms-form-field" style="flex:0 0 220px;min-width:180px;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Occurrence Date</label>';
+        $od_default = $selected_occurrence_raw !== '' ? s($selected_occurrence_raw) : s(date('Y-m-d'));
+        $html .= '<input type="date" name="occurrence_date" class="form-control" value="' . $od_default . '"></div>';
+        $html .= '<div><button type="submit" name="action" value="register_open" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Show Register</button></div>';
+        $html .= '</form>';
+
+        if ($selected_sessionid > 0) {
+            $occurrence_ts = $selected_occurrence_raw !== '' ? (int)strtotime($selected_occurrence_raw . ' 00:00:00') : (int)strtotime('today 00:00:00');
+            $summary = $service->get_session_attendance_summary($selected_sessionid, $occurrence_ts);
+
+            $summarycards = [
+                ['label' => 'Register Summary', 'value' => s($summary['marked']) . '/' . s($summary['total']) . ' Marked · ' . s($summary['percent_present']) . '% Present', 'description' => 'Present: ' . s($summary['present']) . ' · Late: ' . s($summary['late']) . ' · Absent: ' . s($summary['absent']) . ' · Excused: ' . s($summary['excused'])],
+            ];
+
+            $sessionrec = $DB->get_record('local_ulms_dashboard_session', ['id' => $selected_sessionid], 'id, moodlecourseid');
+            $enrolled_students = [];
+            if ($sessionrec) {
+                try {
+                    $ctx = \context_course::instance((int)$sessionrec->moodlecourseid);
+                    $enrolled_students = \enrol_get_enrolled_users($ctx, 'moodle/role:student');
+                } catch (\Throwable $_e) {
+                    $enrolled_students = [];
+                }
+            }
+
+            $html .= '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">';
+            $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="bulk_present"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Mark All Present</button></form>';
+            $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="export_csv"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn" style="min-width:44px;min-height:44px;">Export CSV</button></form>';
+            $html .= '</div>';
+
+            $html .= '<table class="ulms-attendance-register" data-ulms-attendance="true" data-ulms-attendance-marks="true">';
+            $html .= '<thead><tr><th data-label="Student ID">Student ID</th><th data-label="Name">Name</th><th data-label="Status">Status</th><th data-label="Marked At">Marked At</th><th data-label="Marked By">Marked By</th><th data-label="Quick Mark">Quick Mark (P / A / L / E)</th></tr></thead><tbody>';
+
+            $marks = [];
+            $rs = $DB->get_records('local_ulms_dashboard_attendance', ['sessionid' => $selected_sessionid, 'session_occurrence_date' => $occurrence_ts]);
+            foreach ($rs as $r) {
+                $marks[(int)$r->userid] = $r;
+            }
+
+            foreach ($enrolled_students as $u) {
+                $uid = (int)$u->id;
+                $sidnum = s($u->idnumber ?? (string)$uid);
+                $fullname = fullname($u);
+                $statusclass = '';
+                $statuslabel = 'Unmarked';
+                $markedat = '—';
+                $marker = '—';
+                if (isset($marks[$uid])) {
+                    $m = $marks[$uid];
+                    $statusclass = 'ulms-status-badge--' . s($m->status);
+                    $statuslabel = s(ucfirst((string)$m->status));
+                    $markedat = (int)($m->marked_at ?? 0) > 0 ? s(userdate((int)$m->marked_at)) : '—';
+                    if ((int)($m->marked_by ?? 0) > 0) {
+                        $mu = \core_user::get_user((int)$m->marked_by);
+                        $marker = $mu ? s(fullname($mu)) : '—';
+                    }
+                }
+
+                $html .= '<tr data-ulms-attendance-row="true" data-studentid="' . s($uid) . '">';
+                $html .= '<td data-label="Student ID">' . $sidnum . '</td>';
+                $html .= '<td data-label="Name">' . $fullname . '</td>';
+                $html .= '<td data-label="Status"><span class="ulms-status-badge ' . $statusclass . '">' . $statuslabel . '</span></td>';
+                $html .= '<td data-label="Marked At">' . $markedat . '</td>';
+                $html .= '<td data-label="Marked By">' . $marker . '</td>';
+                $html .= '<td data-label="Quick Mark"><div class="ulms-mark-buttons" data-ulms-mark-buttons="true">';
+
+                $markdefs = [
+                    ['status' => 'present', 'mnemonic' => 'P', 'class' => 'ulms-btn--success', 'title' => 'Present [P]'],
+                    ['status' => 'absent',  'mnemonic' => 'A', 'class' => 'ulms-btn--danger',  'title' => 'Absent [A]'],
+                    ['status' => 'late',    'mnemonic' => 'L', 'class' => 'ulms-btn--warning', 'title' => 'Late [L]'],
+                    ['status' => 'excused', 'mnemonic' => 'E', 'class' => 'ulms-btn--info',    'title' => 'Excused [E]'],
+                ];
+                foreach ($markdefs as $md) {
+                    $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="' . s($md['status']) . '"><button type="submit" class="ulms-btn ' . $md['class'] . ' ulms-mark-btn" data-status="' . s($md['status']) . '" data-mnemonic="' . s($md['mnemonic']) . '" style="min-width:44px;min-height:44px;margin:2px;" title="' . s($md['title']) . '">' . s($md['mnemonic']) . '</button></form>';
+                }
+                $html .= '</div></td>';
+                $html .= '</tr>';
+            }
+            $html .= '</tbody></table>';
+
+            $html .= <<<'FASTMARKSCRIPT'
+<script data-ulms-fastmark="true">
+(function(){
+  if (window.__ULMS_ATTENDANCE_MARKS__ === true) return;
+  window.__ULMS_ATTENDANCE_MARKS__ = true;
+  document.addEventListener('keydown', function(e){
+    if (/^(input|textarea|select)$/i.test(document.activeElement && document.activeElement.tagName || '')) return;
+    var key = (e.key || '').toUpperCase();
+    if (!/^[PALE]$/.test(key)) return;
+    var rows = document.querySelectorAll('tr[data-ulms-attendance-row]');
+    var focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('tr[data-ulms-attendance-row]') : null;
+    var row = focused || rows[0];
+    if (!row) return;
+    var btn = row.querySelector('button[data-mnemonic="'+key+'"]');
+    if (btn) btn.click();
+  });
+})();
+</script>
+FASTMARKSCRIPT;
+        }
+
+        return [
+            'summarycards' => $summarycards,
+            'mainpanel' => [
+                'title' => 'Attendance Register Manager',
+                'subtitle' => 'Mark individual attendance, bulk-mark all present, and export CSV registers',
+                'style' => 'html',
+                'html' => $html,
+                'emptytitle' => 'No Sessions Available',
+                'emptydesc' => 'Sessions will appear here once scheduled on the timetable.',
+            ],
+            'secondarypanels' => [],
+        ];
+    }
+
+    private function build_admin_schedule_section_data(): array {
+        global $DB;
+
+        $service = schedule_service::instance();
+
+        $weekstartparam = optional_param('weekstart', 0, PARAM_INT);
+        if ($weekstartparam > 0) {
+            $monday_ts = $weekstartparam;
+        } else {
+            $monday_ts = strtotime('monday this week 00:00:00');
+        }
+
+        $kpis = $service->get_dashboard_kpis();
+        $conflicts = $service->find_conflicts(0, $monday_ts);
+
+        $html = '';
+        $html .= '<h3 style="margin:0 0 12px;font-size:1rem;font-weight:700;color:#0f4c81;">Scheduling Conflicts — Week of ' . s(date('M j, Y', $monday_ts)) . '</h3>';
+
+        if (count($conflicts) === 0) {
+            $html .= '<div style="padding:24px;border:1px dashed #1a7f37;border-radius:12px;background:#ecfdf5;color:#166534;text-align:center;font-weight:600;">✅ No conflicts detected for this week — all sessions are cleanly scheduled.</div>';
+        } else {
+            $html .= '<table class="ulms-attendance-register" style="margin-top:12px;">';
+            $html .= '<thead><tr><th data-label="Time Slot">Time Slot</th><th data-label="Conflict Type">Conflict Type</th><th data-label="Session A">Session A</th><th data-label="Session B">Session B</th><th data-label="Overlap">Overlap Reason</th><th data-label="Actions">Actions</th></tr></thead><tbody>';
+            foreach ($conflicts as $cf) {
+                $sess_a = $DB->get_record('local_ulms_dashboard_session', ['id' => (int)$cf['session_a_id']], 'id, title, lecturer_userid, location_label, moodlecourseid');
+                $sess_b = $DB->get_record('local_ulms_dashboard_session', ['id' => (int)$cf['session_b_id']], 'id, title, lecturer_userid, location_label, moodlecourseid');
+                $lec_a = $sess_a && !empty($sess_a->lecturer_userid) ? s(fullname(\core_user::get_user((int)$sess_a->lecturer_userid))) : 'N/A';
+                $lec_b = $sess_b && !empty($sess_b->lecturer_userid) ? s(fullname(\core_user::get_user((int)$sess_b->lecturer_userid))) : 'N/A';
+                $type_label = ((string)$cf['conflict_type'] === 'lecturer_double_book')
+                    ? '<span class="ulms-status-badge ulms-status-badge--live">Lecturer Double-Booked</span>'
+                    : '<span class="ulms-status-badge ulms-status-badge--late">Room Double-Booked</span>';
+                $reason = ((string)$cf['conflict_type'] === 'lecturer_double_book')
+                    ? 'Same lecturer assigned to two simultaneous sessions'
+                    : 'Same physical room booked for two simultaneous sessions';
+
+                $edit_a = new \moodle_url('/course/view.php', ['id' => (int)($sess_a->moodlecourseid ?? 1)]);
+                $edit_b = new \moodle_url('/course/view.php', ['id' => (int)($sess_b->moodlecourseid ?? 1)]);
+                $action_html = '<div style="display:flex;flex-direction:column;gap:4px;">';
+                $action_html .= '<a href="' . s($edit_a->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;font-size:12px;padding:6px 10px;">Edit A</a>';
+                $action_html .= '<a href="' . s($edit_b->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;font-size:12px;padding:6px 10px;">Edit B</a>';
+                $action_html .= '</div>';
+
+                $html .= '<tr>';
+                $html .= '<td data-label="Time Slot">' . s($cf['timeslot_label'] ?? '') . '</td>';
+                $html .= '<td data-label="Conflict Type">' . $type_label . ' — ' . s($cf['entity_label'] ?? '') . '</td>';
+                $html .= '<td data-label="Session A"><strong>' . s($sess_a ? format_string($sess_a->title) : ('Session #' . $cf['session_a_id'])) . '</strong><br><span style="color:#5c6f82;font-size:12px;">Lecturer: ' . $lec_a . '</span><br><span style="color:#5c6f82;font-size:12px;">Room: ' . s($sess_a->location_label ?? '') . '</span></td>';
+                $html .= '<td data-label="Session B"><strong>' . s($sess_b ? format_string($sess_b->title) : ('Session #' . $cf['session_b_id'])) . '</strong><br><span style="color:#5c6f82;font-size:12px;">Lecturer: ' . $lec_b . '</span><br><span style="color:#5c6f82;font-size:12px;">Room: ' . s($sess_b->location_label ?? '') . '</span></td>';
+                $html .= '<td data-label="Overlap">' . $reason . '</td>';
+                $html .= '<td data-label="Actions">' . $action_html . '</td>';
+                $html .= '</tr>';
+            }
+            $html .= '</tbody></table>';
+        }
+
+        return [
+            'summarycards' => [
+                ['label' => 'Total Sessions', 'value' => (string)$kpis['session_count'], 'description' => 'Active sessions platform-wide'],
+                ['label' => 'Conflicts Detected', 'value' => (string)count($conflicts), 'description' => 'Lecturer or room double-bookings this week'],
+                ['label' => 'Avg Attendance %', 'value' => $kpis['avg_attendance_percent'] . '%', 'description' => 'Platform-wide attendance average'],
+            ],
+            'mainpanel' => [
+                'title' => 'Schedule Conflict Detection',
+                'subtitle' => 'Detects lecturer double-bookings and physical room double-bookings across the timetable',
+                'style' => 'html',
+                'html' => $html,
+            ],
+            'secondarypanels' => [],
+        ];
+    }
+
+    private function build_admin_attendanceaudit_section_data(): array {
+        global $DB;
+
+        $service = schedule_service::instance();
+        $kpis = $service->get_dashboard_kpis();
+
+        $facultyid = optional_param('facultyid', 0, PARAM_INT);
+        $deptid = optional_param('deptid', 0, PARAM_INT);
+        $progid = optional_param('progid', 0, PARAM_INT);
+        $levelid = optional_param('levelid', 0, PARAM_INT);
+
+        $html = '';
+        $html .= '<form method="get" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;align-items:flex-end;">';
+        $faculties = [0 => '-- All Faculties --'] + $DB->get_records_menu('local_ulms_faculties', null, 'name ASC', 'id, name');
+        $departments = [0 => '-- All Departments --'] + $DB->get_records_menu('local_ulms_departments', null, 'name ASC', 'id, name');
+        $programmes = [0 => '-- All Programmes --'] + $DB->get_records_menu('local_ulms_programmes', null, 'name ASC', 'id, name');
+        $levels = [0 => '-- All Levels --'] + $DB->get_records_menu('local_ulms_levels', null, 'name ASC', 'id, name');
+
+        foreach (['facultyid' => $faculties, 'deptid' => $departments, 'progid' => $programmes, 'levelid' => $levels] as $paramname => $menu) {
+            $labelmap = ['facultyid' => 'Faculty', 'deptid' => 'Department', 'progid' => 'Programme', 'levelid' => 'Level'];
+            $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">' . $labelmap[$paramname] . '</label><select name="' . $paramname . '" class="form-control custom-select" onchange="this.form.submit()">';
+            foreach ($menu as $mid => $mlbl) {
+                $selected = ($$paramname == $mid) ? ' selected' : '';
+                $html .= '<option value="' . s($mid) . '"' . $selected . '>' . s($mlbl) . '</option>';
+            }
+            $html .= '</select></div>';
+        }
+        $html .= '</form>';
+
+        $sql = "SELECT s.id, s.title, s.moodlecourseid, s.lecturer_userid, c.fullname AS coursename
+                  FROM {local_ulms_dashboard_session} s
+                  JOIN {course} c ON c.id = s.moodlecourseid
+                 WHERE s.status <> 'cancelled'";
+        $params = [];
+        if ($facultyid > 0) { $sql .= " AND s.facultyid = :fid"; $params['fid'] = $facultyid; }
+        if ($deptid > 0)    { $sql .= " AND s.departmentid = :did"; $params['did'] = $deptid; }
+        if ($progid > 0)    { $sql .= " AND s.programmeid = :pid"; $params['pid'] = $progid; }
+        if ($levelid > 0)   { $sql .= " AND s.levelid = :lid"; $params['lid'] = $levelid; }
+        $sql .= " ORDER BY c.fullname ASC, s.title ASC LIMIT 100";
+
+        try {
+            $sessions = $DB->get_records_sql($sql, $params);
+        } catch (\Throwable $_e) {
+            $sessions = [];
+        }
+
+        $course_lecturer_rows = [];
+        foreach ($sessions as $s) {
+            $key = (int)$s->moodlecourseid . '_' . (int)$s->lecturer_userid;
+            if (!isset($course_lecturer_rows[$key])) {
+                $lecname = !empty($s->lecturer_userid) ? fullname(\core_user::get_user((int)$s->lecturer_userid)) : 'Unassigned';
+                $course_lecturer_rows[$key] = [
+                    'courseid' => (int)$s->moodlecourseid,
+                    'coursename' => format_string($s->coursename),
+                    'lecturer' => $lecname,
+                    'lecturer_userid' => (int)$s->lecturer_userid,
+                    'sessions' => [],
+                ];
+            }
+            $course_lecturer_rows[$key]['sessions'][(int)$s->id] = format_string($s->title);
+        }
+
+        $html .= '<table class="ulms-attendance-register">';
+        $html .= '<thead><tr><th data-label="Course">Course</th><th data-label="Lecturer">Lecturer</th><th data-label="Sessions">Sessions</th><th data-label="Attendance %">Attendance %</th><th data-label="Actions">Actions</th></tr></thead><tbody>';
+
+        foreach ($course_lecturer_rows as $row) {
+            $session_ids = array_keys($row['sessions']);
+            $overall_present = 0;
+            $overall_total = 0;
+            foreach ($session_ids as $sid) {
+                $sum = $service->get_session_attendance_summary($sid, (int)strtotime('today 00:00:00'));
+                $overall_present += (int)($sum['present'] ?? 0) + (int)($sum['late'] ?? 0);
+                $overall_total += (int)($sum['marked'] ?? 0);
+            }
+            $pct = $overall_total > 0 ? number_format(($overall_present / max(1, $overall_total)) * 100, 1) : 'N/A';
+            $pctnum = $overall_total > 0 ? (float)$pct : 0;
+            $barcolor = $pctnum >= 80 ? '#1a7f37' : ($pctnum >= 60 ? '#c76a00' : '#c8352a');
+            $pctbar = '<div style="margin-top:4px;background:#e8eef6;border-radius:999px;height:8px;overflow:hidden;"><div style="height:100%;width:' . s($pct) . '%;background:' . $barcolor . ';"></div></div>';
+
+            $sessionlist = implode(', ', array_slice($row['sessions'], 0, 3));
+            if (count($row['sessions']) > 3) {
+                $sessionlist .= ' (+' . (count($row['sessions']) - 3) . ' more)';
+            }
+
+            $drillurl = new \moodle_url('/course/view.php', ['id' => (int)$row['courseid']]);
+
+            $html .= '<tr>';
+            $html .= '<td data-label="Course"><strong>' . s($row['coursename']) . '</strong></td>';
+            $html .= '<td data-label="Lecturer">' . s($row['lecturer']) . '</td>';
+            $html .= '<td data-label="Sessions">' . s($sessionlist) . '</td>';
+            $html .= '<td data-label="Attendance %"><strong>' . s($pct) . '%</strong>' . $pctbar . '</td>';
+            $html .= '<td data-label="Actions"><a href="' . s($drillurl->out(false)) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;font-size:12px;padding:6px 10px;">Drill-down</a></td>';
+            $html .= '</tr>';
+        }
+        if (count($course_lecturer_rows) === 0) {
+            $html .= '<tr><td colspan="5" style="text-align:center;padding:24px;color:#5c6f82;">No attendance data available for the selected filters.</td></tr>';
+        }
+        $html .= '</tbody></table>';
+
+        return [
+            'summarycards' => [
+                ['label' => 'Attendance Records', 'value' => (string)$kpis['attendance_record_count'], 'description' => 'Total marked attendance records platform-wide'],
+                ['label' => 'Platform Avg %', 'value' => $kpis['avg_attendance_percent'] . '%', 'description' => 'Average attendance across all sessions'],
+                ['label' => 'Sessions Tracked', 'value' => (string)$kpis['session_count'], 'description' => 'Active sessions on the platform'],
+                ['label' => 'Active Conflicts', 'value' => (string)$kpis['conflict_count'], 'description' => 'Current scheduling conflicts'],
+            ],
+            'mainpanel' => [
+                'title' => 'Attendance Audit Dashboard',
+                'subtitle' => 'Cross-cutting view of attendance by course × lecturer with filterable drill-downs',
+                'style' => 'html',
+                'html' => $html,
+            ],
+            'secondarypanels' => [],
+        ];
     }
 }

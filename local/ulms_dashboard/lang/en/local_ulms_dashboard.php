@@ -1028,3 +1028,54 @@ $string['profile_lecturer_heading'] = 'Academic Profile';
 $string['profile_lecturer_subtitle'] = 'Your departmental placement and allocated teaching courses.';
 $string['profile_enrolled_courses_heading'] = 'Enrolled Courses';
 $string['profile_allocated_courses_heading'] = 'Allocated Teaching Courses';
+
+$string['lecturernavschedule'] = 'Class Schedule';
+$string['lecturernavlive'] = 'Live Sessions';
+$string['studentnavattendance'] = 'Attendance';
+$string['adminnavclassschedule'] = 'Class Schedule / Conflicts';
+$string['adminnavattendanceaudit'] = 'Attendance Audit';
+
+$string['lecturer.schedule.eyebrow'] = 'Schedule';
+$string['lecturer.live.eyebrow'] = 'Live';
+$string['student.attendance.eyebrow'] = 'Attendance';
+$string['admin.schedule.eyebrow'] = 'Class Schedule';
+$string['admin.attendanceaudit.eyebrow'] = 'Attendance Audit';
+
+$string['lecturerscheduletitle'] = 'Weekly Class Schedule';
+$string['lecturerlivetitle'] = 'Live Sessions — Join Now';
+$string['studentattendancetitle'] = 'My Attendance Record';
+$string['adminclassscheduletitle'] = 'Class Schedule & Conflict Detection';
+$string['adminattendanceaudittitle'] = 'Attendance Audit Dashboard';
+
+$string['lecturerscheduledesc'] = 'Weekly timetable grid, session creation, room allocation and conflict warnings.';
+$string['lecturerlivedesc'] = 'Upcoming live class sessions, join links and active session status.';
+$string['studentattendancedesc'] = 'Personal attendance record, session history and attendance rate summary.';
+$string['adminclassscheduledesc'] = 'Institutional class schedule overview, conflict detection and timetable management.';
+$string['adminattendanceauditdesc'] = 'Cross-course attendance audit, anomaly detection and attendance rate analytics.';
+
+$string['lecturer.schedule.create.btn'] = 'Schedule New Session';
+$string['lecturer.live.join.btn'] = 'Join Class Now';
+$string['lecturer.attendance.bulkpresent'] = 'Mark All Present';
+$string['lecturer.attendance.exportcsv'] = 'Export CSV';
+$string['timetable.column.time'] = 'Time';
+$string['timetable.column.mon'] = 'Mon';
+$string['timetable.column.tue'] = 'Tue';
+$string['timetable.column.wed'] = 'Wed';
+$string['timetable.column.thu'] = 'Thu';
+$string['timetable.column.fri'] = 'Fri';
+$string['attendance.status.present'] = 'Present';
+$string['attendance.status.absent'] = 'Absent';
+$string['attendance.status.late'] = 'Late';
+$string['attendance.status.excused'] = 'Excused';
+$string['schedule.kpi.sessioncount'] = 'Sessions This Week';
+$string['schedule.kpi.attendance'] = 'Avg Attendance';
+$string['schedule.kpi.conflicts'] = 'Schedule Conflicts';
+$string['schedule.kpi.records'] = 'Attendance Records';
+$string['summarycard.superadmin.sessions.eyebrow'] = 'Scheduled sessions';
+$string['summarycard.superadmin.sessions.desc'] = 'Weekly class sessions across all portals.';
+$string['summarycard.superadmin.attendance.eyebrow'] = 'Attendance records';
+$string['summarycard.superadmin.attendance.desc'] = 'Individual student attendance status records.';
+$string['summarycard.superadmin.avgatt.eyebrow'] = 'Average attendance';
+$string['summarycard.superadmin.avgatt.desc'] = 'Platform-wide average attendance percent.';
+$string['summarycard.superadmin.conflicts.eyebrow'] = 'Schedule conflicts';
+$string['summarycard.superadmin.conflicts.desc'] = 'Lecturer or room double-bookings detected.';

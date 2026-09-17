@@ -47,6 +47,8 @@ class super_admin_portal_service {
             return match ($view) {
                 'auditlogs' => 'admin_auditlogs',
                 'reports' => 'admin_reports',
+                'schedule' => 'admin_schedule',
+                'attendanceaudit' => 'admin_attendanceaudit',
                 default => 'admin_courses',
             };
         };
@@ -95,6 +97,8 @@ class super_admin_portal_service {
             '/local/ulms_academics/course_mappings.php' => ['section' => 'admin_academics', 'header' => 'admin_academics'],
             '/local/ulms_academics/import.php' => ['section' => 'admin_academics', 'header' => 'admin_academics'],
             $n('management.courses') => ['section' => 'admin_courses', 'header' => 'admin_courses'],
+            $n('management.academicsschedule') => ['section' => 'admin_schedule', 'header' => 'admin_schedule'],
+            $n('management.academicsattendanceaudit') => ['section' => 'admin_attendanceaudit', 'header' => 'admin_attendanceaudit'],
             '/course/edit.php' => ['section' => 'admin_courses', 'header' => 'admin_courses'],
             '/course/management.php' => ['section' => 'admin_courses', 'header' => 'admin_courses'],
             '/course/index.php' => ['section' => 'admin_courses', 'header' => 'admin_courses'],
@@ -143,7 +147,7 @@ class super_admin_portal_service {
             'integrations', 'security', 'auditlogs', 'reports', 'settings',
             'admin_dashboard', 'admin_users', 'admin_provisioning', 'admin_bulkupload',
             'admin_analytics', 'admin_academics', 'admin_courses', 'admin_reports',
-            'admin_auditlogs', 'admin_settings',
+            'admin_auditlogs', 'admin_settings', 'admin_schedule', 'admin_attendanceaudit',
         ];
         $allowedheaders = $allowedsections;
         $errors = [];
@@ -369,6 +373,29 @@ class super_admin_portal_service {
             ['eyebrow' => get_string('summarycard.superadmin.security.eyebrow', 'local_ulms_dashboard'), 'number' => 'OK', 'desc' => get_string('summarycard.superadmin.security.desc', 'local_ulms_dashboard'), 'mini_icon' => $iconshield],
         ];
 
+        try {
+            global $DB;
+            $schedsvc = \local_ulms_dashboard\local\service\schedule_service::instance();
+            $iconcalendar = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+            $iconclipboard = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg>';
+            $iconuserscheck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>';
+            $iconalert = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+            $asessionForKpi = $DB->get_record_sql('SELECT id FROM {local_ulms_sessions} WHERE iscurrent = 1 LIMIT 1');
+            $delkpi = (array)$schedsvc->get_dashboard_kpis((int)($asessionForKpi->id ?? 0));
+            $ksafe = static function (?string $v, string $fallback): string {
+                if (!is_string($v) || $v === '' || str_contains($v, '[[')) return $fallback;
+                return $v;
+            };
+            $summarycards = array_merge($summarycards, [
+                ['eyebrow' => $ksafe(@get_string('summarycard.superadmin.sessions.eyebrow', 'local_ulms_dashboard'), 'Scheduled sessions'), 'number' => (string)($delkpi['session_count'] ?? 0), 'desc' => $ksafe(@get_string('summarycard.superadmin.sessions.desc', 'local_ulms_dashboard'), 'Weekly class sessions across all portals.'), 'mini_icon' => $iconcalendar],
+                ['eyebrow' => $ksafe(@get_string('summarycard.superadmin.attendance.eyebrow', 'local_ulms_dashboard'), 'Attendance records'), 'number' => (string)($delkpi['attendance_record_count'] ?? 0), 'desc' => $ksafe(@get_string('summarycard.superadmin.attendance.desc', 'local_ulms_dashboard'), 'Individual student attendance status records.'), 'mini_icon' => $iconclipboard],
+                ['eyebrow' => $ksafe(@get_string('summarycard.superadmin.avgatt.eyebrow', 'local_ulms_dashboard'), 'Average attendance'), 'number' => (string)($delkpi['avg_attendance_percent'] ?? '0.0') . '%', 'desc' => $ksafe(@get_string('summarycard.superadmin.avgatt.desc', 'local_ulms_dashboard'), 'Platform-wide average attendance percent.'), 'mini_icon' => $iconuserscheck],
+                ['eyebrow' => $ksafe(@get_string('summarycard.superadmin.conflicts.eyebrow', 'local_ulms_dashboard'), 'Schedule conflicts'), 'number' => (string)($delkpi['conflict_count'] ?? 0), 'desc' => $ksafe(@get_string('summarycard.superadmin.conflicts.desc', 'local_ulms_dashboard'), 'Lecturer or room double-bookings detected.'), 'mini_icon' => $iconalert],
+            ]);
+            unset($asessionForKpi);
+        } catch (\Throwable $e) {
+        }
+
         $navgroups = $this->get_navigation_groups($section);
         $quickaccess = [];
         foreach ($navgroups as $g) {
@@ -570,6 +597,7 @@ class super_admin_portal_service {
         $iconanalytics = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>';
         $iconacademics = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>';
         $iconcourses = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+        $iconschedule = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><rect x="8" y="14" width="3" height="3" rx="0.5"/><rect x="13" y="14" width="3" height="3" rx="0.5"/><rect x="8" y="18" width="3" height="2" rx="0.5"/><rect x="13" y="18" width="3" height="2" rx="0.5"/></svg>';
         $iconprovisioning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
         $iconbulk = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>';
 
@@ -712,7 +740,7 @@ class super_admin_portal_service {
      * @return string
      */
     private function normalise_admin_portal_view(string $view): string {
-        $allowed = ['courses', 'reports', 'auditlogs'];
+        $allowed = ['courses', 'reports', 'auditlogs', 'schedule', 'attendanceaudit'];
 
         return in_array($view, $allowed, true) ? $view : 'courses';
     }
