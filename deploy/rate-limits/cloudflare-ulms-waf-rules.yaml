@@ -1,0 +1,84 @@
+---
+# Cloudflare WAF Custom Ruleset — ULMS Production Rate Limit
+#
+# Deploy path: Cloudflare Dashboard → Security → WAF → Custom rules → Create rule →
+#   → Edit expression → Paste the `expression` blocks below, one rule each.
+#
+# Tiered defense (3 rules):
+#   1) EDGE: Attendance writes  → 30 requests / 60s / per user (session cookie)
+#   2) EDGE: Schedule writes    → 30 requests / 60s / per user
+#   3) EDGE: Read traffic cap   → 600 requests / 60s / per user (hard abuse ceiling)
+#
+# Mitigation for ALL 3 = Block w/ 429 JSON response + Retry-After: 2 header.
+
+# ---------------- Rule 1/3: Attendance write ceiling ----------------
+rule_name: "ULMS T17 — Attendance write 30/min per MoodleSession"
+action: block
+action_parameters:
+  response:
+    status_code: 429
+    content_type: application/json
+    content: |
+      {"ok":false,"error":"ratelimit_hit","scope":"attendance_write","retry_after":2}
+  response_headers:
+    - name: Retry-After
+      value: "2"
+rate_limit:
+  period: 60
+  requests_per_period: 30
+  characteristics:
+    - "http.cookie.MoodleSession"
+    - "ip.src"
+expression: |
+  (
+    http.request.uri.path matches "^/(lecturer/attendance/|management/attendance/)"
+    or http.request.uri.path contains "local/ulms_dashboard/portal/" and http.request.uri.path contains "attendance"
+  )
+  and http.request.method in {"POST" "PUT" "DELETE" "PATCH"}
+
+# ---------------- Rule 2/3: Schedule write ceiling ----------------
+rule_name: "ULMS T17 — Schedule write 30/min per MoodleSession"
+action: block
+action_parameters:
+  response:
+    status_code: 429
+    content_type: application/json
+    content: |
+      {"ok":false,"error":"ratelimit_hit","scope":"schedule_write","retry_after":2}
+  response_headers:
+    - name: Retry-After
+      value: "2"
+rate_limit:
+  period: 60
+  requests_per_period: 30
+  characteristics:
+    - "http.cookie.MoodleSession"
+    - "ip.src"
+expression: |
+  (
+    http.request.uri.path matches "^/management/academics/schedule/"
+    or http.request.uri.path contains "local/ulms_dashboard/portal/" and http.request.uri.path contains "schedule"
+  )
+  and http.request.method in {"POST" "PUT" "DELETE" "PATCH"}
+
+# ---------------- Rule 3/3: General read abuse ceiling ----------------
+rule_name: "ULMS T17 — Portal read hard cap 600/min per MoodleSession"
+action: block
+action_parameters:
+  response:
+    status_code: 429
+    content_type: application/json
+    content: |
+      {"ok":false,"error":"ratelimit_hit","scope":"portal_read","retry_after":5}
+  response_headers:
+    - name: Retry-After
+      value: "5"
+rate_limit:
+  period: 60
+  requests_per_period: 600
+  characteristics:
+    - "http.cookie.MoodleSession"
+    - "ip.src"
+expression: |
+  http.request.uri.path matches "^/(super-admin/|management/|lecturer/|student/|admin/|local/ulms_dashboard/portal/)"
+  and http.cookie contains "MoodleSession"
