@@ -198,8 +198,8 @@ if ($appenv_local) {
         $CFG->dataroot = $candidate_outside;
     }
 }
-$CFG->directorypermissions = 0777;
-$CFG->filepermissions = 0666;
+$CFG->directorypermissions = 0750;
+$CFG->filepermissions = 0640;
 
 ///////////////////////////////////////////////////////////////////////////
 // 3. PHP / ERRORS + ULMS LOG FILE
@@ -298,15 +298,16 @@ if (strtolower($mail_transport) === 'resend') {
 ///////////////////////////////////////////////////////////////////////////
 
 $CFG->admin = (string)ulms_env('MOODLE_ADMIN', 'admin');
-$CFG->preventexecpath = false;
+$CFG->preventexecpath = true;
+$CFG->curlsecurity = true;
 $CFG->themerevcache = 0;
 $CFG->lang = 'en';
 $CFG->siteidentifier = 'ulms-' . md5(__DIR__ . '|' . $CFG->dbhost . '|' . $CFG->dbname);
 $CFG->slasharguments = true;
 $CFG->allowthemechangeonurl = false;
-$CFG->passwordsaltmain = '';
-$CFG->passwordsaltalt1 = '';
-$CFG->passwordpolicy = 0;
+$CFG->passwordsaltmain = 'f18bf9b05c517c8198a3ffe21b51f40a89746c30';
+$CFG->passwordsaltalt1 = '5ca7cd475ee6969fd6b1d793978be1d7c6ab9a4ae6';
+$CFG->passwordpolicy = 1;
 $CFG->disableupdatenotifications = true;
 $CFG->noemailever = in_array(strtolower((string)ulms_env('APP_ENV', 'local')), ['local', 'dev', 'development', 'testing'], true);
 $CFG->cronclionly = false;
