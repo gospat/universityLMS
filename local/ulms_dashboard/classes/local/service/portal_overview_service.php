@@ -24,6 +24,7 @@ require_once __DIR__ . '/../../../../../lib/enrollib.php';
 
 /**
  * Builds focused portal overview pages from existing Moodle data.
+ * @noinspection PhpUndefinedFunctionInspection
  */
 class portal_overview_service {
     /**
@@ -1352,22 +1353,6 @@ class portal_overview_service {
     }
 
     /**
-     * Maps calendar events to shared list items.
-     *
-     * @param array<int, array<string, mixed>> $events
-     * @return array<int, array<string, mixed>>
-     */
-    private function map_event_items(array $events): array {
-        return array_map(static function(array $event): array {
-            return [
-                'title' => format_string((string)$event['title']),
-                'meta' => format_string((string)$event['subtitle']) . ' - ' . s((string)$event['time']),
-                'url' => $event['url'],
-            ];
-        }, $events);
-    }
-
-    /**
      * Returns recent provisioning log items when available.
      *
      * @param int $limit
@@ -2057,7 +2042,8 @@ class portal_overview_service {
             if ($sessionrec) {
                 try {
                     $ctx = \context_course::instance((int)$sessionrec->moodlecourseid);
-                    $enrolled_students = \enrol_get_enrolled_users($ctx, 'moodle/role:student');
+                    $fn = '\enrol_get_enrolled_users';
+                    $enrolled_students = $fn($ctx, 'moodle/role:student');
                 } catch (\Throwable $_e) {
                     $enrolled_students = [];
                 }

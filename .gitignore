@@ -58,3 +58,6 @@ build/
 install/config.php
 config.php.bak
 config.php.old
+
+_tmp_verify_service.php
+_tr8_joincheck_t11.php

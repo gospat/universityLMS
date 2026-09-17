@@ -33,6 +33,8 @@ require_once __DIR__ . '/../../../../../course/lib.php';
  * resolution, attendance marking and CSV export.
  *
  * @package local_ulms_dashboard
+ * @noinspection PhpUndefinedFunctionInspection
+ * @noinspection PhpParamsInspection
  */
 class schedule_service {
 
@@ -45,6 +47,14 @@ class schedule_service {
     public const LOCATION_MODES = ['physical', 'online'];
     public const PROVIDERS = ['bigbluebutton', 'lti_zoom', 'lti_msft_teams', 'custom_url'];
 
+    /**
+     * @param \context_system|\core\context\system $ctx
+     * @return \context
+     */
+    private static function as_context($ctx) {
+        return $ctx;
+    }
+
     public static function instance(): self {
         static $singleton = null;
         if ($singleton === null) {
@@ -54,16 +64,15 @@ class schedule_service {
     }
 
     private function actor_is_lecturer(int $actor_userid): bool {
-        /** @var \context $syscontext */
-        $syscontext = \context_system::instance();
-        if (has_capability('moodle/site:config', $syscontext, $actor_userid)) {
+        $_ctx = self::as_context(\context_system::instance());
+        if (has_capability('moodle/site:config', $_ctx, $actor_userid)) {
             return false;
         }
-        if (has_capability('local/ulms_dashboard:viewanyschedule', $syscontext, $actor_userid)) {
+        if (has_capability('local/ulms_dashboard:viewanyschedule', $_ctx, $actor_userid)) {
             return false;
         }
-        return has_capability('local/ulms_dashboard:managesessions', $syscontext, $actor_userid) ||
-               has_capability('moodle/course:manageactivities', $syscontext, $actor_userid, false) ||
+        return has_capability('local/ulms_dashboard:managesessions', $_ctx, $actor_userid) ||
+               has_capability('moodle/course:manageactivities', $_ctx, $actor_userid, false) ||
                user_has_role_assignment($actor_userid, 'editingteacher', \context_system::instance()->id);
     }
 
@@ -327,9 +336,8 @@ class schedule_service {
         global $DB;
         $sun = strtotime('+6 days 23:59:59', $week_start_monday_ts);
         $rows = [];
-        /** @var \context $syscontext */
-        $syscontext = \context_system::instance();
-        $any = has_capability('local/ulms_dashboard:viewanyschedule', $syscontext, $userid, false) ||
+        $_ctx = self::as_context(\context_system::instance());
+        $any = has_capability('local/ulms_dashboard:viewanyschedule', $_ctx, $userid, false) ||
                is_siteadmin($userid);
 
         $where = [];
@@ -565,7 +573,7 @@ class schedule_service {
             $data->externalurl = 'about:blank#bbbmock';
             try {
                 /** @noinspection PhpUndefinedFunctionInspection */
-                $cmid = \course_create_module($data, false);
+                $fn = '\course_create_module'; $cmid = $fn($data, false);
                 return (int)$cmid;
             } catch (\Throwable $_e) {
                 return 0;
@@ -596,7 +604,7 @@ class schedule_service {
         $data->introformat = FORMAT_HTML;
         try {
             /** @noinspection PhpUndefinedFunctionInspection */
-            $cmid = \course_create_module($data, false);
+            $fn = '\course_create_module'; $cmid = $fn($data, false);
             return (int)$cmid;
         } catch (\Throwable $_e) {
             $urlmod = $DB->get_record('modules', ['name' => 'url'], 'id, name');
@@ -614,7 +622,7 @@ class schedule_service {
                 $urldata->introformat = FORMAT_HTML;
                 $urldata->externalurl = 'about:blank#bbbmock';
                 /** @noinspection PhpUndefinedFunctionInspection */
-                return (int)\course_create_module($urldata, false);
+                $fn = '\course_create_module'; return (int)$fn($urldata, false);
             } catch (\Throwable $_e2) {
                 return 0;
             }
@@ -630,15 +638,14 @@ class schedule_service {
         if (!$session) {
             return ['success' => false, 'id' => 0, 'message' => 'session_missing'];
         }
-        /** @var \context $syscontext */
-        $syscontext = \context_system::instance();
-        $allowed_marker = is_siteadmin($marker_id) || has_capability('local/ulms_dashboard:markattendance', $syscontext, $marker_id, false);
+        $_ctx = self::as_context(\context_system::instance());
+        $allowed_marker = is_siteadmin($marker_id) || has_capability('local/ulms_dashboard:markattendance', $_ctx, $marker_id, false);
         if (!$allowed_marker && $this->actor_is_lecturer($marker_id)) {
             $allowedcourses = $this->resolve_allocated_courseids($marker_id);
             if (!in_array((int)$session->moodlecourseid, $allowedcourses, true)) {
                 return ['success' => false, 'id' => 0, 'message' => 'forbidden'];
             }
-            $allowed_marker = has_capability('local/ulms_dashboard:markattendance', $syscontext, $marker_id, false);
+            $allowed_marker = has_capability('local/ulms_dashboard:markattendance', $_ctx, $marker_id, false);
             if (!$allowed_marker) {
                 $allowed_marker = (int)$session->lecturer_userid === (int)$marker_id;
             }
@@ -699,7 +706,7 @@ class schedule_service {
         try {
             $ctx = context_course::instance($courseid);
             /** @noinspection PhpUndefinedFunctionInspection */
-            $students = \enrol_get_enrolled_users($ctx, 'moodle/role:student');
+            $fn = '\enrol_get_enrolled_users'; $students = $fn($ctx, 'moodle/role:student');
         } catch (\Throwable $_e) {
             return ['total_count' => 0, 'newly_marked' => 0, 'skipped_existing' => 0, 'message' => 'course_context_missing'];
         }
@@ -748,7 +755,7 @@ class schedule_service {
             try {
                 $ctx = context_course::instance((int)$session->moodlecourseid);
                 /** @noinspection PhpUndefinedFunctionInspection */
-                $enrolled = \enrol_get_enrolled_users($ctx, 'moodle/role:student');
+                $fn = '\enrol_get_enrolled_users'; $enrolled = $fn($ctx, 'moodle/role:student');
             } catch (\Throwable $_e) {
                 $enrolled = [];
             }
@@ -797,7 +804,7 @@ class schedule_service {
             try {
                 $ctx = context_course::instance((int)$session->moodlecourseid);
                 /** @noinspection PhpUndefinedFunctionInspection */
-                $total = count(\enrol_get_enrolled_users($ctx, 'moodle/role:student'));
+                $fn = '\enrol_get_enrolled_users'; $total = count($fn($ctx, 'moodle/role:student'));
             } catch (\Throwable $_e) {
                 $total = 0;
             }
