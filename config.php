@@ -125,6 +125,18 @@ function ulms_load_env(): void {
                 }
             }
         }
+        // Production-safety rule (12-factor):
+        //   * CLI/server-side env vars ALWAYS win over .env file values.
+        //     If the runtime env already has a NON-EMPTY value (set by
+        //     Docker, k8s, systemd, shell export, CI runner, etc.), keep
+        //     it; do NOT clobber it with whatever is in .env. This is
+        //     standard for secret injection pipelines that never land on
+        //     disk.
+        $existingEnv = array_key_exists($key, $_ENV) ? (string)$_ENV[$key] : '';
+        $existingGenv = (string)getenv($key);
+        if ($existingEnv !== '' || $existingGenv !== '') {
+            continue;
+        }
         $_ENV[$key] = $value;
         $_SERVER[$key] = $value;
         @putenv($key . '=' . $value);
@@ -209,7 +221,9 @@ $CFG->debug_developer_use_pretty_exceptions = 0;
 
 $debug = (string)ulms_env('APP_DEBUG', '0');
 $display = (string)ulms_env('ULMS_WEB_DEBUG_DISPLAY', '0');
-$running_via_cli = (defined('CLI_SCRIPT') && CLI_SCRIPT) || PHP_SAPI === 'cli';
+$moodle_cli_mode = (defined('MOODLE_CLI_MODE') && MOODLE_CLI_MODE);
+$legacy_cli_mode = (defined('CLI_SCRIPT') && CLI_SCRIPT);
+$running_via_cli = $moodle_cli_mode || $legacy_cli_mode || PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg';
 if ($running_via_cli) {
     $debug = (string)ulms_env('APP_DEBUG_CLI', (string)ulms_env('ULMS_CLI_DEBUG', '0'));
 }
@@ -270,17 +284,33 @@ if ($logfile !== '') {
 // 4. RESEND + SMTP (mail transports)
 ///////////////////////////////////////////////////////////////////////////
 
-$mail_transport = (string)ulms_env('ULMS_MAIL_TRANSPORT', 'mail');
-if (strtolower($mail_transport) === 'resend') {
-    $CFG->smtphosts = '';
-    $CFG->smtpuser = '';
-    $CFG->smtppass = '';
+$mail_transport = strtolower(trim((string)ulms_env('ULMS_MAIL_TRANSPORT', 'mail')));
+$CFG->ulmsmailtransport = ($mail_transport === 'resend') ? 'resend' : 'moodle';
+if ($mail_transport === 'resend') {
+    $resend_api_key = (string)ulms_env('RESEND_API_KEY', '');
+    $resend_from_email = trim((string)ulms_env('RESEND_FROM_EMAIL', 'no-reply@example.com'));
+    $resend_from_name  = trim((string)ulms_env('RESEND_FROM_NAME', (string)ulms_env('SMTP_SUPPORT_NAME', 'ULMS Support')));
+    $resend_reply_to   = trim((string)ulms_env('ULMS_REPLY_TO', ''));
+
+    // —— ULMS custom Resend API transport (password reset, welcome, provisioning, manual pw reset) ——
+    $CFG->resendapikey    = $resend_api_key;
+    $CFG->resendfromemail = $resend_from_email !== '' ? $resend_from_email : (string)ulms_env('SMTP_NO_REPLY', '');
+    $CFG->resendfromname  = $resend_from_name;
+    $CFG->ulmsreplyto     = $resend_reply_to;
+
+    // —— Moodle globals used throughout email_to_user() + support/user-facing pages ——
+    $CFG->noreplyaddress   = $CFG->resendfromemail;
+    $CFG->supportemail     = trim((string)ulms_env('SMTP_SUPPORT_EMAIL', $CFG->noreplyaddress));
+    $CFG->supportname      = $CFG->resendfromname;
+    $CFG->emailonlyreplytoname = $resend_reply_to;
+
+    // —— Legacy Moodle SMTP fallback (enrol course welcome, expiry, core pw reset confirmation) ——
+    // Resend's SMTP gateway: host smtp.resend.com port 587, user "resend", pass = the API key.
+    $CFG->smtphosts = 'smtp.resend.com:587';
+    $CFG->smtpuser  = 'resend';
+    $CFG->smtppass  = $resend_api_key;
     $CFG->smtpsecure = 'tls';
-    $CFG->smtpport = '587';
-    $CFG->noreplyaddress = (string)ulms_env('RESEND_FROM_EMAIL', 'no-reply@example.com');
-    $CFG->supportemail = (string)ulms_env('SMTP_SUPPORT_EMAIL', $CFG->noreplyaddress);
-    $CFG->supportname = (string)ulms_env('RESEND_FROM_NAME', (string)ulms_env('SMTP_SUPPORT_NAME', 'ULMS Support'));
-    $CFG->emailonlyreplytoname = (string)ulms_env('ULMS_REPLY_TO', '');
+    $CFG->smtpport   = '587';
 } else {
     $CFG->smtphosts = (string)ulms_env('SMTP_HOSTS', '');
     $CFG->smtpuser = (string)ulms_env('SMTP_USER', '');
@@ -310,6 +340,9 @@ $CFG->passwordsaltalt1 = '5ca7cd475ee6969fd6b1d793978be1d7c6ab9a4ae6';
 $CFG->passwordpolicy = 1;
 $CFG->disableupdatenotifications = true;
 $CFG->noemailever = in_array(strtolower((string)ulms_env('APP_ENV', 'local')), ['local', 'dev', 'development', 'testing'], true);
+if ($CFG->noemailever && PHP_SAPI === 'cli' && strtolower((string)ulms_env('ULMS_FORCE_EMAIL', '0')) === '1') {
+    $CFG->noemailever = false;
+}
 $CFG->cronclionly = false;
 $CFG->pathtophp = PHP_BINARY;
 $CFG->branch = 405;
