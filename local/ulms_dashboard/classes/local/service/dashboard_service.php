@@ -74,17 +74,59 @@ class dashboard_service {
         global $USER;
 
         $roleshortname = $this->get_current_user_role_shortname();
-        $courses = enrol_get_my_courses(['id', 'fullname'], 'fullname ASC', 5);
+        $courses = enrol_get_my_courses(['id', 'fullname'], 'fullname ASC', 0);
+        if (empty($courses)) {
+            try {
+                $fallback = enrol_get_all_users_courses((int)$USER->id, true, ['id', 'fullname']);
+                if (!empty($fallback)) {
+                    $courses = [];
+                    foreach ($fallback as $c) {
+                        if ((int)$c->id !== 1) {
+                            $courses[] = $c;
+                        }
+                    }
+                    usort($courses, static function($a, $b): int {
+                        return strcasecmp((string)($a->fullname ?? ''), (string)($b->fullname ?? ''));
+                    });
+                }
+            } catch (\Throwable $e) {
+                unset($e);
+            }
+        }
         $courseids = [];
 
         $courselist = [];
         foreach ($courses as $course) {
+            if ((int)$course->id === 1) {
+                continue;
+            }
             $courseids[] = (int)$course->id;
             $courselist[] = [
                 'id' => $course->id,
                 'fullname' => $course->fullname,
                 'url' => new \moodle_url('/course/view.php', ['id' => $course->id]),
             ];
+        }
+
+        if (in_array($roleshortname, ['student', 'user'], true)) {
+            try {
+                if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                    $whitelist = \local_ulms_academics\local\repository\academic_repository::get_student_programme_courseids((int)$USER->id);
+                    $allowed = array_values(array_map('intval', $whitelist['courseids'] ?? []));
+                    if (!empty($allowed)) {
+                        $lookup = array_flip($allowed);
+                        $courseids = array_values(array_intersect($courseids, $allowed));
+                        $courselist = array_values(array_filter(
+                            $courselist,
+                            static function(array $c) use ($lookup): bool {
+                                return isset($lookup[(int)$c['id']]);
+                            }
+                        ));
+                    }
+                }
+            } catch (\Throwable $e) {
+                unset($e);
+            }
         }
 
         $completion = $this->get_completion_summary($courseids, (int)$USER->id);

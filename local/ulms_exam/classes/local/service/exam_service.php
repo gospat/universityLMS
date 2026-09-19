@@ -860,10 +860,14 @@ class exam_service {
                 'friendly' => get_string('noprogrammeassignederror', 'local_ulms_exam'),
             ];
         }
+        $studylevelraw = !empty($profile->studylevel) ? trim((string)$profile->studylevel) : null;
         $levelid = 0;
-        if (!empty($profile->studylevel) && $DB->get_manager()->table_exists(new \xmldb_table('local_ulms_levels'))) {
-            $levelrow = $DB->get_record('local_ulms_levels', ['code' => trim((string)$profile->studylevel), 'status' => 'active'], 'id', IGNORE_MISSING);
-            if ($levelrow) { $levelid = (int)$levelrow->id; }
+        try {
+            if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                $levelid = \local_ulms_academics\local\repository\academic_repository::resolve_level_id_from_studylevel($studylevelraw);
+            }
+        } catch (\Throwable $_e) {
+            unset($_e);
         }
         $now = time();
         $levelwhere = '';
@@ -897,6 +901,14 @@ class exam_service {
             $enrolledcourses = enrol_get_all_users_courses($studentuserid, false, ['id'], 'id ASC');
             foreach ($enrolledcourses as $ec) {
                 $enrolledcourseids[(int)$ec->id] = true;
+            }
+            if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                $whitelist = \local_ulms_academics\local\repository\academic_repository::get_student_programme_courseids($studentuserid);
+                $allowedids = array_values(array_map('intval', $whitelist['courseids'] ?? []));
+                if (!empty($allowedids)) {
+                    $allowedlookup = array_flip($allowedids);
+                    $enrolledcourseids = array_intersect_key($enrolledcourseids, $allowedlookup);
+                }
             }
         } catch (\Throwable $e) {
             if (function_exists('local_ulms_dashboard_log_operational_error')) {
@@ -947,6 +959,44 @@ class exam_service {
                 ['examid' => $examid, 'userprogrammeid' => (int)$profile->programmeid, 'examprogrammeid' => (int)$exam->programmeid]
             );
             return ['ok' => false, 'code' => 'programme_mismatch', 'message' => get_string('examtakenoaccess', 'local_ulms_exam')];
+        }
+        $studylevelraw = !empty($profile->studylevel) ? trim((string)$profile->studylevel) : null;
+        $studentlevelid = 0;
+        try {
+            if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                $studentlevelid = \local_ulms_academics\local\repository\academic_repository::resolve_level_id_from_studylevel($studylevelraw);
+            }
+        } catch (\Throwable $_e) {
+            unset($_e);
+        }
+        $examlevelid = isset($exam->levelid) ? (int)$exam->levelid : 0;
+        if ($examlevelid > 0 && $studentlevelid > 0 && $examlevelid !== $studentlevelid) {
+            $this->audit_log(
+                $studentuserid,
+                'EXAM_ACCESS_FORBIDDEN',
+                'blocked',
+                "User {$studentuserid} denied exam {$examid} (cross-level: exam L{$examlevelid} vs student L{$studentlevelid}).",
+                ['examid' => $examid, 'examlevelid' => $examlevelid, 'studentlevelid' => $studentlevelid]
+            );
+            return ['ok' => false, 'code' => 'level_mismatch', 'message' => get_string('examtakenoaccess', 'local_ulms_exam')];
+        }
+        try {
+            if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                $whitelist = \local_ulms_academics\local\repository\academic_repository::get_student_programme_courseids($studentuserid);
+                $allowedids = array_values(array_map('intval', $whitelist['courseids'] ?? []));
+                if (!empty($allowedids) && !in_array((int)$exam->courseid, $allowedids, true)) {
+                    $this->audit_log(
+                        $studentuserid,
+                        'EXAM_ACCESS_FORBIDDEN',
+                        'blocked',
+                        "User {$studentuserid} denied exam {$examid} (course {$exam->courseid} not in D5 programme whitelist).",
+                        ['examid' => $examid, 'examcourseid' => (int)$exam->courseid, 'allowedids' => $allowedids]
+                    );
+                    return ['ok' => false, 'code' => 'course_whitelist', 'message' => get_string('coursenotenrollederror', 'local_ulms_exam')];
+                }
+            }
+        } catch (\Throwable $_e) {
+            unset($_e);
         }
         /** @var mixed $coursectx */ $coursectx = \context_course::instance((int)$exam->courseid, IGNORE_MISSING);
         if (!$coursectx || !is_enrolled($coursectx, $studentuserid, '', true)) {

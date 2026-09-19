@@ -521,28 +521,35 @@ class schedule_service {
                 try {
                     $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $userid], 'programmeid, studylevel', IGNORE_MISSING);
                     $programmeid = 0;
-                    $levelcode = '';
+                    $studylevelraw = null;
                     if ($profile) {
                         $programmeid = (int)($profile->programmeid ?? 0);
-                        $levelcode = trim((string)($profile->studylevel ?? ''));
+                        $studylevelraw = trim((string)($profile->studylevel ?? ''));
+                        if ($studylevelraw === '') {
+                            $studylevelraw = null;
+                        }
                     }
                     $levelid = 0;
-                    if ($levelcode !== '' && $DB->get_manager()->table_exists('local_ulms_levels')) {
-                        $l = $DB->get_record('local_ulms_levels', ['code' => $levelcode], 'id');
-                        if ($l) {
-                            $levelid = (int)$l->id;
-                        }
+                    if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                        $levelid = \local_ulms_academics\local\repository\academic_repository::resolve_level_id_from_studylevel($studylevelraw);
                     }
                     $enrolledcourses = [];
                     foreach (enrol_get_all_users_courses($userid, false, ['id']) as $c) {
                         $enrolledcourses[] = (int)$c->id;
+                    }
+                    if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+                        $whitelist = \local_ulms_academics\local\repository\academic_repository::get_student_programme_courseids($userid);
+                        $allowedids = array_values(array_map('intval', $whitelist['courseids'] ?? []));
+                        if (!empty($allowedids)) {
+                            $enrolledcourses = array_values(array_intersect($enrolledcourses, $allowedids));
+                        }
                     }
                     if ($programmeid > 0) {
                         $where[] = 's.programmeid = :pid';
                         $params['pid'] = $programmeid;
                     }
                     if ($levelid > 0) {
-                        $where[] = 's.levelid = :lid';
+                        $where[] = '(s.levelid IS NULL OR s.levelid = 0 OR s.levelid = :lid)';
                         $params['lid'] = $levelid;
                     }
                     if (count($enrolledcourses) > 0) {

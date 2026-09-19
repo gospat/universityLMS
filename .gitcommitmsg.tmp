@@ -1,0 +1,24 @@
+Fix(D5-scope): universal student programme+level filtering in 8 downstream modules + enrol signature bug
+
+- Fix dashboard_service snapshot SSOT: enrol_get_my_courses signature (4th=$courseids not bool)
+  + robust 2-tier fallback (enrol_get_all_users_courses + skip id=1 sitecourse + alpha sort)
+  + student role D5 whitelist intersect: $courseids + $courselist both filtered
+  + cascade-fixes 7 modules via snapshot: Attendance/Progress/Assignments/Quizzes/
+    Completion/Deadlines + student_grades.php
+- Fix schedule_service timetable student branch:
+  + replace local levels.code resolver with canonical academic_repository::resolve_level_id_from_studylevel
+  + levelid where-clause: strict equality → (NULL OR 0 OR :lid) to include WIDE courses
+  + enrolledcourseids additionally intersected with D5 whitelist (double-gate)
+- Fix student_exams.php standalone page:
+  + enrolledcourseids + courserecs maps both intersected with D5 whitelist
+  + programmeMeta SQL adds levelid WIDE OR-clause
+  + exam rows SQL adds levelid WIDE OR-clause
+- Fix exam_service.php:
+  + list_student_exams(): canonical resolver + whitelist intersect on enrolledcourseids
+  + student_can_take_exam(): 2 NEW URL-IDOR guards
+    * level_mismatch: exam.levelid>0 && student.levelid>0 && mismatch → deny + audit_log
+    * course_whitelist: exam courseid not in programme+level whitelist → deny + audit_log
+- Verification: CLI v2 batch 5/5 assertions PASS; Puppeteer x8 student panels (Catalog/
+  Attendance/Progress/Timetable/Assignments/Quizzes/Exams/Grades) ALL = exactly 3 course
+  cards for 100L BSCCS student 66 (pid=6). CS201 (id=9, 200L) absent everywhere.
+  WIDE courses (BIO201 levelid=0, ULMS101 levelid=0) correctly preserved in ALL panels.

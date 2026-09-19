@@ -47,6 +47,7 @@ if (!$hasprogramme) {
 }
 
 $programmeid = (int)$profile->programmeid;
+$studylevelraw = !empty($profile->studylevel) ? trim((string)$profile->studylevel) : null;
 
 $enrolledcourses = enrol_get_all_users_courses($studentuserid, true, ['id', 'shortname', 'fullname', 'visible', 'category'], 'shortname ASC');
 $enrolledcourseids = [];
@@ -57,15 +58,46 @@ foreach ($enrolledcourses as $ec) {
     $courserecs[(int)$ec->id] = $ec;
 }
 
+try {
+    if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+        $whitelist = \local_ulms_academics\local\repository\academic_repository::get_student_programme_courseids($studentuserid);
+        $allowedids = array_values(array_map('intval', $whitelist['courseids'] ?? []));
+        if (!empty($allowedids)) {
+            $allowedlookup = array_flip($allowedids);
+            $enrolledcourseids = array_values(array_intersect($enrolledcourseids, $allowedids));
+            $courserecs = array_filter($courserecs, static function($cid) use ($allowedlookup) {
+                return isset($allowedlookup[(int)$cid]);
+            }, ARRAY_FILTER_USE_KEY);
+        }
+    }
+} catch (\Throwable $_e) {
+    unset($_e);
+}
+
+$levelid = 0;
+try {
+    if (class_exists(\local_ulms_academics\local\repository\academic_repository::class)) {
+        $levelid = \local_ulms_academics\local\repository\academic_repository::resolve_level_id_from_studylevel($studylevelraw);
+    }
+} catch (\Throwable $_e) {
+    unset($_e);
+}
+
 $programmeMeta = [];
 if (!empty($enrolledcourseids)) {
     [$cin, $cparams] = $DB->get_in_or_equal($enrolledcourseids, SQL_PARAMS_NAMED, 'pcm');
+    $levelwhere = '';
+    $levelparams = [];
+    if ($levelid > 0) {
+        $levelwhere = ' AND (pc.levelid IS NULL OR pc.levelid = 0 OR pc.levelid = :pclid)';
+        $levelparams['pclid'] = $levelid;
+    }
     $progRows = $DB->get_records_sql(
         "SELECT pc.moodlecourseid, pc.coursetype, s.name AS semesterlabel
            FROM {local_ulms_programme_courses} pc
       LEFT JOIN {local_ulms_semesters} s ON s.id = pc.semesterid
-          WHERE pc.moodlecourseid $cin AND pc.programmeid = :pid",
-        $cparams + ['pid' => $programmeid]
+          WHERE pc.moodlecourseid $cin AND pc.programmeid = :pid{$levelwhere}",
+        $cparams + ['pid' => $programmeid] + $levelparams
     );
     foreach ($progRows as $pr) {
         $programmeMeta[(int)$pr->moodlecourseid] = [
@@ -179,6 +211,12 @@ $now = time();
 $examsbycourse = [];
 if (!empty($enrolledcourseids)) {
     [$cin, $cparams] = $DB->get_in_or_equal($enrolledcourseids, SQL_PARAMS_NAMED, 'ec');
+    $exlevelwhere = '';
+    $exlevelparams = [];
+    if ($levelid > 0) {
+        $exlevelwhere = ' AND (e.levelid IS NULL OR e.levelid = 0 OR e.levelid = :elid)';
+        $exlevelparams['elid'] = $levelid;
+    }
     $sql = "SELECT e.*,
                    s.id AS submissionid,
                    s.status AS submissionstatus,
@@ -192,12 +230,13 @@ if (!empty($enrolledcourseids)) {
              WHERE e.programmeid = :pid
                AND e.courseid $cin
                AND e.status <> :draftstat
+               {$exlevelwhere}
           ORDER BY e.start_ts ASC";
     $rows = $DB->get_records_sql($sql, [
         'uid' => $studentuserid,
         'pid' => $programmeid,
         'draftstat' => exam_service::STATUS_DRAFT,
-    ] + $cparams);
+    ] + $cparams + $exlevelparams);
     foreach ($rows as $r) {
         $cid = (int)$r->courseid;
         if (!isset($examsbycourse[$cid])) $examsbycourse[$cid] = [];
