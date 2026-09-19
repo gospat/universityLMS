@@ -38,8 +38,8 @@ require_once __DIR__ . '/../../../../../course/lib.php';
  */
 class schedule_service {
 
-    private const SESSION_TABLE = 'local_ulms_dashboard_session';
-    private const ATTENDANCE_TABLE = 'local_ulms_dashboard_attendance';
+    public const SESSION_TABLE = 'local_ulms_dashboard_session';
+    public const ATTENDANCE_TABLE = 'local_ulms_dashboard_attendance';
 
     public const DELIVERY_MODES = ['lecture', 'tutorial', 'lab', 'seminar', 'workshop', 'office_hour', 'online_live'];
     public const STATUSES = ['scheduled', 'cancelled', 'completed', 'rescheduled'];
@@ -61,6 +61,133 @@ class schedule_service {
             $singleton = new self();
         }
         return $singleton;
+    }
+
+    public static function friendly_errors_list(array $errors, array $friendlymap): array {
+        $out = [];
+        foreach ($errors as $k => $v) {
+            $label = $friendlymap[$k] ?? ucwords(str_replace(['_', 'id'], [' ', ''], $k));
+            if (is_string($v) && $v !== '' && $v !== 'required' && $v !== 'invalid') {
+                $out[] = $label . ': ' . $v;
+            } elseif ($v === 'required') {
+                $out[] = $label . ' is required.';
+            } else {
+                $out[] = $label . ' is invalid.';
+            }
+        }
+        return $out;
+    }
+
+    public function get_cascade_for_lecturer_schedule(int $actor_userid, int $facultyid = 0, int $departmentid = 0, int $programmeid = 0, int $levelid = 0, int $sessionid = 0, int $semesterid = 0): array {
+        global $DB;
+        $out = [
+            'faculties' => [],
+            'departments' => [],
+            'programmes' => [],
+            'levels' => [],
+            'sessions' => [],
+            'semesters' => [],
+            'courses' => [],
+        ];
+        $out['faculties'] = array_map(function ($row) {
+            return ['id' => (int)$row->id, 'name' => format_string($row->name ?? '')];
+        }, array_values($DB->get_records('local_ulms_faculties', null, 'name ASC', 'id, name')));
+
+        if ($facultyid > 0) {
+            $out['departments'] = array_map(function ($row) {
+                return ['id' => (int)$row->id, 'name' => format_string($row->name ?? '')];
+            }, array_values($DB->get_records('local_ulms_departments', ['facultyid' => $facultyid], 'name ASC', 'id, name')));
+        } else {
+            $out['departments'] = array_map(function ($row) {
+                return ['id' => (int)$row->id, 'name' => format_string($row->name ?? ''), 'facultyid' => (int)($row->facultyid ?? 0)];
+            }, array_values($DB->get_records('local_ulms_departments', null, 'name ASC', 'id, facultyid, name')));
+        }
+
+        $deptwhere = [];
+        $deptparams = [];
+        if ($departmentid > 0) {
+            $deptwhere[] = 'departmentid = :did';
+            $deptparams['did'] = $departmentid;
+        } elseif ($facultyid > 0) {
+            $deptids = array_keys($DB->get_records_menu('local_ulms_departments', ['facultyid' => $facultyid], '', 'id, id'));
+            if (count($deptids) > 0) {
+                [$insql, $inparams] = $DB->get_in_or_equal($deptids, SQL_PARAMS_NAMED, 'd');
+                $deptwhere[] = 'departmentid ' . $insql;
+                $deptparams = array_merge($deptparams, $inparams);
+            } else {
+                $deptwhere[] = '1 = 0';
+            }
+        }
+        $progsql = "SELECT id, departmentid, name FROM {local_ulms_programmes}";
+        if (count($deptwhere) > 0) {
+            $progsql .= " WHERE " . implode(' AND ', $deptwhere);
+        }
+        $progsql .= " ORDER BY name ASC";
+        $out['programmes'] = array_map(function ($row) {
+            return ['id' => (int)$row->id, 'name' => format_string($row->name ?? ''), 'departmentid' => (int)($row->departmentid ?? 0)];
+        }, array_values($DB->get_records_sql($progsql, $deptparams)));
+
+        $out['levels'] = array_map(function ($row) {
+            return ['id' => (int)$row->id, 'name' => format_string($row->name ?? ''), 'code' => trim((string)($row->code ?? ''))];
+        }, array_values($DB->get_records('local_ulms_levels', null, 'name ASC', 'id, code, name')));
+
+        $out['sessions'] = array_map(function ($row) {
+            return ['id' => (int)$row->id, 'name' => format_string($row->name ?? '')];
+        }, array_values($DB->get_records('local_ulms_sessions', null, 'name ASC', 'id, name')));
+
+        $out['semesters'] = array_map(function ($row) {
+            return ['id' => (int)$row->id, 'name' => format_string($row->name ?? ''), 'sessionid' => (int)($row->sessionid ?? 0)];
+        }, array_values($DB->get_records('local_ulms_semesters', null, 'name ASC', 'id, sessionid, name')));
+
+        $myallowed = [];
+        try {
+            $myallowed = $this->resolve_allocated_courseids($actor_userid);
+        } catch (\Throwable $_e) {
+            $myallowed = [];
+        }
+
+        $where = [];
+        $params = [];
+        if ($programmeid > 0) {
+            $where[] = 'pc.programmeid = :prid';
+            $params['prid'] = $programmeid;
+        }
+        if ($levelid > 0) {
+            $where[] = 'pc.levelid = :lid';
+            $params['lid'] = $levelid;
+        }
+        if ($sessionid > 0) {
+            $where[] = 'pc.sessionid = :sid';
+            $params['sid'] = $sessionid;
+        }
+        if ($semesterid > 0) {
+            $where[] = 'pc.semesterid = :smid';
+            $params['smid'] = $semesterid;
+        }
+        if (count($myallowed) > 0) {
+            [$insql, $inparams] = $DB->get_in_or_equal($myallowed, SQL_PARAMS_NAMED, 'cid');
+            $where[] = 'c.id ' . $insql;
+            $params = array_merge($params, $inparams);
+        } elseif ($actor_userid > 0 && !is_siteadmin($actor_userid)) {
+            $where[] = '1 = 0';
+        }
+        $sql = "SELECT c.id, c.fullname, c.shortname
+                  FROM {course} c";
+        if ($programmeid > 0 || $levelid > 0 || $sessionid > 0 || $semesterid > 0) {
+            $sql .= " JOIN {local_ulms_programme_courses} pc ON pc.moodlecourseid = c.id";
+        }
+        if (count($where) > 0) {
+            $sql .= " WHERE " . implode(' AND ', $where);
+        }
+        $sql .= " ORDER BY c.fullname ASC";
+        try {
+            $out['courses'] = array_map(function ($row) {
+                return ['id' => (int)$row->id, 'name' => format_string($row->fullname ?? ''), 'shortname' => trim((string)($row->shortname ?? ''))];
+            }, array_values($DB->get_records_sql($sql, $params)));
+        } catch (\Throwable $_e) {
+            $out['courses'] = [];
+        }
+        return $out;
     }
 
     private function actor_is_lecturer(int $actor_userid): bool {
@@ -146,6 +273,18 @@ class schedule_service {
             $errors['location_mode'] = 'invalid';
         }
 
+        $termstart = (int)($payload['term_start_date'] ?? 0);
+        $termend   = (int)($payload['term_end_date']   ?? 0);
+        if ($termstart > 0 && $termend > 0 && $termend < $termstart) {
+            $errors['term_end_date'] = 'Term end date must be on or after term start date.';
+        }
+        if ($termstart > 0 && $termend > 0 && $dur > 0) {
+            $dayminutes = 24 * 60;
+            if (($termend - $termstart) < ($dur * 60)) {
+                $errors['duration_minutes'] = 'Duration exceeds length of term.';
+            }
+        }
+
         $provider = (string)($payload['provider_key'] ?? 'bigbluebutton');
         if (!in_array($provider, self::PROVIDERS, true)) {
             $errors['provider_key'] = 'invalid';
@@ -164,8 +303,36 @@ class schedule_service {
             }
         }
 
+        $lecturer_uid = (int)($payload['lecturer_userid'] ?? 0);
+        if ($lecturer_uid > 0) {
+            $lecturer_courses = $this->resolve_allocated_courseids($lecturer_uid);
+            $cid = (int)($payload['moodlecourseid'] ?? 0);
+            if ($cid > 0 && !in_array($cid, $lecturer_courses, true)) {
+                $errors['lecturer_userid'] = 'Lecturer is not allocated to the selected course. Allocate them first via Admin → Lecturer Allocations.';
+            }
+        }
+
         if (count($errors) > 0) {
-            return ['success' => false, 'id' => 0, 'message' => 'validation_failed', 'errors' => $errors];
+            $friendly = [
+                'facultyid' => 'Faculty',
+                'departmentid' => 'Department',
+                'programmeid' => 'Programme',
+                'sessionid' => 'Academic Session',
+                'semesterid' => 'Semester',
+                'levelid' => 'Level',
+                'moodlecourseid' => 'Course',
+                'lecturer_userid' => 'Lecturer account',
+                'title' => 'Session Title',
+                'delivery_mode' => 'Delivery Mode',
+                'weekday' => 'Weekday',
+                'start_minutes' => 'Start Time',
+                'duration_minutes' => 'Duration (minutes)',
+                'location_mode' => 'Location Mode',
+                'provider_key' => 'Online Provider',
+                'status' => 'Status',
+                'term_end_date' => 'Term End Date',
+            ];
+            return ['success' => false, 'id' => 0, 'message' => 'validation_failed', 'errors' => $errors, 'friendly_errors' => self::friendly_errors_list($errors, $friendly)];
         }
 
         $now = time();
@@ -191,7 +358,15 @@ class schedule_service {
         $obj->cmid = !empty($payload['cmid']) ? (int)$payload['cmid'] : null;
         $customurl = trim((string)($payload['join_url_custom'] ?? ''));
         $obj->join_url_custom = $customurl !== '' ? $customurl : null;
-        $obj->recurrence = in_array(($payload['recurrence'] ?? 'weekly'), ['weekly','once_off'], true) ? (string)$payload['recurrence'] : 'weekly';
+        $allowed_recurrence = ['weekly', 'once_off', 'fortnightly', 'biweekly'];
+        $reqrec = (string)($payload['recurrence'] ?? 'weekly');
+        if ($reqrec === 'once') {
+            $reqrec = 'once_off';
+        }
+        if ($reqrec === 'biweekly') {
+            $reqrec = 'fortnightly';
+        }
+        $obj->recurrence = in_array($reqrec, $allowed_recurrence, true) ? $reqrec : 'weekly';
         $obj->status = $status;
         $obj->notes_public  = trim((string)($payload['notes_public'] ?? '')) !== '' ? trim((string)$payload['notes_public']) : null;
         $obj->notes_private = trim((string)($payload['notes_private'] ?? '')) !== '' ? trim((string)$payload['notes_private']) : null;
@@ -208,7 +383,6 @@ class schedule_service {
             $obj->usermodified = $actor_userid > 0 ? $actor_userid : (int)$USER->id;
             $id = (int)$DB->insert_record(self::SESSION_TABLE, $obj, true);
         }
-
         try {
             $this->sync_calendar_event($id);
         } catch (\Throwable $_e) {
@@ -392,10 +566,11 @@ class schedule_service {
 
         $where[] = "s.status <> 'cancelled'";
         $where[] = '(s.term_end_date = 0 OR s.term_start_date <= :weekend)';
-        $where[] = '(s.term_start_date = 0 OR s.term_end_date >= :weekstart OR (s.term_start_date <= :weekstart AND s.term_end_date >= :weekstart2))';
+        $where[] = '(s.term_start_date = 0 OR s.term_end_date >= :weekstart_a OR (s.term_start_date <= :weekstart_b AND s.term_end_date >= :weekstart_c))';
         $params['weekend'] = $sun;
-        $params['weekstart'] = $week_start_monday_ts;
-        $params['weekstart2'] = $week_start_monday_ts;
+        $params['weekstart_a'] = $week_start_monday_ts;
+        $params['weekstart_b'] = $week_start_monday_ts;
+        $params['weekstart_c'] = $week_start_monday_ts;
 
         $sql = "SELECT s.* FROM {" . self::SESSION_TABLE . "} s";
         if (count($where) > 0) {
@@ -428,7 +603,8 @@ class schedule_service {
             $whereextra = 'AND a.facultyid = :fid';
             $params['fid'] = $facultyid;
         }
-        $sql = "SELECT a.id AS aid, b.id AS bid,
+        $sql = "SELECT CONCAT(a.id, '-', b.id) AS id,
+                       a.id AS aid, b.id AS bid,
                        a.lecturer_userid AS lec_a, b.lecturer_userid AS lec_b,
                        a.location_label AS loc_a, b.location_label AS loc_b,
                        a.location_mode AS locmode_a, b.location_mode AS locmode_b,
@@ -704,9 +880,16 @@ class schedule_service {
         }
         $courseid = (int)$session->moodlecourseid;
         try {
-            $ctx = context_course::instance($courseid);
-            /** @noinspection PhpUndefinedFunctionInspection */
-            $fn = '\enrol_get_enrolled_users'; $students = $fn($ctx, 'moodle/role:student');
+            $ctx = \context_course::instance($courseid);
+            $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student'], IGNORE_MISSING);
+            $students = [];
+            if ($studentroleid > 0) {
+                $students = get_role_users($studentroleid, $ctx, false, 'u.*', 'u.lastname ASC, u.firstname ASC');
+            }
+            if (empty($students) && function_exists('get_enrolled_users')) {
+                $students = get_enrolled_users($ctx, '', 0, 'u.*', 'u.lastname ASC, u.firstname ASC');
+                $students = array_values(array_filter($students, static fn($u): bool => empty($u->deleted) && (int)($u->id ?? 0) > 1));
+            }
         } catch (\Throwable $_e) {
             return ['total_count' => 0, 'newly_marked' => 0, 'skipped_existing' => 0, 'message' => 'course_context_missing'];
         }

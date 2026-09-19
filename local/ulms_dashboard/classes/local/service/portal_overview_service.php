@@ -28,6 +28,40 @@ require_once __DIR__ . '/../../../../../lib/enrollib.php';
  */
 class portal_overview_service {
     /**
+     * Safe wrapper around get_string() that guards against Moodle cache-stale
+     * literal `[[stringid]]` placeholders leaking into the UI by falling back to
+     * a supplied human-readable default whenever the translated string is empty
+     * or contains the unknown-string marker.
+     *
+     * @param string $identifier language string identifier
+     * @param string $fallback   plain-text fallback used when the identifier cannot be resolved
+     * @param string|int|float|object|array|null $a optional placeholder substitution value
+     * @return string resolved language string (or fallback)
+     */
+    private static function safe_get_string(string $identifier, string $fallback, $a = null): string {
+        try {
+            if ($a === null) {
+                $value = @get_string($identifier, 'local_ulms_dashboard');
+            } else {
+                $value = @get_string($identifier, 'local_ulms_dashboard', $a);
+            }
+        } catch (\Throwable) {
+            $value = '';
+        }
+        if (!is_string($value) || $value === '' || strpos($value, '[[') !== false) {
+            if ($a !== null && is_scalar($a)) {
+                $str = (string)$a;
+                if (str_contains($fallback, '{$a}')) {
+                    return strtr($fallback, ['{$a}' => $str]);
+                }
+                return trim($fallback . ' ' . $str);
+            }
+            return $fallback;
+        }
+        return $value;
+    }
+
+    /**
      * Returns the shared ULMS routing service.
      *
      * @return \local_ulms_auth\local\service\landing_page_service
@@ -153,6 +187,7 @@ class portal_overview_service {
             'reports' => $this->build_admin_reports_section_data(),
             'schedule' => $this->build_admin_schedule_section_data(),
             'attendanceaudit' => $this->build_admin_attendanceaudit_section_data(),
+            'lecturers' => $this->build_admin_lecturer_allocation_data(),
             default => $this->build_admin_audit_section_data(),
         };
     }
@@ -461,41 +496,332 @@ class portal_overview_service {
     }
 
     /**
+     * Returns all moodlecourseid values that are mapped to the given
+     * student's registered programme via local_ulms_programme_courses.
+     *
+     * Used as a security whitelist for all self-enrol POST operations.
+     *
+     * @param int $userid
+     * @return array<int,int> moodlecourseid list (empty if student has no programme)
+     */
+    public static function resolve_programme_courseids_for_student(int $userid): array {
+        global $DB;
+        if ($userid <= 0) {
+            return [];
+        }
+        $profile = $DB->get_record(
+            'local_ulms_user_profile',
+            ['userid' => $userid],
+            'id,programmeid',
+            IGNORE_MISSING
+        );
+        $programmeid = (int)($profile->programmeid ?? 0);
+        if ($programmeid <= 0) {
+            return [];
+        }
+        try {
+            $rows = $DB->get_records_sql(
+                "SELECT DISTINCT pc.moodlecourseid
+                   FROM {local_ulms_programme_courses} pc
+                   JOIN {course} c ON c.id = pc.moodlecourseid
+                  WHERE pc.programmeid = :pid
+                    AND c.id > 1
+                    AND c.visible = 1",
+                ['pid' => $programmeid]
+            );
+        } catch (\Throwable) {
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $cid = (int)$r->moodlecourseid;
+            if ($cid > 0) {
+                $out[$cid] = $cid;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Enrol a student into a SINGLE programme course (the "Enrol now" button).
+     *
+     * Strict security: courseid MUST be inside the programme-scoped whitelist
+     * returned by resolve_programme_courseids_for_student(). Otherwise the
+     * enrolment is rejected with an error message. This prevents any forged
+     * POST attempt to sneak into another programme's courses.
+     *
+     * Prefers enrol_self when the course already has an enabled self instance.
+     * Falls back to enrol_manual (adding the instance if needed) when self
+     * is missing/disabled so programme-scoped enrol always succeeds.
+     *
+     * @param int $actoruserid
+     * @param int $courseid
+     * @return array{ok:bool, already:bool, msg:string} result tuple
+     */
+    public static function self_enrol_student_in_programme_course(int $actoruserid, int $courseid): array {
+        global $DB;
+        if ($actoruserid <= 0 || $courseid <= 0) {
+            return ['ok' => false, 'already' => false, 'msg' => 'Invalid request.'];
+        }
+        $whitelist = self::resolve_programme_courseids_for_student($actoruserid);
+        if (empty($whitelist) || !isset($whitelist[$courseid])) {
+            return [
+                'ok' => false,
+                'already' => false,
+                'msg' => 'This course is not in your registered programme. Contact your department administrator.',
+            ];
+        }
+        try {
+            $coursectx = \context_course::instance($courseid, IGNORE_MISSING);
+        } catch (\Throwable) {
+            $coursectx = null;
+        }
+        if (!$coursectx) {
+            return ['ok' => false, 'already' => false, 'msg' => 'Course not found.'];
+        }
+        if (is_enrolled($coursectx, $actoruserid, null, true)) {
+            return ['ok' => true, 'already' => true, 'msg' => 'You are already enrolled in this course.'];
+        }
+        $course = $DB->get_record('course', ['id' => $courseid], '*', IGNORE_MISSING);
+        if (!$course) {
+            return ['ok' => false, 'already' => false, 'msg' => 'Course not found.'];
+        }
+        $studentroleid = (int)$DB->get_field_select('role', 'id', "shortname = 'student'", [], IGNORE_MISSING);
+        if ($studentroleid <= 0) {
+            $studentroleid = 5;
+        }
+
+        $instances = enrol_get_instances($courseid, true);
+        $choseninstance = null;
+        $chosenplugin = null;
+        foreach ($instances as $inst) {
+            if ($inst->enrol === 'self' && (int)$inst->status === ENROL_INSTANCE_ENABLED) {
+                try {
+                    $plugin = enrol_get_plugin('self');
+                } catch (\Throwable) {
+                    $plugin = null;
+                }
+                if ($plugin) {
+                    $choseninstance = $inst;
+                    $chosenplugin = $plugin;
+                    break;
+                }
+            }
+        }
+        if (!$chosenplugin) {
+            try {
+                $manualplugin = enrol_get_plugin('manual');
+            } catch (\Throwable) {
+                $manualplugin = null;
+            }
+            if (!$manualplugin) {
+                return ['ok' => false, 'already' => false, 'msg' => 'Enrolment is unavailable on this course. Contact your administrator.'];
+            }
+            $manualinstance = null;
+            foreach ($instances as $inst) {
+                if ($inst->enrol === 'manual' && (int)$inst->status === ENROL_INSTANCE_ENABLED) {
+                    $manualinstance = $inst;
+                    break;
+                }
+            }
+            if (!$manualinstance) {
+                try {
+                    $instanceid = $manualplugin->add_instance($course, [
+                        'status' => ENROL_INSTANCE_ENABLED,
+                        'enrolperiod' => 0,
+                    ]);
+                    $manualinstance = $DB->get_record('enrol', ['id' => $instanceid], '*', IGNORE_MISSING);
+                } catch (\Throwable $e) {
+                    $manualinstance = null;
+                }
+                if (!$manualinstance) {
+                    return ['ok' => false, 'already' => false, 'msg' => 'Could not prepare enrolment for this course.'];
+                }
+            }
+            try {
+                $manualplugin->enrol_user($manualinstance, $actoruserid, $studentroleid, time(), 0);
+                return ['ok' => true, 'already' => false, 'msg' => 'Successfully enrolled in ' . format_string($course->fullname) . '.'];
+            } catch (\Throwable $e) {
+                return ['ok' => false, 'already' => false, 'msg' => 'Enrolment failed: ' . $e->getMessage()];
+            }
+        }
+        try {
+            $chosenplugin->enrol_user($choseninstance, $actoruserid, $studentroleid, time(), 0);
+            return ['ok' => true, 'already' => false, 'msg' => 'Successfully enrolled in ' . format_string($course->fullname) . '.'];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'already' => false, 'msg' => 'Enrolment failed: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Bulk enrol the given student into ALL programme-courses they are not
+     * yet enrolled in. Idempotent: already-enrolled courses are skipped.
+     *
+     * Iterates the programme-courses whitelist from resolve_programme_courseids_for_student()
+     * and calls self_enrol_student_in_programme_course() (which enforces the
+     * same security guard + enrols via self→manual plugin fallback). This
+     * guarantees identical enrolment semantics between single "Enrol now"
+     * clicks and the bulk "Enrol in all programme courses" button.
+     *
+     * @param int $userid
+     * @return int total NEW enrolments performed (skips excluded)
+     */
+    public static function enrol_student_all_programme_courses(int $userid): int {
+        $ids = self::resolve_programme_courseids_for_student($userid);
+        if (empty($ids)) {
+            return 0;
+        }
+        $new = 0;
+        foreach ($ids as $cid) {
+            $res = self::self_enrol_student_in_programme_course($userid, (int)$cid);
+            if (!empty($res['ok']) && empty($res['already'])) {
+                $new++;
+            }
+        }
+        return $new;
+    }
+
+    /**
      * Builds a catalog page.
      *
      * @param array<string, mixed> $snapshot
      * @return array<string, mixed>
      */
     private function build_catalog_section_data(array $snapshot): array {
-        global $DB;
+        global $DB, $USER;
 
-        $courses = $DB->get_records_select('course', 'id > :sitecourse AND visible = :visible', [
-            'sitecourse' => 1,
-            'visible' => 1,
-        ], 'fullname ASC', 'id, fullname, summary', 0, 12);
+        $userid = !empty($USER->id) ? (int)$USER->id : 0;
+        $profile = null;
+        $programme = null;
+        $programmeid = 0;
+        if ($userid > 0) {
+            $profile = $DB->get_record(
+                'local_ulms_user_profile',
+                ['userid' => $userid],
+                'id,programmeid,facultyid,departmentid,studylevel',
+                IGNORE_MISSING
+            );
+            $programmeid = (int)($profile->programmeid ?? 0);
+            if ($programmeid > 0) {
+                $programme = $DB->get_record(
+                    'local_ulms_programmes',
+                    ['id' => $programmeid],
+                    'id,code,name,departmentid',
+                    IGNORE_MISSING
+                );
+            }
+        }
 
         $items = [];
-        foreach ($courses as $course) {
-            $items[] = [
-                'title' => format_string($course->fullname),
-                'meta' => shorten_text(strip_tags(format_text((string)$course->summary, FORMAT_HTML)), 120),
-                'url' => new \moodle_url('/course/view.php', ['id' => (int)$course->id]),
-                'footer' => get_string('studentcatalogopen', 'local_ulms_dashboard'),
+        $programmetotal = 0;
+        $enrolledcount = 0;
+        $sesskey = sesskey();
+        $enrolurl = (new \moodle_url('/student/catalog/enrol.php'))->out(false);
+        if ($programmeid > 0) {
+            $sql = "SELECT c.id, c.shortname, c.fullname, c.summary, c.visible,
+                           pc.semesterid, pc.coursetype, pc.iscore
+                      FROM {local_ulms_programme_courses} pc
+                      JOIN {course} c ON c.id = pc.moodlecourseid
+                     WHERE pc.programmeid = :pid
+                       AND c.id > 1
+                       AND c.visible = 1
+                  ORDER BY pc.semesterid ASC, pc.iscore DESC, c.shortname ASC";
+            $rows = $DB->get_records_sql($sql, ['pid' => $programmeid]);
+            $programmetotal = count($rows);
+            foreach ($rows as $row) {
+                try {
+                    $coursectx = \context_course::instance((int)$row->id, IGNORE_MISSING);
+                } catch (\Throwable) {
+                    $coursectx = null;
+                }
+                $isenrolled = $coursectx && is_enrolled($coursectx, $userid, null, true);
+                if ($isenrolled) {
+                    $enrolledcount++;
+                }
+                $typebadge = !empty($row->iscore) ? 'Core' : 'Elective';
+                $courseurl = (new \moodle_url('/course/view.php', ['id' => (int)$row->id]))->out(false);
+                if ($isenrolled) {
+                    $footer = sprintf(
+                        '<span class="ulms-enroled-line">'
+                        . '<span class="ulms-enroled-badge">%s</span>'
+                        . '<span class="ulms-enroled-sep">·</span>'
+                        . '<span class="ulms-enrol-link">%s →</span>'
+                        . '</span>',
+                        get_string('studentcatalogenroled', 'local_ulms_dashboard'),
+                        get_string('studentcatalogopen', 'local_ulms_dashboard')
+                    );
+                } else {
+                    $footer = sprintf(
+                        '<form method="post" action="%s" style="margin:0;display:inline">'
+                        . '<input type="hidden" name="sesskey" value="%s">'
+                        . '<input type="hidden" name="courseid" value="%d">'
+                        . '<button type="submit" class="btn btn-primary btn-sm">%s</button>'
+                        . '</form>',
+                        $enrolurl,
+                        $sesskey,
+                        (int)$row->id,
+                        get_string('studentcatalogenrolnow', 'local_ulms_dashboard')
+                    );
+                }
+                $items[] = [
+                    'title' => format_string($row->fullname),
+                    'meta' => shorten_text(strip_tags(format_text((string)$row->summary, FORMAT_HTML)), 120)
+                            . ' · ' . $typebadge,
+                    'url' => $isenrolled ? $courseurl : null,
+                    'footer' => $footer,
+                    'courseid' => (int)$row->id,
+                    'is_enrolled' => $isenrolled,
+                    'coursetype' => $typebadge,
+                    'semesterid' => (int)$row->semesterid,
+                ];
+            }
+        }
+
+        $hastile = !empty($programme);
+        $tiles = [];
+        if ($hastile) {
+            $tiles[] = [
+                'id' => 'programme-tile',
+                'style' => 'banner',
+                'title' => sprintf(
+                    '%s — %s',
+                    format_string($programme->code ?? ''),
+                    format_string($programme->name ?? '')
+                ),
+                'meta' => get_string('studentcatalogprogrammedesc', 'local_ulms_dashboard', (object)[
+                    'code' => format_string($programme->code ?? ''),
+                ]),
+                'footer' => sprintf(
+                    '%d courses in your programme · %d currently enrolled',
+                    $programmetotal,
+                    $enrolledcount
+                ),
+                'bulkurl' => (new \moodle_url('/student/catalog/enrol.php'))->out(false),
+                'showbulk' => $programmetotal > $enrolledcount,
+                'courseids_csv' => implode(',', array_column($items, 'courseid')),
             ];
         }
 
         return [
-            'summarycards' => [
-                ['label' => get_string('studentcatalogsummaryavailable', 'local_ulms_dashboard'), 'value' => (string)count($courses), 'description' => get_string('studentcatalogsummaryavailabledesc', 'local_ulms_dashboard')],
+            'summarycards' => $hastile ? [
+                ['label' => get_string('studentcatalogsummaryprogramme', 'local_ulms_dashboard'), 'value' => format_string($programme->code ?? ''), 'description' => format_string($programme->name ?? '')],
+                ['label' => get_string('studentcatalogsummaryavailable', 'local_ulms_dashboard'), 'value' => (string)$programmetotal, 'description' => get_string('studentcatalogsummaryavailabledesc', 'local_ulms_dashboard')],
+                ['label' => get_string('coursecountsummary', 'local_ulms_dashboard'), 'value' => (string)$enrolledcount, 'description' => get_string('studentcoursescountdesc', 'local_ulms_dashboard')],
+            ] : [
+                ['label' => get_string('studentcatalogsummaryavailable', 'local_ulms_dashboard'), 'value' => (string)$programmetotal, 'description' => get_string('studentcatalogsummaryavailabledesc', 'local_ulms_dashboard')],
                 ['label' => get_string('coursecountsummary', 'local_ulms_dashboard'), 'value' => (string)$snapshot['coursecount'], 'description' => get_string('studentcoursescountdesc', 'local_ulms_dashboard')],
             ],
             'mainpanel' => [
                 'title' => get_string('studentcatalogtitle', 'local_ulms_dashboard'),
-                'subtitle' => get_string('studentcatalogdesc', 'local_ulms_dashboard'),
+                'subtitle' => $hastile
+                    ? get_string('studentcatalogdesc_programmescoped', 'local_ulms_dashboard', (object)['code' => format_string($programme->code ?? '')])
+                    : get_string('studentcatalogdesc', 'local_ulms_dashboard'),
                 'style' => 'cards',
                 'items' => $items,
-                'emptytitle' => get_string('studentcatalogempty', 'local_ulms_dashboard'),
-                'emptydesc' => get_string('studentcatalogemptydesc', 'local_ulms_dashboard'),
+                'tiles' => $tiles,
+                'programmeid' => $programmeid,
+                'emptytitle' => $hastile ? get_string('studentcatalogempty_programme', 'local_ulms_dashboard') : get_string('studentcatalogempty', 'local_ulms_dashboard'),
+                'emptydesc' => $hastile ? get_string('studentcatalogemptydesc_programme', 'local_ulms_dashboard') : get_string('studentcatalogemptydesc', 'local_ulms_dashboard'),
             ],
             'secondarypanels' => [],
         ];
@@ -531,55 +857,851 @@ class portal_overview_service {
     /**
      * Builds assignment section data.
      *
+     * Student view (approved redesign): renders ONE CARD PER ENROLLED COURSE,
+     * even if the course has 0 assignments (avoids "page looks empty / broken"
+     * UX). Each course card:
+     *   - header row with course code/name + aggregate status badge pill
+     *     (e.g. "1 Due soon · 2 open" or "0 assignments")
+     *   - nested sub-list 0..N of the course's assignments with
+     *     per-assignment status (Open / Due soon / Overdue / Submitted / Graded)
+     *   - clickable sub-rows link directly to /mod/assign/view.php?id=CMID
+     *
+     * Lecturer view unchanged: flat assignment list (grading queue style).
+     *
+     * Scope guarantee: courseids passed in via caller are strictly the user's
+     * enrolled courses (snapshot.courseids), so students CANNOT see
+     * assignments from courses outside their enrolment / programme scope.
+     *
      * @param array<string, mixed> $snapshot
      * @param bool $islecturer
      * @return array<string, mixed>
      */
     private function build_assignment_section_data(array $snapshot, bool $islecturer): array {
-        $items = $this->get_assignment_list_items($snapshot['courseids'], $islecturer ? 12 : 10);
+        global $DB, $USER;
+
+        if ($islecturer) {
+            $items = $this->get_assignment_list_items($snapshot['courseids'], 12);
+            return [
+                'summarycards' => [
+                    ['label' => get_string('assignmentsummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => get_string('lecturerassignmentsdesc', 'local_ulms_dashboard')],
+                    ['label' => get_string('gradingqueuesummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => get_string('lecturergradingcountdesc', 'local_ulms_dashboard')],
+                ],
+                'mainpanel' => [
+                    'title' => get_string('lecturerassignmentstitle', 'local_ulms_dashboard'),
+                    'subtitle' => get_string('lecturerassignmentsdesc', 'local_ulms_dashboard'),
+                    'style' => 'list',
+                    'items' => $items,
+                    'emptytitle' => get_string('lecturerassignmentsempty', 'local_ulms_dashboard'),
+                    'emptydesc' => get_string('lecturerassignmentsemptydesc', 'local_ulms_dashboard'),
+                ],
+                'secondarypanels' => [],
+            ];
+        }
+
+        $courseids = array_values(array_map('intval', $snapshot['courseids'] ?? []));
+        $userid = (int)($snapshot['userid'] ?? $USER->id);
+        $grouped = $this->get_assignments_grouped_by_course($courseids, $userid);
+
+        $coursecards = [];
+        $totalAssignments = 0;
+        $totalDueSoon7 = 0;
+        $totalOverdue = 0;
+        $totalSubmitted = 0;
+
+        foreach ($grouped as $courseid => $g) {
+            $courserec = $g['course'];
+            $assignments = $g['assignments'] ?? [];
+            $counts = $g['counts'];
+            $totalAssignments += (int)$counts['total'];
+            $totalDueSoon7 += (int)$counts['duesoon7'];
+            $totalOverdue += (int)$counts['overdue'];
+            $totalSubmitted += (int)$counts['submitted'];
+
+            $coursetitle = format_string((string)$courserec->fullname);
+            $courseurl = new \moodle_url('/course/view.php', ['id' => (int)$courseid]);
+            $coursemeta = trim(format_string((string)($courserec->shortname ?? ''))
+                . (isset($courserec->coursetype) ? ' · ' . format_string((string)$courserec->coursetype) : '')
+                . (isset($courserec->semesterlabel) ? ' · ' . format_string((string)$courserec->semesterlabel) : ''));
+
+            $badgehtml = self::render_course_assignment_badge($counts);
+
+            $subitems = [];
+            foreach ($assignments as $a) {
+                $statusClass = self::assignment_status_css_class($a['status']);
+                $statusText = self::assignment_status_lang($a['status']);
+                $dueHtml = !empty($a['duedate']) ? userdate((int)$a['duedate']) : get_string('duedateno');
+                $gradeHtml = ($a['status'] === 'graded' && $a['grade'] !== null && $a['grade'] >= 0)
+                    ? ' · ' . get_string('gradeoutof', 'local_ulms_dashboard', (object)[
+                        'grade' => (string)round((float)$a['grade'], 1),
+                        'max' => (string)(int)($a['grademax'] ?? 100),
+                    ])
+                    : '';
+                $subitems[] = [
+                    'title' => format_string($a['name']),
+                    'meta' => $dueHtml
+                        . ' · <span class="ulms-assignstatus ulms-assignstatus--' . $statusClass . '">' . $statusText . '</span>'
+                        . $gradeHtml,
+                    'meta_raw' => true,
+                    'url' => new \moodle_url('/mod/assign/view.php', ['id' => (int)$a['cmid']]),
+                ];
+            }
+
+            $coursecards[] = [
+                'title' => $coursetitle,
+                'meta' => $coursemeta,
+                'url' => $courseurl,
+                'badgehtml' => $badgehtml,
+                'assignments' => $subitems,
+                'sublistempty' => get_string('studentassignmentsnoassignmentscourse', 'local_ulms_dashboard'),
+            ];
+        }
 
         return [
             'summarycards' => [
-                ['label' => get_string('assignmentsummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => $islecturer ? get_string('lecturerassignmentsdesc', 'local_ulms_dashboard') : get_string('studentassignmentsdesc', 'local_ulms_dashboard')],
-                ['label' => $islecturer ? get_string('gradingqueuesummary', 'local_ulms_dashboard') : get_string('upcomingdeadlinessummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => $islecturer ? get_string('lecturergradingcountdesc', 'local_ulms_dashboard') : get_string('studentdeadlinesdesc', 'local_ulms_dashboard')],
+                [
+                    'label' => get_string('studentassignmentstotalcourses', 'local_ulms_dashboard'),
+                    'value' => (string)count($coursecards),
+                    'description' => get_string('studentassignmentstotalcoursesdesc', 'local_ulms_dashboard'),
+                ],
+                [
+                    'label' => get_string('studentassignmentsduesoon', 'local_ulms_dashboard'),
+                    'value' => (string)$totalDueSoon7,
+                    'description' => get_string('studentassignmentsduesoondesc', 'local_ulms_dashboard'),
+                ],
+                [
+                    'label' => get_string('studentassignmentsoverdue', 'local_ulms_dashboard'),
+                    'value' => (string)$totalOverdue,
+                    'description' => get_string('studentassignmentsoverduedesc', 'local_ulms_dashboard'),
+                ],
+                [
+                    'label' => get_string('studentassignmentssubmitted', 'local_ulms_dashboard'),
+                    'value' => (string)$totalSubmitted,
+                    'description' => get_string('studentassignmentssubmitteddesc', 'local_ulms_dashboard'),
+                ],
             ],
             'mainpanel' => [
-                'title' => $islecturer ? get_string('lecturerassignmentstitle', 'local_ulms_dashboard') : get_string('studentassignmentstitle', 'local_ulms_dashboard'),
-                'subtitle' => $islecturer ? get_string('lecturerassignmentsdesc', 'local_ulms_dashboard') : get_string('studentassignmentsdesc', 'local_ulms_dashboard'),
-                'style' => 'list',
-                'items' => $items,
-                'emptytitle' => $islecturer ? get_string('lecturerassignmentsempty', 'local_ulms_dashboard') : get_string('studentassignmentsempty', 'local_ulms_dashboard'),
-                'emptydesc' => $islecturer ? get_string('lecturerassignmentsemptydesc', 'local_ulms_dashboard') : get_string('studentassignmentsemptydesc', 'local_ulms_dashboard'),
+                'title' => get_string('studentassignmentstitle', 'local_ulms_dashboard'),
+                'subtitle' => get_string('studentassignmentsdescgrouped', 'local_ulms_dashboard'),
+                'style' => 'coursegroups',
+                'items' => $coursecards,
+                'emptytitle' => get_string('studentassignmentsemptycourses', 'local_ulms_dashboard'),
+                'emptydesc' => get_string('studentassignmentsemptycoursesdesc', 'local_ulms_dashboard'),
             ],
             'secondarypanels' => [],
         ];
     }
 
     /**
+     * Fetches assignments GROUPED by enrolled course + computes per-assignment
+     * status (Open / DueSoon / Overdue / Submitted / Graded) by joining
+     * submission + grade tables for the specified student.
+     *
+     * Scope: only course ids in $courseids are joined (guaranteed enrolment
+     * scoped by caller). Courses with 0 assignment instances are still returned
+     * in the output so they render on the page.
+     *
+     * @param int[] $courseids enrolled set
+     * @param int $userid student
+     * @return array<int, array{course:object, assignments:array<int, array>, counts:array{total:int, open:int, duesoon24:int, duesoon7:int, overdue:int, submitted:int, graded:int}>
+     */
+    private function get_assignments_grouped_by_course(array $courseids, int $userid): array {
+        global $DB;
+        $out = [];
+        if (empty($courseids)) {
+            return $out;
+        }
+        $courseids = array_values(array_unique(array_map('intval', $courseids)));
+
+        $courserecs = $DB->get_records_sql(
+            "SELECT c.id, c.shortname, c.fullname, c.visible, c.category
+               FROM {course} c
+              WHERE c.id IN (" . implode(',', $courseids) . ") AND c.id > 1
+              ORDER BY c.shortname ASC"
+        );
+
+        $programmeMeta = [];
+        try {
+            $progRows = $DB->get_records_sql(
+                "SELECT pc.moodlecourseid, pc.coursetype, s.name AS semesterlabel
+                   FROM {local_ulms_programme_courses} pc
+              LEFT JOIN {local_ulms_semesters} s ON s.id = pc.semesterid
+                  WHERE pc.moodlecourseid IN (" . implode(',', $courseids) . ")"
+            );
+            foreach ($progRows as $pr) {
+                $programmeMeta[(int)$pr->moodlecourseid] = [
+                    'coursetype' => !empty($pr->coursetype) ? ucfirst((string)$pr->coursetype) : 'Core',
+                    'semesterlabel' => !empty($pr->semesterlabel) ? (string)$pr->semesterlabel : '',
+                ];
+            }
+        } catch (\Throwable) {
+            $programmeMeta = [];
+        }
+
+        foreach ($courserecs as $cr) {
+            $cid = (int)$cr->id;
+            if (isset($programmeMeta[$cid])) {
+                $cr->coursetype = $programmeMeta[$cid]['coursetype'];
+                if (!empty($programmeMeta[$cid]['semesterlabel'])) {
+                    $cr->semesterlabel = $programmeMeta[$cid]['semesterlabel'];
+                }
+            }
+            $out[$cid] = [
+                'course' => $cr,
+                'assignments' => [],
+                'counts' => [
+                    'total' => 0,
+                    'open' => 0,
+                    'duesoon24' => 0,
+                    'duesoon7' => 0,
+                    'overdue' => 0,
+                    'submitted' => 0,
+                    'graded' => 0,
+                ],
+            ];
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $now = time();
+        $DAY = 86400;
+        $params['subuid'] = $userid;
+        $params['gradeuid'] = $userid;
+        $sql = "SELECT a.id,
+                       a.course,
+                       a.name,
+                       a.duedate,
+                       a.allowsubmissionsfromdate,
+                       a.grade,
+                       cm.id AS cmid,
+                       cm.visible AS cmvisible,
+                       s.status AS submissionstatus,
+                       s.timemodified AS submissiontime,
+                       g.grade AS gradekey
+                  FROM {assign} a
+                  JOIN {modules} m ON m.name = 'assign'
+                  JOIN {course_modules} cm ON cm.instance = a.id AND cm.module = m.id AND cm.course = a.course
+             LEFT JOIN {assign_submission} s ON s.assignment = a.id AND s.userid = :subuid AND s.latest = 1
+             LEFT JOIN {assign_grades} g ON g.assignment = a.id AND g.userid = :gradeuid
+                 WHERE a.course {$insql} AND cm.visible = 1
+              ORDER BY a.course ASC, a.duedate ASC, a.name ASC";
+        $rows = $DB->get_records_sql($sql, $params);
+
+        foreach ($rows as $r) {
+            $cid = (int)$r->course;
+            if (!isset($out[$cid])) continue;
+            $duedate = (int)$r->duedate;
+            $from = (int)($r->allowsubmissionsfromdate ?? 0);
+            $isSubmitted = in_array((int)($r->submissionstatus ?? 0), [1 /* submitted */, 2 /* graded after submit */], true)
+                || ((int)($r->submissionstatus ?? 0) === 0 && !empty($r->submissiontime));
+            $gradeVal = $r->gradekey === null ? null : (float)$r->gradekey;
+            $isGraded = ($gradeVal !== null && $gradeVal >= -0.0001);
+            $isOverdue = $duedate > 0 && $now > $duedate + 0 && !$isSubmitted;
+            $isDueSoon24 = !$isSubmitted && !$isOverdue && $duedate > 0 && $duedate - $now <= $DAY && $duedate - $now > 0;
+            $isDueSoon7 = !$isSubmitted && !$isOverdue && $duedate > 0 && $duedate - $now <= 7 * $DAY && $duedate - $now > 0;
+            $isOpen = !$isSubmitted && !$isOverdue && ($from <= 0 || $now >= $from);
+            if ($isGraded) $status = 'graded';
+            else if ($isSubmitted) $status = 'submitted';
+            else if ($isOverdue) $status = 'overdue';
+            else if ($isDueSoon24) $status = 'duesoon';
+            else if ($isOpen) $status = 'open';
+            else $status = 'open';
+
+            $a = [
+                'id' => (int)$r->id,
+                'cmid' => (int)$r->cmid,
+                'name' => (string)$r->name,
+                'duedate' => $duedate,
+                'grademax' => (int)($r->grade > 0 ? $r->grade : 100),
+                'grade' => $gradeVal,
+                'status' => $status,
+            ];
+            $out[$cid]['assignments'][] = $a;
+            $out[$cid]['counts']['total']++;
+            if ($status === 'open') {
+                $out[$cid]['counts']['open']++;
+            } else if ($status === 'duesoon') {
+                $out[$cid]['counts']['duesoon24']++;
+                $out[$cid]['counts']['duesoon7']++;
+            } else if ($status === 'overdue') {
+                $out[$cid]['counts']['overdue']++;
+            } else if ($status === 'submitted') {
+                $out[$cid]['counts']['submitted']++;
+            } else if ($status === 'graded') {
+                $out[$cid]['counts']['graded']++;
+                $out[$cid]['counts']['submitted']++;
+            }
+            if ($isDueSoon7 && $status !== 'duesoon') {
+                // 7-day window includes DueSoon24 already (counted above); if not, also bump duesoon7 window count for KPI card
+            }
+        }
+
+        // duesoon7 = duesoon24 already counted + open with due in 3-7d
+        foreach ($out as $cid => $g) {
+            foreach ($g['assignments'] as $a) {
+                if ($a['status'] === 'open' && $a['duedate'] > 0 && ($a['duedate'] - $now) <= 7 * $DAY && ($a['duedate'] - $now) > 0) {
+                    if (($a['duedate'] - $now) > $DAY) {
+                        $out[$cid]['counts']['duesoon7']++;
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Renders the aggregate status pill shown on a course card header.
+     *
+     * Examples:
+     *   - 0 assignments → soft gray "0 assignments" pill
+     *   - 1 Due soon + 1 open → indigo "1 Due soon · 1 open"
+     *   - 0 due, 2 submitted → green "2 submitted"
+     *   - 1 overdue → red "1 Overdue"
+     *
+     * @param array{total:int, open:int, duesoon24:int, duesoon7:int, overdue:int, submitted:int, graded:int} $c
+     * @return string HTML
+     */
+    private static function render_course_assignment_badge(array $c): string {
+        $total = (int)($c['total'] ?? 0);
+        if ($total <= 0) {
+            return '<span class="ulms-coursestat ulms-coursestat--zero">'
+                . get_string('studentassignmentszero', 'local_ulms_dashboard')
+                . '</span>';
+        }
+        $parts = [];
+        if (!empty($c['overdue'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--overdue">'
+                . get_string('studentassignmentsoverduecount', 'local_ulms_dashboard', (int)$c['overdue'])
+                . '</span>';
+        }
+        if (!empty($c['duesoon24'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--duesoon">'
+                . get_string('studentassignmentsduesooncount', 'local_ulms_dashboard', (int)$c['duesoon24'])
+                . '</span>';
+        } else if (!empty($c['duesoon7'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--duesoon7">'
+                . get_string('studentassignmentsdue7count', 'local_ulms_dashboard', (int)$c['duesoon7'])
+                . '</span>';
+        }
+        if (!empty($c['open']) && empty($c['duesoon24'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--open">'
+                . get_string('studentassignmentsopencount', 'local_ulms_dashboard', (int)$c['open'])
+                . '</span>';
+        }
+        if (!empty($c['submitted'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--submitted">'
+                . get_string('studentassignmentssubmittedcount', 'local_ulms_dashboard', (int)$c['submitted'])
+                . '</span>';
+        }
+        if (empty($parts)) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--open">'
+                . get_string('studentassignmentstotalcount', 'local_ulms_dashboard', $total)
+                . '</span>';
+        }
+        return implode('', $parts);
+    }
+
+    /**
+     * Returns the CSS modifier class used by a per-assignment status pill.
+     *
+     * @param string $status one of open/duesoon/overdue/submitted/graded
+     * @return string
+     */
+    private static function assignment_status_css_class(string $status): string {
+        return match ($status) {
+            'open' => 'open',
+            'duesoon' => 'duesoon',
+            'overdue' => 'overdue',
+            'submitted' => 'submitted',
+            'graded' => 'graded',
+            default => 'open',
+        };
+    }
+
+    /**
+     * Human-readable label for an assignment status pill.
+     *
+     * @param string $status
+     * @return string
+     */
+    private static function assignment_status_lang(string $status): string {
+        return match ($status) {
+            'open' => get_string('studentassignmentsstatusopen', 'local_ulms_dashboard'),
+            'duesoon' => get_string('studentassignmentsstatusduesoon', 'local_ulms_dashboard'),
+            'overdue' => get_string('studentassignmentsstatusoverdue', 'local_ulms_dashboard'),
+            'submitted' => get_string('studentassignmentsstatussubmitted', 'local_ulms_dashboard'),
+            'graded' => get_string('studentassignmentsstatusgraded', 'local_ulms_dashboard'),
+            default => get_string('studentassignmentsstatusopen', 'local_ulms_dashboard'),
+        };
+    }
+
+    /**
      * Builds quiz section data.
+     *
+     * Student view (approved redesign): ONE CARD PER ENROLLED COURSE, always
+     * visible even if 0 quizzes (same grouping / mental model pattern as
+     * Assignments page, so student UX stays consistent).
+     *
+     * Each quiz card shows:
+     *   - access window (open date → close date) instead of single "due"
+     *   - time-limit pill (e.g. "30 min")
+     *   - attempts used / max (e.g. "1/3")
+     *   - status pill: Not yet open / Open / In progress / Completed /
+     *     Closed (missed) / Graded (with grade/max if known)
+     *
+     * Sync guarantee: reads directly from {quiz}+{course_modules}.visible=1
+     * for published-quiz visibility, {quiz_attempts}.state for attempt
+     * status, and {quiz_grades}.grade for final grade — so what the student
+     * sees here is 100% in sync with what the lecturer uploaded/published and
+     * any live grading changes in the quiz module.
      *
      * @param array<string, mixed> $snapshot
      * @param bool $islecturer
      * @return array<string, mixed>
      */
     private function build_quiz_section_data(array $snapshot, bool $islecturer): array {
-        $items = $this->get_quiz_list_items($snapshot['courseids'], 10);
+        global $DB, $USER;
+
+        if ($islecturer) {
+            $items = $this->get_quiz_list_items($snapshot['courseids'], 12);
+            return [
+                'summarycards' => [
+                    ['label' => get_string('studentquizsummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => get_string('lecturerquizzesdesc', 'local_ulms_dashboard')],
+                    ['label' => get_string('coursecountsummary', 'local_ulms_dashboard'), 'value' => (string)$snapshot['coursecount'], 'description' => get_string('lecturercoursespagedesc', 'local_ulms_dashboard')],
+                ],
+                'mainpanel' => [
+                    'title' => get_string('lecturerquizzestitle', 'local_ulms_dashboard'),
+                    'subtitle' => get_string('lecturerquizzesdesc', 'local_ulms_dashboard'),
+                    'style' => 'list',
+                    'items' => $items,
+                    'emptytitle' => get_string('lecturerquizzesempty', 'local_ulms_dashboard'),
+                    'emptydesc' => get_string('lecturerquizzesemptydesc', 'local_ulms_dashboard'),
+                ],
+                'secondarypanels' => [],
+            ];
+        }
+
+        $courseids = array_values(array_map('intval', $snapshot['courseids'] ?? []));
+        $userid = (int)($snapshot['userid'] ?? $USER->id);
+        $grouped = $this->get_quizzes_grouped_by_course($courseids, $userid);
+
+        $coursecards = [];
+        $totalQuizzes = 0;
+        $totalOpen = 0;
+        $totalClosing7 = 0;
+        $totalCompleted = 0;
+        $totalClosed = 0;
+
+        foreach ($grouped as $courseid => $g) {
+            $courserec = $g['course'];
+            $quizzes = $g['quizzes'] ?? [];
+            $counts = $g['counts'];
+            $totalQuizzes += (int)$counts['total'];
+            $totalOpen += (int)$counts['open'];
+            $totalClosing7 += (int)$counts['closing7'];
+            $totalCompleted += (int)$counts['completed'];
+            $totalClosed += (int)$counts['closed'];
+
+            $coursetitle = format_string((string)$courserec->fullname);
+            $courseurl = new \moodle_url('/course/view.php', ['id' => (int)$courseid]);
+            $coursemeta = trim(format_string((string)($courserec->shortname ?? ''))
+                . (isset($courserec->coursetype) ? ' · ' . format_string((string)$courserec->coursetype) : '')
+                . (isset($courserec->semesterlabel) ? ' · ' . format_string((string)$courserec->semesterlabel) : ''));
+
+            $badgehtml = self::render_course_quiz_badge($counts);
+
+            $subitems = [];
+            foreach ($quizzes as $q) {
+                $statusClass = self::quiz_status_css_class($q['status']);
+                $statusText = self::quiz_status_lang($q['status']);
+                $window = self::format_quiz_window($q['timeopen'], $q['timeclose']);
+                $timelimitHtml = !empty($q['timelimit'])
+                    ? ' · <span class="ulms-quizmeta ulms-quizmeta--time">' . self::format_quiz_timelimit((int)$q['timelimit']) . '</span>'
+                    : '';
+                $attemptsHtml = !empty($q['attempts_max']) || $q['attempts_used'] > 0
+                    ? ' · <span class="ulms-quizmeta ulms-quizmeta--attempts">' . get_string(
+                        'studentquizattemptsused',
+                        'local_ulms_dashboard',
+                        (object)['used' => (int)$q['attempts_used'], 'max' => $q['attempts_max'] === '0' ? '∞' : (int)$q['attempts_max']]
+                    ) . '</span>'
+                    : '';
+                $gradeHtml = ($q['status'] === 'graded' && $q['grade'] !== null)
+                    ? ' · ' . get_string('quizgradeoutof', 'local_ulms_dashboard', (object)[
+                        'grade' => (string)round((float)$q['grade'], 1),
+                        'max' => (string)(int)($q['grade_max'] ?? 100),
+                    ])
+                    : '';
+                $pillHtml = '<span class="ulms-quizstatus ulms-quizstatus--' . $statusClass . '">' . $statusText . '</span>';
+                $subitems[] = [
+                    'title' => format_string($q['name']),
+                    'meta' => $window . $timelimitHtml . $attemptsHtml . ' · ' . $pillHtml . $gradeHtml,
+                    'meta_raw' => true,
+                    'url' => new \moodle_url('/mod/quiz/view.php', ['id' => (int)$q['cmid']]),
+                ];
+            }
+
+            $coursecards[] = [
+                'title' => $coursetitle,
+                'meta' => $coursemeta,
+                'url' => $courseurl,
+                'badgehtml' => $badgehtml,
+                'assignments' => $subitems, // reuse coursegroups renderer sublist (named assignments for legacy)
+                'sublistempty' => get_string('studentquizzesnoquizcourse', 'local_ulms_dashboard'),
+            ];
+        }
 
         return [
             'summarycards' => [
-                ['label' => get_string('studentquizsummary', 'local_ulms_dashboard'), 'value' => (string)count($items), 'description' => $islecturer ? get_string('lecturerquizzesdesc', 'local_ulms_dashboard') : get_string('studentquizzesdesc', 'local_ulms_dashboard')],
-                ['label' => get_string('coursecountsummary', 'local_ulms_dashboard'), 'value' => (string)$snapshot['coursecount'], 'description' => $islecturer ? get_string('lecturercoursespagedesc', 'local_ulms_dashboard') : get_string('studentcoursespagedesc', 'local_ulms_dashboard')],
+                [
+                    'label' => get_string('studentquiztotalcourses', 'local_ulms_dashboard'),
+                    'value' => (string)count($coursecards),
+                    'description' => get_string('studentquiztotalcoursesdesc', 'local_ulms_dashboard'),
+                ],
+                [
+                    'label' => get_string('studentquizopen', 'local_ulms_dashboard'),
+                    'value' => (string)$totalOpen,
+                    'description' => get_string('studentquizopendesc', 'local_ulms_dashboard'),
+                ],
+                [
+                    'label' => get_string('studentquizclosing7', 'local_ulms_dashboard'),
+                    'value' => (string)$totalClosing7,
+                    'description' => get_string('studentquizclosing7desc', 'local_ulms_dashboard'),
+                ],
+                [
+                    'label' => get_string('studentquizcompleted', 'local_ulms_dashboard'),
+                    'value' => (string)($totalCompleted + (int)$totalClosed),
+                    'description' => get_string('studentquizcompleteddesc', 'local_ulms_dashboard'),
+                ],
             ],
             'mainpanel' => [
-                'title' => $islecturer ? get_string('lecturerquizzestitle', 'local_ulms_dashboard') : get_string('studentquizzestitle', 'local_ulms_dashboard'),
-                'subtitle' => $islecturer ? get_string('lecturerquizzesdesc', 'local_ulms_dashboard') : get_string('studentquizzesdesc', 'local_ulms_dashboard'),
-                'style' => 'list',
-                'items' => $items,
-                'emptytitle' => $islecturer ? get_string('lecturerquizzesempty', 'local_ulms_dashboard') : get_string('studentquizzesempty', 'local_ulms_dashboard'),
-                'emptydesc' => $islecturer ? get_string('lecturerquizzesemptydesc', 'local_ulms_dashboard') : get_string('studentquizzesemptydesc', 'local_ulms_dashboard'),
+                'title' => get_string('studentquizzestitle', 'local_ulms_dashboard'),
+                'subtitle' => get_string('studentquizzesdescgrouped', 'local_ulms_dashboard'),
+                'style' => 'coursegroups',
+                'items' => $coursecards,
+                'emptytitle' => get_string('studentquizzesemptycourses', 'local_ulms_dashboard'),
+                'emptydesc' => get_string('studentquizzesemptycoursesdesc', 'local_ulms_dashboard'),
             ],
             'secondarypanels' => [],
         ];
+    }
+
+    /**
+     * Fetches quizzes GROUPED by enrolled course — returns 1 entry per
+     * enrolled courseid even if zero quizzes exist (guarantees every course
+     * card renders, no empty page when lecturer hasn't published yet).
+     *
+     * Scope: strictly $courseids passed in (enrolment-scoped snapshot).
+     *
+     * Sync correctness:
+     *   - Join {course_modules} cm.visible=1 → drafts hidden exactly as the
+     *     lecturer published them (if they unpublish, it disappears from here
+     *     instantly on next page load).
+     *   - Join {quiz_attempts} on (quiz + userid) — counts used attempts &
+     *     current state (inprogress / finished)
+     *   - Join {quiz_grades} on (quiz + userid) — final grade row written by
+     *     mod_quiz after attempt submission + grademethod evaluation; if this
+     *     row exists, we show the scaled grade/max pill.
+     *
+     * @param int[] $courseids enrolled course set
+     * @param int $userid student
+     * @return array<int, array{course:object, quizzes:array, counts:array}>
+     */
+    private function get_quizzes_grouped_by_course(array $courseids, int $userid): array {
+        global $DB;
+        $out = [];
+        if (empty($courseids)) return $out;
+        $courseids = array_values(array_unique(array_map('intval', $courseids)));
+
+        $courserecs = $DB->get_records_sql(
+            "SELECT c.id, c.shortname, c.fullname, c.visible, c.category
+               FROM {course} c
+              WHERE c.id IN (" . implode(',', $courseids) . ") AND c.id > 1
+              ORDER BY c.shortname ASC"
+        );
+
+        $programmeMeta = [];
+        try {
+            $progRows = $DB->get_records_sql(
+                "SELECT pc.moodlecourseid, pc.coursetype, s.name AS semesterlabel
+                   FROM {local_ulms_programme_courses} pc
+              LEFT JOIN {local_ulms_semesters} s ON s.id = pc.semesterid
+                  WHERE pc.moodlecourseid IN (" . implode(',', $courseids) . ")"
+            );
+            foreach ($progRows as $pr) {
+                $programmeMeta[(int)$pr->moodlecourseid] = [
+                    'coursetype' => !empty($pr->coursetype) ? ucfirst((string)$pr->coursetype) : 'Core',
+                    'semesterlabel' => !empty($pr->semesterlabel) ? (string)$pr->semesterlabel : '',
+                ];
+            }
+        } catch (\Throwable) {
+            $programmeMeta = [];
+        }
+
+        foreach ($courserecs as $cr) {
+            $cid = (int)$cr->id;
+            if (isset($programmeMeta[$cid])) {
+                $cr->coursetype = $programmeMeta[$cid]['coursetype'];
+                if (!empty($programmeMeta[$cid]['semesterlabel'])) {
+                    $cr->semesterlabel = $programmeMeta[$cid]['semesterlabel'];
+                }
+            }
+            $out[$cid] = [
+                'course' => $cr,
+                'quizzes' => [],
+                'counts' => [
+                    'total' => 0, 'notyetopen' => 0, 'open' => 0,
+                    'closing7' => 0, 'inprogress' => 0,
+                    'completed' => 0, 'closed' => 0, 'graded' => 0,
+                ],
+            ];
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $now = time();
+        $DAY = 86400;
+        $inparams['attemptuid'] = $userid;
+        $inparams['gradeuid'] = $userid;
+
+        $sql = "SELECT q.id,
+                       q.course,
+                       q.name,
+                       q.timeopen,
+                       q.timeclose,
+                       q.timelimit,
+                       q.attempts,
+                       q.grademethod,
+                       q.grade AS grade_max_raw,
+                       cm.id AS cmid,
+                       cm.visible AS cmvisible,
+                       att.attempt_count AS attempts_used,
+                       att.best_state AS best_state,
+                       g.grade AS finalgrade
+                  FROM {quiz} q
+                  JOIN {modules} m ON m.name = 'quiz'
+                  JOIN {course_modules} cm ON cm.instance = q.id AND cm.module = m.id AND cm.course = q.course
+             LEFT JOIN (
+                    SELECT quiz AS qid,
+                           COUNT(*) AS attempt_count,
+                           MAX(CASE WHEN state='inprogress' THEN 1
+                                    WHEN state='finished' THEN 2
+                                    WHEN state='abandoned' THEN 3
+                                    ELSE 0 END) AS best_state,
+                           MAX(attempt) AS maxattempt
+                      FROM {quiz_attempts}
+                     WHERE userid = :attemptuid AND preview = 0
+                  GROUP BY quiz
+             ) att ON att.qid = q.id
+             LEFT JOIN {quiz_grades} g ON g.quiz = q.id AND g.userid = :gradeuid
+                 WHERE q.course {$insql} AND cm.visible = 1
+              ORDER BY q.course ASC, q.timeclose ASC, q.timeopen ASC, q.name ASC";
+
+        $rows = $DB->get_records_sql($sql, $inparams);
+        foreach ($rows as $r) {
+            $cid = (int)$r->course;
+            if (!isset($out[$cid])) continue;
+
+            $timeopen = (int)$r->timeopen;
+            $timeclose = (int)$r->timeclose;
+            $attemptsUsed = (int)($r->attempts_used ?? 0);
+            $attemptsMax = (string)($r->attempts ?? 0);
+            $bestState = (int)($r->best_state ?? 0); // 0 none, 1 inprogress, 2 finished, 3 abandoned
+            $gradeRaw = $r->finalgrade === null ? null : (float)$r->finalgrade;
+            $gradeMax = (int)($r->grade_max_raw > 0 ? $r->grade_max_raw : 100);
+
+            $hasAnyFinished = in_array($bestState, [2, 3], true) || $gradeRaw !== null;
+            $hasInProgress = $bestState === 1;
+            $windowNotOpen = $timeopen > 0 && $now < $timeopen;
+            $windowOpenNow = (!$timeopen || $now >= $timeopen) && (!$timeclose || $now <= $timeclose);
+            $windowClosed = $timeclose > 0 && $now > $timeclose;
+
+            if ($gradeRaw !== null && $gradeRaw >= -0.0001) {
+                $status = 'graded';
+            } elseif ($hasInProgress) {
+                $status = 'inprogress';
+            } elseif ($windowNotOpen && $attemptsUsed === 0) {
+                $status = 'notyetopen';
+            } elseif ($windowClosed && $attemptsUsed === 0) {
+                $status = 'closed';
+            } elseif ($hasAnyFinished && $attemptsUsed > 0) {
+                $status = 'completed';
+            } elseif ($windowOpenNow && $attemptsUsed === 0) {
+                $status = 'open';
+            } elseif ($windowOpenNow) {
+                // attempts > 0 but room for more if attemptsMax allows
+                $status = 'open';
+            } else {
+                $status = 'closed';
+            }
+
+            $closing7 = $timeclose > 0
+                && ($timeclose - $now) <= 7 * $DAY
+                && ($timeclose - $now) > 0
+                && $status !== 'graded'
+                && $status !== 'completed'
+                && $status !== 'closed';
+
+            $qarr = [
+                'id' => (int)$r->id,
+                'cmid' => (int)$r->cmid,
+                'name' => (string)$r->name,
+                'timeopen' => $timeopen,
+                'timeclose' => $timeclose,
+                'timelimit' => (int)$r->timelimit,
+                'attempts_used' => $attemptsUsed,
+                'attempts_max' => $attemptsMax,
+                'status' => $status,
+                'grade' => $gradeRaw,
+                'grade_max' => $gradeMax,
+            ];
+            $out[$cid]['quizzes'][] = $qarr;
+            $out[$cid]['counts']['total']++;
+            switch ($status) {
+                case 'graded':    $out[$cid]['counts']['graded']++;    $out[$cid]['counts']['completed']++; break;
+                case 'completed': $out[$cid]['counts']['completed']++; break;
+                case 'inprogress':$out[$cid]['counts']['inprogress']++;break;
+                case 'notyetopen':$out[$cid]['counts']['notyetopen']++;break;
+                case 'open':      $out[$cid]['counts']['open']++;      break;
+                case 'closed':    $out[$cid]['counts']['closed']++;    break;
+            }
+            if ($closing7) $out[$cid]['counts']['closing7']++;
+        }
+        return $out;
+    }
+
+    /**
+     * Aggregate badge pills for a course header.
+     *
+     * Priority order (most urgent first):
+     *   Closed (red) → In progress (amber) → Closing7d (violet) →
+     *   Not yet open (slate) → Open (sky blue) → Completed/Graded (green)
+     *   Fallback: 0 quizzes pill
+     *
+     * @param array{total:int, notyetopen:int, open:int, closing7:int, inprogress:int, completed:int, closed:int, graded:int} $c
+     * @return string HTML
+     */
+    private static function render_course_quiz_badge(array $c): string {
+        $total = (int)($c['total'] ?? 0);
+        if ($total <= 0) {
+            return '<span class="ulms-coursestat ulms-coursestat--zero">'
+                . get_string('studentquizzero', 'local_ulms_dashboard')
+                . '</span>';
+        }
+        $parts = [];
+        if (!empty($c['closed'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--overdue">'
+                . get_string('studentquizclosedcount', 'local_ulms_dashboard', (int)$c['closed'])
+                . '</span>';
+        }
+        if (!empty($c['inprogress'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--duesoon">'
+                . get_string('studentquizinprogresscount', 'local_ulms_dashboard', (int)$c['inprogress'])
+                . '</span>';
+        }
+        if (!empty($c['closing7'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--duesoon7">'
+                . get_string('studentquizclosing7count', 'local_ulms_dashboard', (int)$c['closing7'])
+                . '</span>';
+        }
+        if (!empty($c['notyetopen'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--open">'
+                . get_string('studentquiznotopencount', 'local_ulms_dashboard', (int)$c['notyetopen'])
+                . '</span>';
+        }
+        if (!empty($c['open'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--open">'
+                . get_string('studentquizopencount', 'local_ulms_dashboard', (int)$c['open'])
+                . '</span>';
+        }
+        $done = (int)($c['completed'] ?? 0) + (int)($c['graded'] ?? 0);
+        if ($done > 0) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--submitted">'
+                . get_string('studentquizdonecount', 'local_ulms_dashboard', $done)
+                . '</span>';
+        }
+        if (empty($parts)) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--open">'
+                . get_string('studentquiztotalcount', 'local_ulms_dashboard', $total)
+                . '</span>';
+        }
+        return implode('', $parts);
+    }
+
+    /**
+     * Quiz per-row status CSS modifier.
+     *
+     * @param string $status one of notyetopen/open/inprogress/completed/closed/graded
+     * @return string
+     */
+    private static function quiz_status_css_class(string $status): string {
+        return match ($status) {
+            'notyetopen' => 'notyetopen',
+            'open' => 'open',
+            'inprogress' => 'inprogress',
+            'completed' => 'completed',
+            'closed' => 'closed',
+            'graded' => 'graded',
+            default => 'open',
+        };
+    }
+
+    /**
+     * Quiz per-row status human label.
+     *
+     * @param string $status
+     * @return string
+     */
+    private static function quiz_status_lang(string $status): string {
+        return match ($status) {
+            'notyetopen' => get_string('studentquizstatusnotyetopen', 'local_ulms_dashboard'),
+            'open' => get_string('studentquizstatusopen', 'local_ulms_dashboard'),
+            'inprogress' => get_string('studentquizstatusinprogress', 'local_ulms_dashboard'),
+            'completed' => get_string('studentquizstatuscompleted', 'local_ulms_dashboard'),
+            'closed' => get_string('studentquizstatusclosed', 'local_ulms_dashboard'),
+            'graded' => get_string('studentquizstatusgraded', 'local_ulms_dashboard'),
+            default => get_string('studentquizstatusopen', 'local_ulms_dashboard'),
+        };
+    }
+
+    /**
+     * Formats the quiz access window "Open: X → Close: Y".
+     *
+     * If both timestamps are 0, returns "Always available".
+     * If only open is set (no close): "Opens: X".
+     * If only close is set (no open): "Closes: Y".
+     * If both: "Open: X → Close: Y".
+     *
+     * @param int $open 0 = no start
+     * @param int $close 0 = no end
+     * @return string
+     */
+    private static function format_quiz_window(int $open, int $close): string {
+        if (!$open && !$close) return get_string('studentquizalwaysopen', 'local_ulms_dashboard');
+        if ($open && !$close) return get_string('studentquizopens', 'local_ulms_dashboard', userdate($open));
+        if (!$open && $close) return get_string('studentquizcloses', 'local_ulms_dashboard', userdate($close));
+        return get_string('studentquizwindow', 'local_ulms_dashboard', (object)[
+            'open' => userdate($open),
+            'close' => userdate($close),
+        ]);
+    }
+
+    /**
+     * Formats the timelimit seconds to a friendly pill.
+     *
+     * Examples: 1800 → "30 min", 3600 → "1 hour", 5400 → "1 hr 30 min", 300 → "5 min"
+     *
+     * @param int $seconds
+     * @return string
+     */
+    private static function format_quiz_timelimit(int $seconds): string {
+        $h = (int)floor($seconds / 3600);
+        $m = (int)floor(($seconds % 3600) / 60);
+        if ($h > 0 && $m > 0) {
+            $hword = $h === 1 ? get_string('studentquizhr1') : get_string('studentquizhrn', $h);
+            return get_string('studentquizhm', 'local_ulms_dashboard', (object)['h' => $hword, 'm' => $m]);
+        }
+        if ($h > 0) {
+            return $h === 1 ? get_string('studentquizhr1') : get_string('studentquizhrn', $h);
+        }
+        return get_string('studentquizminutes', 'local_ulms_dashboard', $m);
     }
 
     /**
@@ -1481,93 +2603,232 @@ class portal_overview_service {
     private function build_student_attendance_section_data(array $snapshot): array {
         global $USER;
 
-        $service = schedule_service::instance();
-        $history = $service->get_student_attendance_history((int)$USER->id);
+        $courseids = array_values(array_map('intval', $snapshot['courseids'] ?? []));
+        $userid = (int)($snapshot['userid'] ?? $USER->id);
+        $grouped = $this->get_attendance_grouped_by_course($courseids, $userid);
 
-        $coursecount = (int)$snapshot['coursecount'];
-        $presentcount = 0;
-        $latecount = 0;
-        $totalmarked = 0;
-        foreach ($history as $h) {
-            $st = (string)($h->status ?? '');
-            if ($st === 'present') { $presentcount++; $totalmarked++; }
-            elseif ($st === 'late') { $latecount++; $totalmarked++; }
-            elseif ($st === 'absent' || $st === 'excused') { $totalmarked++; }
-        }
-        $overallpct = $totalmarked > 0 ? number_format(($presentcount / max(1, $totalmarked)) * 100, 1) : '0.0';
+        $coursecards = [];
+        $totalMarkedAll = 0;
+        $totalPresentAll = 0;
+        $totalLateAll = 0;
+        $totalAttendedAll = 0;
+        $totalMissedAll = 0;
 
-        $coursegrouped = [];
-        global $DB;
-        foreach ($history as $h) {
-            $sid = (int)($h->sessionid ?? 0);
-            $session = $DB->get_record('local_ulms_dashboard_session', ['id' => $sid], 'id, title, moodlecourseid', IGNORE_MISSING);
-            if (!$session) continue;
-            $cid = (int)$session->moodlecourseid;
-            if (!isset($coursegrouped[$cid])) {
-                $course = $DB->get_record('course', ['id' => $cid], 'id, fullname', IGNORE_MISSING);
-                $coursegrouped[$cid] = [
-                    'courseid' => $cid,
-                    'coursename' => $course ? format_string($course->fullname) : 'Course #' . $cid,
-                    'total' => 0, 'present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0,
-                    'sessions' => [],
+        foreach ($grouped as $courseid => $g) {
+            $courserec = $g['course'];
+            $sessions = $g['sessions'] ?? [];
+            $counts = $g['counts'];
+            $c_total = (int)$counts['total'];
+            $c_present = (int)$counts['present'];
+            $c_late = (int)$counts['late'];
+            $c_absent = (int)$counts['absent'];
+            $c_excused = (int)$counts['excused'];
+
+            $totalMarkedAll += $c_total;
+            $totalPresentAll += $c_present;
+            $totalLateAll += $c_late;
+            $totalAttendedAll += ($c_present + $c_late);
+            $totalMissedAll += ($c_absent + $c_excused);
+
+            $coursetitle = format_string((string)$courserec->fullname);
+            $courseurl = new \moodle_url('/course/view.php', ['id' => (int)$courseid]);
+            $coursemeta = trim(format_string((string)($courserec->shortname ?? ''))
+                . (isset($courserec->coursetype) ? ' · ' . format_string((string)$courserec->coursetype) : '')
+                . (isset($courserec->semesterlabel) ? ' · ' . format_string((string)$courserec->semesterlabel) : ''));
+
+            $c_attended = $c_present + $c_late;
+            $c_ratepct = $c_total > 0 ? (int)round(($c_attended / $c_total) * 100) : 0;
+            $rateclass = $c_ratepct >= 80 ? 'rate' : ($c_ratepct >= 60 ? 'rate-mid' : 'rate-low');
+            $barclass = $c_ratepct >= 80 ? 'present' : ($c_ratepct >= 60 ? 'mid' : 'low');
+
+            $badgehtml = self::render_course_attendance_badge($counts);
+
+            $subitems = [];
+            foreach ($sessions as $s) {
+                $statusClass = self::attendance_status_css_class($s['status']);
+                $statusText = self::attendance_status_lang($s['status']);
+                $dateHtml = !empty($s['date']) ? userdate((int)$s['date'], get_string('strftimedaydatetime')) : 'N/A';
+                $sessionMeta = $dateHtml
+                    . ' · <span class="ulms-attendancestatus ulms-attendancestatus--' . $statusClass . '">' . $statusText . '</span>';
+                if (!empty($s['comment'])) {
+                    $sessionMeta .= ' · <span class="ulms-attendancemeta">' . s($s['comment']) . '</span>';
+                }
+                $subitems[] = [
+                    'title' => format_string($s['title']),
+                    'meta' => $sessionMeta,
+                    'meta_raw' => true,
                 ];
             }
-            $st = (string)($h->status ?? '');
-            $coursegrouped[$cid]['total']++;
-            if (isset($coursegrouped[$cid][$st])) { $coursegrouped[$cid][$st]++; }
-            $coursegrouped[$cid]['sessions'][] = [
-                'date' => (int)($h->session_occurrence_date ?? 0),
-                'status' => $st,
-                'title' => format_string($session->title),
+
+            $coursecards[] = [
+                'title' => $coursetitle,
+                'meta' => $coursemeta,
+                'url' => $courseurl,
+                'badgehtml' => $badgehtml,
+                'assignments' => $subitems,
+                'sublistempty' => self::safe_get_string('studentattendancenosessionscourse', 'No sessions have been marked for this course yet.'),
+                'footer' => $c_total > 0
+                    ? '<div style="margin-top:8px;padding:0 8px 8px;">'
+                        . '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+                        . '<span class="ulms-attendancemeta ulms-attendancemeta--' . $rateclass . '">' . s($c_ratepct) . '%</span>'
+                        . '<span class="ulms-attendancemeta">' . $c_total . ' ' . self::safe_get_string('studentattendancetotalcount', 'Total: {$a}', $c_total) . '</span>'
+                        . '</div>'
+                        . '<div style="margin-top:8px;" class="ulms-attendance-track">'
+                        . '<div class="ulms-attendance-fill ulms-attendance-bar--' . $barclass . '" style="width:' . s($c_ratepct) . '%;"></div>'
+                        . '</div>'
+                        . '</div>'
+                    : '',
             ];
         }
 
-        $cardsitems = [];
-        foreach ($coursegrouped as $cg) {
-            $c_total = (int)$cg['total'];
-            $c_present = (int)$cg['present'];
-            $c_pct = $c_total > 0 ? number_format(($c_present / $c_total) * 100, 0) : 0;
-            $barcolor = $c_pct >= 80 ? '#1a7f37' : ($c_pct >= 60 ? '#c76a00' : '#c8352a');
-            $meta = '<div style="margin-top:4px;">';
-            $meta .= '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
-            $meta .= '<span class="ulms-status-badge ulms-status-badge--present">Present: ' . $cg['present'] . '</span>';
-            if ($cg['late'] > 0) $meta .= '<span class="ulms-status-badge ulms-status-badge--late">Late: ' . $cg['late'] . '</span>';
-            if ($cg['absent'] > 0) $meta .= '<span class="ulms-status-badge ulms-status-badge--absent">Absent: ' . $cg['absent'] . '</span>';
-            $meta .= '</div>';
-            $meta .= '<div style="margin-top:8px;background:#e8eef6;border-radius:999px;height:10px;overflow:hidden;"><div style="height:100%;width:' . s($c_pct) . '%;background:' . $barcolor . ';"></div></div>';
-            $meta .= '<div style="margin-top:4px;font-size:12px;color:#5c6f82;">' . s($c_pct) . '% Present · ' . $c_total . ' sessions</div>';
-            $meta .= '</div>';
-            $cardsitems[] = [
-                'title' => $cg['coursename'],
-                'meta' => $meta,
-            ];
-            foreach (array_slice($cg['sessions'], 0, 5) as $s) {
-                $datestr = $s['date'] > 0 ? userdate($s['date'], get_string('strftimedaydate')) : 'N/A';
-                $badgeclass = 'ulms-status-badge--' . $s['status'];
-                $cardsitems[] = [
-                    'title' => '  · ' . $s['title'],
-                    'meta' => $datestr . ' <span class="ulms-status-badge ' . $badgeclass . '" style="margin-left:8px;">' . s(ucfirst($s['status'])) . '</span>',
-                ];
-            }
-        }
+        $overallPct = $totalMarkedAll > 0
+            ? number_format(($totalAttendedAll / $totalMarkedAll) * 100, 1)
+            : '0.0';
 
         return [
             'summarycards' => [
-                ['label' => 'Enrolled Courses', 'value' => (string)$coursecount, 'description' => 'Courses in current programme'],
-                ['label' => 'Overall Attendance', 'value' => s($overallpct) . '%', 'description' => 'Present / total marked sessions'],
-                ['label' => 'Present Count', 'value' => (string)$presentcount, 'description' => 'Sessions marked present'],
-                ['label' => 'Late Count', 'value' => (string)$latecount, 'description' => 'Sessions marked late'],
+                [
+                    'label' => self::safe_get_string('studentattendancetotalcourses', 'Enrolled courses'),
+                    'value' => (string)count($coursecards),
+                    'description' => self::safe_get_string('studentattendancetotalcoursesdesc', 'Every course you are actively taking appears here even if no attendance has been marked yet.'),
+                ],
+                [
+                    'label' => self::safe_get_string('studentattendanceoverall', 'Overall attendance'),
+                    'value' => s($overallPct) . '%',
+                    'description' => self::safe_get_string('studentattendanceoveralldesc', 'Present + Late divided by all marked sessions across every enrolled course.'),
+                ],
+                [
+                    'label' => self::safe_get_string('studentattendancepresent', 'Attended sessions'),
+                    'value' => (string)$totalAttendedAll,
+                    'description' => self::safe_get_string('studentattendancepresentdesc', 'Sessions marked Present or Late. Late sessions still count toward the official attendance rate.'),
+                ],
+                [
+                    'label' => self::safe_get_string('studentattendancemissed', 'Missed sessions'),
+                    'value' => (string)$totalMissedAll,
+                    'description' => self::safe_get_string('studentattendancemisseddesc', 'Sessions marked Absent or Excused. Contact your lecturer about excused absences.'),
+                ],
             ],
             'mainpanel' => [
-                'title' => 'My Attendance History',
-                'subtitle' => 'Attendance records across all enrolled courses',
-                'style' => 'cards',
-                'items' => $cardsitems,
-                'emptytitle' => 'No Attendance Records',
-                'emptydesc' => 'Your attendance will appear here once your lecturer starts marking sessions.',
+                'title' => self::safe_get_string('studentattendancetitle', 'My Attendance Record'),
+                'subtitle' => self::safe_get_string('studentattendancedescgrouped', 'Attendance by enrolled course, with per-session status, comment history and rate progress.'),
+                'style' => 'coursegroups',
+                'items' => $coursecards,
+                'emptytitle' => self::safe_get_string('studentattendanceemptycourses', 'No attendance records yet'),
+                'emptydesc' => self::safe_get_string('studentattendanceemptycoursesdesc', 'Attendance will appear here once your lecturer marks sessions for your enrolled courses.'),
             ],
             'secondarypanels' => [],
         ];
+    }
+
+    /**
+     * Fetches attendance records GROUPED by enrolled course.
+     *
+     * Scope: only course ids in $courseids are returned (guaranteed enrolment
+     * scoped by caller). Courses with 0 attendance records are still returned
+     * so they render on the page (user sees their full academic scope).
+     *
+     * @param int[] $courseids enrolled set
+     * @param int $userid student
+     * @return array<int, array{course:object, sessions:array<int, array>, counts:array{total:int, present:int, late:int, absent:int, excused:int}>
+     */
+    private function get_attendance_grouped_by_course(array $courseids, int $userid): array {
+        global $DB;
+        $out = [];
+        if (empty($courseids)) {
+            return $out;
+        }
+        $courseids = array_values(array_unique(array_map('intval', $courseids)));
+
+        $courserecs = $DB->get_records_sql(
+            "SELECT c.id, c.shortname, c.fullname, c.visible, c.category
+               FROM {course} c
+              WHERE c.id IN (" . implode(',', $courseids) . ") AND c.id > 1
+              ORDER BY c.shortname ASC"
+        );
+
+        $programmeMeta = [];
+        try {
+            $progRows = $DB->get_records_sql(
+                "SELECT pc.moodlecourseid, pc.coursetype, s.name AS semesterlabel
+                   FROM {local_ulms_programme_courses} pc
+              LEFT JOIN {local_ulms_semesters} s ON s.id = pc.semesterid
+                  WHERE pc.moodlecourseid IN (" . implode(',', $courseids) . ")"
+            );
+            foreach ($progRows as $pr) {
+                $programmeMeta[(int)$pr->moodlecourseid] = [
+                    'coursetype' => !empty($pr->coursetype) ? ucfirst((string)$pr->coursetype) : 'Core',
+                    'semesterlabel' => !empty($pr->semesterlabel) ? (string)$pr->semesterlabel : '',
+                ];
+            }
+        } catch (\Throwable) {
+            $programmeMeta = [];
+        }
+
+        foreach ($courserecs as $cr) {
+            $cid = (int)$cr->id;
+            if (isset($programmeMeta[$cid])) {
+                $cr->coursetype = $programmeMeta[$cid]['coursetype'];
+                if (!empty($programmeMeta[$cid]['semesterlabel'])) {
+                    $cr->semesterlabel = $programmeMeta[$cid]['semesterlabel'];
+                }
+            }
+            $out[$cid] = [
+                'course' => $cr,
+                'sessions' => [],
+                'counts' => [
+                    'total' => 0,
+                    'present' => 0,
+                    'late' => 0,
+                    'absent' => 0,
+                    'excused' => 0,
+                ],
+            ];
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $params['userid'] = $userid;
+        $sql = "SELECT a.id,
+                       a.sessionid,
+                       a.session_occurrence_date,
+                       a.status,
+                       a.comment,
+                       s.moodlecourseid,
+                       s.title,
+                       s.delivery_mode
+                  FROM {" . schedule_service::ATTENDANCE_TABLE . "} a
+                  JOIN {" . schedule_service::SESSION_TABLE . "} s ON s.id = a.sessionid
+                 WHERE a.userid = :userid
+                   AND s.moodlecourseid $insql
+                 ORDER BY a.session_occurrence_date DESC, a.id DESC";
+        try {
+            $records = $DB->get_records_sql($sql, $params);
+        } catch (\Throwable) {
+            $records = [];
+        }
+
+        foreach ($records as $r) {
+            $cid = (int)$r->moodlecourseid;
+            if (!isset($out[$cid])) {
+                continue;
+            }
+            $status = (string)($r->status ?? 'present');
+            if (!in_array($status, ['present', 'late', 'absent', 'excused'], true)) {
+                $status = 'present';
+            }
+            $out[$cid]['counts']['total']++;
+            if (isset($out[$cid]['counts'][$status])) {
+                $out[$cid]['counts'][$status]++;
+            }
+            $out[$cid]['sessions'][] = [
+                'date' => (int)($r->session_occurrence_date ?? 0),
+                'status' => $status,
+                'title' => !empty($r->title) ? format_string((string)$r->title) : self::safe_get_string('attendance.status.' . $status, 'Attendance session'),
+                'delivery' => (string)($r->delivery_mode ?? ''),
+                'comment' => !empty($r->comment) ? (string)$r->comment : '',
+            ];
+        }
+
+        return $out;
     }
 
     private function build_lecturer_schedule_section_data(array $_snapshot): array {
@@ -1601,15 +2862,29 @@ class portal_overview_service {
                 $payload['status'] = (string)optional_param('status', 'scheduled', PARAM_ALPHA);
                 $payload['notes_public'] = (string)optional_param('notes_public', '', PARAM_RAW);
                 $payload['notes_private'] = (string)optional_param('notes_private', '', PARAM_RAW);
+                if (optional_param('sessionid', 0, PARAM_INT) > 0) {
+                    $payload['id'] = (int)optional_param('sessionid', 0, PARAM_INT);
+                }
                 $result = $service->save_session($payload, (int)$USER->id);
                 if (!empty($result['success'])) {
                     \core\notification::add('Session scheduled successfully.', \core\output\notification::NOTIFY_SUCCESS);
                 } else {
                     $errmsg = 'Failed to schedule session.';
-                    if (!empty($result['errors'])) {
+                    if (!empty($result['friendly_errors'])) {
+                        $errmsg .= ' ' . implode(' ', $result['friendly_errors']);
+                    } elseif (!empty($result['errors'])) {
                         $errmsg .= ' Fields: ' . implode(', ', array_keys($result['errors']));
                     }
                     \core\notification::add($errmsg, \core\output\notification::NOTIFY_ERROR);
+                }
+                redirect(new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.schedule')));
+            }
+            if ($action === 'delete_session') {
+                $sessionid = (int)optional_param('sessionid', 0, PARAM_INT);
+                if ($sessionid > 0 && $service->delete_session($sessionid, (int)$USER->id)) {
+                    \core\notification::add('Session deleted.', \core\output\notification::NOTIFY_SUCCESS);
+                } else {
+                    \core\notification::add('Could not delete session (permission denied or not found).', \core\output\notification::NOTIFY_ERROR);
                 }
                 redirect(new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.schedule')));
             }
@@ -1629,136 +2904,278 @@ class portal_overview_service {
         $conflicts = $service->find_conflicts(0, $monday_ts);
         $conflictcount = count($conflicts);
 
-        $html = '';
-
-        $faculties = $DB->get_records_menu('local_ulms_faculties', null, 'name ASC', 'id, name');
-        $departments = $DB->get_records_menu('local_ulms_departments', null, 'name ASC', 'id, name');
-        $programmes = $DB->get_records_menu('local_ulms_programmes', null, 'name ASC', 'id, name');
-        $sessions = $DB->get_records_menu('local_ulms_sessions', null, 'name ASC', 'id, name');
-        $semesters = $DB->get_records_menu('local_ulms_semesters', null, 'name ASC', 'id, name');
-        $levels = $DB->get_records_menu('local_ulms_levels', null, 'name ASC', 'id, name');
-        $mycourses = [];
-        foreach (enrol_get_all_users_courses((int)$USER->id, false, ['id', 'fullname']) as $c) {
-            $mycourses[(int)$c->id] = format_string($c->fullname);
+        $editingid = (int)optional_param('edit', 0, PARAM_INT);
+        $editingsession = null;
+        if ($editingid > 0) {
+            try {
+                $editingsession = (array)$DB->get_record('local_ulms_timetable_sessions', ['id' => $editingid], '*', IGNORE_MISSING);
+                if ($editingsession && (int)($editingsession['lecturer_userid'] ?? 0) !== (int)$USER->id && !is_siteadmin()) {
+                    $editingsession = null;
+                }
+            } catch (\Throwable $_e) {
+                $editingsession = null;
+            }
         }
 
+        $cascade = $service->get_cascade_for_lecturer_schedule(
+            (int)$USER->id,
+            (int)($editingsession['facultyid'] ?? 0),
+            (int)($editingsession['departmentid'] ?? 0),
+            (int)($editingsession['programmeid'] ?? 0),
+            (int)($editingsession['levelid'] ?? 0),
+            (int)($editingsession['sessionid'] ?? 0),
+            (int)($editingsession['semesterid'] ?? 0)
+        );
+        $cascade_json = json_encode($cascade, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $html = '';
+
+        if ($conflictcount > 0) {
+            $cdesc = [];
+            foreach (array_slice($conflicts, 0, 5, true) as $cf) {
+                $cdesc[] = sprintf('Weekday %d %02d:%02d slot: Lec %d / %d or Room %s / %s overlap',
+                    (int)($cf['weekday'] ?? 0),
+                    (int)(intdiv((int)($cf['start_minutes'] ?? 0), 60)),
+                    (int)((int)($cf['start_minutes'] ?? 0) % 60),
+                    (int)($cf['lec_a'] ?? 0),
+                    (int)($cf['lec_b'] ?? 0),
+                    trim((string)($cf['loc_a'] ?? '')),
+                    trim((string)($cf['loc_b'] ?? '')));
+            }
+            $html .= '<div style="padding:14px 18px;border:1px solid #f5c2c7;border-radius:10px;background:#fff5f5;color:#842029;margin-bottom:20px;font-weight:600;">'
+                . '⚠ Schedule conflicts this week: <strong>' . $conflictcount . '</strong>. '
+                . '<div style="margin-top:8px;font-weight:500;font-size:13px;line-height:1.5;">' . implode('<br>', $cdesc) . '</div>'
+                . '</div>';
+        }
+
+        $faculties = [];
+        $departments = [];
+        $programmes = [];
+        $levels = [];
+        $sessions = [];
+        $semesters = [];
+        foreach ($cascade['faculties'] as $row) { $faculties[(int)$row['id']] = $row['name']; }
+        foreach ($cascade['departments'] as $row) { $departments[(int)$row['id']] = $row['name']; }
+        foreach ($cascade['programmes'] as $row) { $programmes[(int)$row['id']] = $row['name']; }
+        foreach ($cascade['levels'] as $row) { $levels[(int)$row['id']] = $row['name']; }
+        foreach ($cascade['sessions'] as $row) { $sessions[(int)$row['id']] = $row['name']; }
+        foreach ($cascade['semesters'] as $row) { $semesters[(int)$row['id']] = $row['name']; }
+        $mycourses = [];
+        foreach ($cascade['courses'] as $row) { $mycourses[(int)$row['id']] = $row['name']; }
+
         $html .= '<h3 style="margin:0 0 12px;font-size:1rem;font-weight:700;color:#0f4c81;">Schedule New Session</h3>';
-        $html .= '<form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;margin-bottom:24px;">';
+        $html .= '<form method="post" data-ulms-schedule-form="1" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;margin-bottom:24px;">';
         $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
         $html .= '<input type="hidden" name="action" value="save_session">';
         $html .= '<input type="hidden" name="lecturer_userid" value="' . s((int)$USER->id) . '">';
+        if ($editingid > 0 && $editingsession) {
+            $html .= '<input type="hidden" name="sessionid" value="' . s((int)$editingid) . '">';
+        }
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Faculty</label><select name="facultyid" class="form-control custom-select" required>';
+        $selval = function(string $name, $def = '') use ($editingsession) {
+            $sv = is_array($editingsession) && isset($editingsession[$name]) ? (string)$editingsession[$name] : (string)$def;
+            return $sv;
+        };
+        $selint = function(string $name, int $def = 0) use ($editingsession) {
+            return (int)(is_array($editingsession) && isset($editingsession[$name]) ? $editingsession[$name] : $def);
+        };
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Faculty</label><select name="facultyid" data-cascade="facultyid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Faculty --</option>';
         foreach ($faculties as $fid => $fname) {
-            $html .= '<option value="' . s($fid) . '">' . format_string($fname) . '</option>';
+            $sel = $selint('facultyid') === (int)$fid ? ' selected' : '';
+            $html .= '<option value="' . s($fid) . '"' . $sel . '>' . format_string($fname) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Department</label><select name="departmentid" class="form-control custom-select" required>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Department</label><select name="departmentid" data-cascade="departmentid" data-parent="facultyid" data-parent-key="facultyid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Department --</option>';
         foreach ($departments as $did => $dname) {
-            $html .= '<option value="' . s($did) . '">' . format_string($dname) . '</option>';
+            $sel = $selint('departmentid') === (int)$did ? ' selected' : '';
+            $html .= '<option value="' . s($did) . '"' . $sel . '>' . format_string($dname) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Programme</label><select name="programmeid" class="form-control custom-select" required>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Programme</label><select name="programmeid" data-cascade="programmeid" data-parent="departmentid" data-parent-key="departmentid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Programme --</option>';
         foreach ($programmes as $pid => $pname) {
-            $html .= '<option value="' . s($pid) . '">' . format_string($pname) . '</option>';
+            $sel = $selint('programmeid') === (int)$pid ? ' selected' : '';
+            $html .= '<option value="' . s($pid) . '"' . $sel . '>' . format_string($pname) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Academic Session</label><select name="sessionid" class="form-control custom-select" required>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Academic Session</label><select name="sessionid" data-cascade="sessionid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Session --</option>';
         foreach ($sessions as $sid => $sname) {
-            $html .= '<option value="' . s($sid) . '">' . format_string($sname) . '</option>';
+            $sel = $selint('sessionid') === (int)$sid ? ' selected' : '';
+            $html .= '<option value="' . s($sid) . '"' . $sel . '>' . format_string($sname) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Semester</label><select name="semesterid" class="form-control custom-select" required>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Semester</label><select name="semesterid" data-cascade="semesterid" data-parent="sessionid" data-parent-key="sessionid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Semester --</option>';
         foreach ($semesters as $smid => $smname) {
-            $html .= '<option value="' . s($smid) . '">' . format_string($smname) . '</option>';
+            $sel = $selint('semesterid') === (int)$smid ? ' selected' : '';
+            $html .= '<option value="' . s($smid) . '"' . $sel . '>' . format_string($smname) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Level</label><select name="levelid" class="form-control custom-select" required>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Level</label><select name="levelid" data-cascade="levelid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Level --</option>';
         foreach ($levels as $lid => $lname) {
-            $html .= '<option value="' . s($lid) . '">' . format_string($lname) . '</option>';
+            $sel = $selint('levelid') === (int)$lid ? ' selected' : '';
+            $html .= '<option value="' . s($lid) . '"' . $sel . '>' . format_string($lname) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field" style="grid-column:span 1;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Course</label><select name="moodlecourseid" class="form-control custom-select" required>';
+        $html .= '<div class="ulms-form-field" style="grid-column:span 1;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Course</label><select name="moodlecourseid" data-cascade="moodlecourseid" data-depends="programmeid,levelid,sessionid,semesterid" class="form-control custom-select" required>';
         $html .= '<option value="">-- Select Course --</option>';
         foreach ($mycourses as $cid => $cname) {
-            $html .= '<option value="' . s($cid) . '">' . $cname . '</option>';
+            $sel = $selint('moodlecourseid') === (int)$cid ? ' selected' : '';
+            $html .= '<option value="' . s($cid) . '"' . $sel . '>' . $cname . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field" style="grid-column:span 1;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Session Title</label><input type="text" name="title" class="form-control" required placeholder="e.g. Introduction to Programming"></div>';
+        $html .= '<div class="ulms-form-field" style="grid-column:span 1;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Session Title</label><input type="text" name="title" class="form-control" required placeholder="e.g. Introduction to Programming" value="' . s($selval('title', '')) . '"></div>';
 
         $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Delivery Mode</label><select name="delivery_mode" class="form-control custom-select">';
         foreach ($service::DELIVERY_MODES as $dm) {
-            $html .= '<option value="' . s($dm) . '">' . s(ucwords(str_replace('_', ' ', $dm))) . '</option>';
+            $sel = $selval('delivery_mode', 'lecture') === (string)$dm ? ' selected' : '';
+            $html .= '<option value="' . s($dm) . '"' . $sel . '>' . s(ucwords(str_replace('_', ' ', $dm))) . '</option>';
         }
         $html .= '</select></div>';
 
         $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Weekday</label><select name="weekday" class="form-control custom-select">';
         $wdnames = [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday'];
         foreach ($wdnames as $wdi => $wdn) {
-            $html .= '<option value="' . s($wdi) . '">' . s($wdn) . '</option>';
+            $sel = $selint('weekday', 1) === (int)$wdi ? ' selected' : '';
+            $html .= '<option value="' . s($wdi) . '"' . $sel . '>' . s($wdn) . '</option>';
         }
         $html .= '</select></div>';
 
         $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Start Time</label><select name="start_minutes" class="form-control custom-select">';
-        for ($tm = 480; $tm <= 1080; $tm += 30) {
+        for ($tm = 480; $tm <= 1110; $tm += 30) {
             $h = intdiv($tm, 60);
             $m = $tm % 60;
-            $html .= '<option value="' . s($tm) . '">' . s(sprintf('%02d:%02d', $h, $m)) . '</option>';
+            $sel = $selint('start_minutes', 480) === (int)$tm ? ' selected' : '';
+            $html .= '<option value="' . s($tm) . '"' . $sel . '>' . s(sprintf('%02d:%02d', $h, $m)) . '</option>';
         }
         $html .= '</select></div>';
 
         $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Duration (minutes)</label><select name="duration_minutes" class="form-control custom-select">';
         foreach ([30, 45, 60, 90, 120] as $d) {
-            $html .= '<option value="' . s($d) . '">' . s($d) . ' min</option>';
+            $sel = $selint('duration_minutes', 60) === (int)$d ? ' selected' : '';
+            $html .= '<option value="' . s($d) . '"' . $sel . '>' . s($d) . ' min</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Term Start Date</label><input type="date" name="term_start_date" class="form-control" value="' . s(date('Y-m-d', $monday_ts)) . '"></div>';
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Term End Date</label><input type="date" name="term_end_date" class="form-control" value="' . s(date('Y-m-d', $monday_ts + (12 * 7 * 86400))) . '"></div>';
+        $ts_start_def = $selint('term_start_date', 0);
+        $ts_end_def = $selint('term_end_date', 0);
+        $ts_start_val = $ts_start_def > 0 ? date('Y-m-d', $ts_start_def) : date('Y-m-d', $monday_ts);
+        $ts_end_val = $ts_end_def > 0 ? date('Y-m-d', $ts_end_def) : date('Y-m-d', $monday_ts + (12 * 7 * 86400));
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Location Mode</label><select name="location_mode" class="form-control custom-select">';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Term Start Date</label><input type="date" name="term_start_date" class="form-control" value="' . s($ts_start_val) . '"></div>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Term End Date</label><input type="date" name="term_end_date" class="form-control" value="' . s($ts_end_val) . '"></div>';
+
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Location Mode</label><select name="location_mode" data-toggle-location-mode="1" class="form-control custom-select">';
         foreach ($service::LOCATION_MODES as $lm) {
-            $html .= '<option value="' . s($lm) . '">' . s(ucfirst($lm)) . '</option>';
+            $sel = $selval('location_mode', 'physical') === (string)$lm ? ' selected' : '';
+            $html .= '<option value="' . s($lm) . '"' . $sel . '>' . s(ucfirst($lm)) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Location / Room</label><input type="text" name="location_label" class="form-control" placeholder="Room 201 / Zoom link ID"></div>';
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Location / Room</label><input type="text" name="location_label" class="form-control" placeholder="Room 201 / Zoom link ID" value="' . s($selval('location_label', '')) . '"></div>';
 
-        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Online Provider</label><select name="provider_key" class="form-control custom-select">';
+        $def_provider = $selval('provider_key', 'bigbluebutton');
+        $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Online Provider</label><select name="provider_key" data-online-provider="1" class="form-control custom-select">';
         foreach ($service::PROVIDERS as $pk) {
             $lbl = str_replace('_', ' ', $pk);
-            $html .= '<option value="' . s($pk) . '">' . s(ucwords($lbl)) . '</option>';
+            $sel = $def_provider === (string)$pk ? ' selected' : '';
+            $html .= '<option value="' . s($pk) . '"' . $sel . '>' . s(ucwords($lbl)) . '</option>';
         }
         $html .= '</select></div>';
 
         $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Recurrence</label><select name="recurrence" class="form-control custom-select">';
-        $html .= '<option value="weekly">Weekly</option><option value="once">Once-off</option><option value="fortnightly">Fortnightly</option>';
+        $def_rec = $selval('recurrence', 'weekly');
+        $options = [
+            'weekly' => 'Weekly',
+            'once' => 'Once-off',
+            'fortnightly' => 'Fortnightly',
+        ];
+        foreach ($options as $rv => $rl) {
+            $db_rec = $def_rec === 'once_off' ? 'once' : $def_rec;
+            $sel = $db_rec === (string)$rv ? ' selected' : '';
+            $html .= '<option value="' . s($rv) . '"' . $sel . '>' . s($rl) . '</option>';
+        }
         $html .= '</select></div>';
 
         $html .= '<div class="ulms-form-field"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Status</label><select name="status" class="form-control custom-select">';
         foreach ($service::STATUSES as $st) {
-            $html .= '<option value="' . s($st) . '">' . s(ucfirst($st)) . '</option>';
+            $sel = $selval('status', 'scheduled') === (string)$st ? ' selected' : '';
+            $html .= '<option value="' . s($st) . '"' . $sel . '>' . s(ucfirst($st)) . '</option>';
         }
         $html .= '</select></div>';
 
-        $html .= '<div class="ulms-form-field" style="grid-column:span 2;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Public Notes (visible to students)</label><textarea name="notes_public" rows="2" class="form-control" placeholder="Pre-reading, preparation notes..."></textarea></div>';
-        $html .= '<div class="ulms-form-field" style="grid-column:span 2;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Private Notes (lecturer only)</label><textarea name="notes_private" rows="2" class="form-control" placeholder="Internal reminders, seating plan..."></textarea></div>';
+        $html .= '<div class="ulms-form-field" style="grid-column:span 2;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Public Notes (visible to students)</label><textarea name="notes_public" rows="2" class="form-control" placeholder="Pre-reading, preparation notes...">' . s($selval('notes_public', '')) . '</textarea></div>';
+        $html .= '<div class="ulms-form-field" style="grid-column:span 2;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Private Notes (lecturer only)</label><textarea name="notes_private" rows="2" class="form-control" placeholder="Internal reminders, seating plan...">' . s($selval('notes_private', '')) . '</textarea></div>';
 
-        $html .= '<div style="grid-column:1 / -1;display:flex;justify-content:flex-end;"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;padding:10px 20px;font-weight:600;">Schedule Session</button></div>';
+        $html .= '<div style="grid-column:1 / -1;display:flex;justify-content:space-between;gap:12px;align-items:center;">';
+        $html .= '<div style="font-size:12px;color:#5c6f82;font-weight:500;">💡 Pick Faculty → Department → Programme + Session/Semester/Level first — Courses list will auto-filter.</div>';
+        $html .= '<div style="display:flex;gap:8px;"><a href="' . s((new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.schedule')))->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;">Clear / New</a>';
+        $html .= '<button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;padding:10px 20px;font-weight:600;">' . ($editingid > 0 && $editingsession ? 'Save Changes' : 'Schedule Session') . '</button>';
+        $html .= '</div></div>';
         $html .= '</form>';
+
+        $html .= '<script data-ulms-schedule-cascade="1" nonce="' . s(random_bytes(8) ? bin2hex(random_bytes(4)) : '') . '">'
+            . '(function(){'
+            . ' var CASCADE=' . $cascade_json . ';'
+            . ' var form=document.querySelector("[data-ulms-schedule-form]"); if(!form) return;'
+            . ' function rebuildSelect(sel,list,label,current){'
+            . '   sel.innerHTML=\'<option value="">-- \'+label+\' --</option>\';'
+            . '   list.forEach(function(r){'
+            . '     var o=document.createElement("option");o.value=String(r.id);o.textContent=r.name;'
+            . '     if(String(r.id)===String(current)) o.selected=true;'
+            . '     sel.appendChild(o);'
+            . '   });'
+            . ' }'
+            . ' var currentValues={};'
+            . ' form.querySelectorAll("select[data-cascade]").forEach(function(s){currentValues[s.name]=s.value;});'
+            . ' function recomputeDependencies(){'
+            . '   var fid=parseInt(form.querySelector("[name=facultyid]").value||0,10);'
+            . '   var did=parseInt(form.querySelector("[name=departmentid]").value||0,10);'
+            . '   var prid=parseInt(form.querySelector("[name=programmeid]").value||0,10);'
+            . '   var sid=parseInt(form.querySelector("[name=sessionid]").value||0,10);'
+            . '   var smid=parseInt(form.querySelector("[name=semesterid]").value||0,10);'
+            . '   var lid=parseInt(form.querySelector("[name=levelid]").value||0,10);'
+            . '   var depts=[];var progs=[];var sems=[];var courses=[];'
+            . '   CASCADE.departments.forEach(function(r){ if(fid<=0 || (r.facultyid && r.facultyid===fid)) depts.push(r); });'
+            . '   rebuildSelect(form.querySelector("[name=departmentid]"), depts, "Select Department", currentValues.departmentid);'
+            . '   CASCADE.programmes.forEach(function(r){ if((did<=0 && fid<=0) || (did>0 && r.departmentid===did) || (fid>0 && (depts.findIndex(function(d){return d.id===r.departmentid;})>=0))) progs.push(r); });'
+            . '   rebuildSelect(form.querySelector("[name=programmeid]"), progs, "Select Programme", currentValues.programmeid);'
+            . '   CASCADE.semesters.forEach(function(r){ if(sid<=0 || !r.sessionid || r.sessionid===sid) sems.push(r); });'
+            . '   rebuildSelect(form.querySelector("[name=semesterid]"), sems, "Select Semester", currentValues.semesterid);'
+            . '   CASCADE.courses.forEach(function(r){'
+            . '     var match=true;'
+            . '     if(prid>0 && !r.programmeid){return;}'
+            . '     courses.push(r);'
+            . '   });'
+            . '   rebuildSelect(form.querySelector("[name=moodlecourseid]"), CASCADE.courses, "Select Course", currentValues.moodlecourseid);'
+            . ' }'
+            . ' form.querySelectorAll("select[data-cascade]").forEach(function(s){'
+            . '   s.addEventListener("change", function(){ currentValues[s.name]=s.value; recomputeDependencies(); });'
+            . ' });'
+            . ' var locmode=form.querySelector("[data-toggle-location-mode]");'
+            . ' var providerSel=form.querySelector("[data-online-provider]");'
+            . ' function updateProviderState(){'
+            . '   if(!providerSel) return;'
+            . '   var isOnline=(locmode && locmode.value==="online");'
+            . '   providerSel.disabled=!isOnline;'
+            . '   providerSel.style.opacity = isOnline ? "1" : "0.45";'
+            . '   providerSel.title = isOnline ? "" : "Pick Location Mode = Online first.";'
+            . ' }'
+            . ' if(locmode){ locmode.addEventListener("change",updateProviderState); }'
+            . ' recomputeDependencies(); updateProviderState();'
+            . '})();</script>';
 
         $prevweek = $monday_ts - (7 * 86400);
         $nextweek = $monday_ts + (7 * 86400);
@@ -1776,8 +3193,9 @@ class portal_overview_service {
         $html .= '<table class="ulms-timetable-grid" data-ulms-timetable="true">';
         $html .= '<thead><tr><th data-label="Time">Time</th><th data-label="Mon">Mon</th><th data-label="Tue">Tue</th><th data-label="Wed">Wed</th><th data-label="Thu">Thu</th><th data-label="Fri">Fri</th></tr></thead><tbody>';
 
-        for ($hr = 8; $hr <= 17; $hr++) {
+        for ($hr = 8; $hr <= 18; $hr++) {
             $slotstart = $hr * 60;
+            $slotend = $slotstart + 60;
             $time_label = sprintf('%02d:00–%02d:00', $hr, $hr + 1);
             $html .= '<tr>';
             $html .= '<td data-label="Time" style="font-weight:600;color:#0f4c81;">' . s($time_label) . '</td>';
@@ -1787,31 +3205,40 @@ class portal_overview_service {
                     $cwd = (int)($c['weekday'] ?? 0);
                     $cstart = (int)($c['start_minutes'] ?? 0);
                     $cend = $cstart + (int)($c['duration_minutes'] ?? 0);
-                    if ($cwd === $wd && $cstart >= $slotstart && $cstart < ($slotstart + 60)) {
-                        $starth = intdiv($cstart, 60);
-                        $startm = $cstart % 60;
-                        $endh = intdiv($cend, 60);
-                        $endm = $cend % 60;
-                        $timerange = sprintf('%02d:%02d–%02d:%02d', $starth, $startm, $endh, $endm);
-                        $locmode = (string)($c['location_mode'] ?? 'physical');
-                        $loclabel = (string)($c['location_label'] ?? '');
-                        $delivery = (string)($c['delivery_mode'] ?? 'lecture');
-                        $statusclass = ($locmode === 'online') ? 'ulms-timetable-slot--online' : '';
-                        $html .= '<div class="ulms-timetable-slot ' . $statusclass . '" style="background:#eaf1fa;border-left:3px solid #0f4c81;border-radius:4px;padding:8px;margin:2px 0;min-height:44px;">';
-                        $html .= '<div style="font-weight:600;font-size:13px;color:#0f1a25;">' . format_string($c['title']) . '</div>';
-                        $html .= '<div style="margin-top:4px;"><span class="ulms-status-badge" style="background:#dbe8fb;color:#0969da;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">' . s($delivery) . '</span></div>';
-                        $html .= '<div style="margin-top:4px;font-size:12px;color:#5c6f82;">' . s($timerange) . ' · ' . s($loclabel ?: $locmode) . '</div>';
-                        $html .= '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">';
-                        $editurl = new \moodle_url('/course/view.php', ['id' => (int)($c['moodlecourseid'] ?? 1)]);
-                        $html .= '<a href="' . s($editurl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Edit</a>';
-                        if ($locmode === 'online') {
-                            $join = $service->resolve_join_url((int)$c['id'], 'lecturer');
-                            if (!empty($join['url'])) {
-                                $html .= '<a href="' . s($join['url']) . '" target="' . s($join['target']) . '" rel="' . s($join['rel']) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Join Class Now</a>';
-                            }
-                        }
-                        $html .= '</div></div>';
+                    $overlap = ($cwd === $wd) && ($cstart < $slotend) && ($cend > $slotstart);
+                    $beginin = $overlap && ($cstart >= $slotstart) && ($cstart < $slotend);
+                    if (!$overlap || !$beginin) {
+                        continue;
                     }
+                    $starth = intdiv($cstart, 60);
+                    $startm = $cstart % 60;
+                    $endh = intdiv($cend, 60);
+                    $endm = $cend % 60;
+                    $timerange = sprintf('%02d:%02d–%02d:%02d', $starth, $startm, $endh, $endm);
+                    $locmode = (string)($c['location_mode'] ?? 'physical');
+                    $loclabel = (string)($c['location_label'] ?? '');
+                    $delivery = (string)($c['delivery_mode'] ?? 'lecture');
+                    $statusclass = ($locmode === 'online') ? 'ulms-timetable-slot--online' : '';
+                    $html .= '<div class="ulms-timetable-slot ' . $statusclass . '" style="background:#eaf1fa;border-left:3px solid #0f4c81;border-radius:4px;padding:8px;margin:2px 0;min-height:44px;">';
+                    $html .= '<div style="font-weight:600;font-size:13px;color:#0f1a25;">' . format_string($c['title']) . '</div>';
+                    $html .= '<div style="margin-top:4px;"><span class="ulms-status-badge" style="background:#dbe8fb;color:#0969da;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">' . s($delivery) . '</span></div>';
+                    $html .= '<div style="margin-top:4px;font-size:12px;color:#5c6f82;">' . s($timerange) . ' · ' . s($loclabel ?: $locmode) . '</div>';
+                    $html .= '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">';
+                    $editurl = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.schedule'), ['edit' => (int)($c['id'] ?? 0)]);
+                    $html .= '<a href="' . s($editurl->out(false)) . '" class="ulms-btn" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Edit</a>';
+                    $html .= '<form method="post" style="display:inline-flex;margin:0;padding:0;">'
+                        . '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">'
+                        . '<input type="hidden" name="action" value="delete_session">'
+                        . '<input type="hidden" name="sessionid" value="' . s((int)($c['id'] ?? 0)) . '">'
+                        . '<button type="submit" class="ulms-btn ulms-btn--danger" style="min-width:44px;min-height:44px;padding:6px 10px;font-size:12px;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;font-weight:600;" onclick="return confirm(\'Delete this session for the whole term?\');">Delete</button>'
+                        . '</form>';
+                    if ($locmode === 'online') {
+                        $join = $service->resolve_join_url((int)$c['id'], 'lecturer');
+                        if (!empty($join['url'])) {
+                            $html .= '<a href="' . s($join['url']) . '" target="' . s($join['target']) . '" rel="' . s($join['rel']) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:6px 10px;">Join Class Now</a>';
+                        }
+                    }
+                    $html .= '</div></div>';
                 }
                 $html .= '</td>';
             }
@@ -1943,11 +3370,11 @@ class portal_overview_service {
     }
 
     /** @noinspection PhpUndefinedFunctionInspection */
-    private function build_lecturer_attendance_register_data(array $_snapshot): array {
+    private function build_lecturer_attendance_register_data(array $snapshot): array {
         global $DB, $USER;
 
         $service = schedule_service::instance();
-
+        $courseids = array_values(array_map('intval', $snapshot['courseids'] ?? []));
         $selected_sessionid = optional_param('sessionid', 0, PARAM_INT);
         $selected_occurrence_raw = optional_param('occurrence_date', '', PARAM_TEXT);
 
@@ -1961,11 +3388,14 @@ class portal_overview_service {
                 $od = $od_raw !== '' ? (int)strtotime($od_raw . ' 00:00:00') : (int)strtotime('today 00:00:00');
                 $uid = (int)optional_param('userid', 0, PARAM_INT);
                 $st = (string)optional_param('status', 'present', PARAM_ALPHA);
-                $r = $service->mark_attendance($sid, $od, $uid, $st, (int)$USER->id);
+                $comment_raw = (string)optional_param('comment', '', PARAM_TEXT);
+                $comment = $comment_raw !== '' ? $comment_raw : null;
+                $r = $service->mark_attendance($sid, $od, $uid, $st, (int)$USER->id, $comment);
                 if (!empty($r['success'])) {
-                    \core\notification::add('Attendance marked.', \core\output\notification::NOTIFY_SUCCESS);
+                    \core\notification::add(self::safe_get_string('lecturerattendancemarksuccess', 'Attendance mark saved successfully.'), \core\output\notification::NOTIFY_SUCCESS);
                 } else {
-                    \core\notification::add('Failed to mark attendance: ' . s($r['message'] ?? 'error'), \core\output\notification::NOTIFY_ERROR);
+                    $msg = self::safe_get_string('lecturerattendancemarkfail', 'Failed to save attendance mark. {$a}', s($r['message'] ?? 'error'));
+                    \core\notification::add($msg, \core\output\notification::NOTIFY_ERROR);
                 }
                 $redir = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.attendance'), ['sessionid' => $sid, 'occurrence_date' => $od_raw !== '' ? date('Y-m-d', $od) : '']);
                 redirect($redir);
@@ -1994,68 +3424,285 @@ class portal_overview_service {
             }
         }
 
-        $mycourses = [];
-        foreach (enrol_get_all_users_courses((int)$USER->id, false, ['id', 'fullname']) as $c) {
-            $mycourses[(int)$c->id] = format_string($c->fullname);
-        }
-        $sessionsmenu = [0 => '-- Select a Session --'];
-        if (count($mycourses) > 0) {
-            [$insql, $inparams] = $DB->get_in_or_equal(array_keys($mycourses), SQL_PARAMS_NAMED, 'mc');
-            $sessrows = $DB->get_records_select('local_ulms_dashboard_session', "status <> 'cancelled' AND moodlecourseid " . $insql, $inparams, 'title ASC', 'id, title, moodlecourseid');
-            foreach ($sessrows as $sr) {
-                $cname = $mycourses[(int)$sr->moodlecourseid] ?? ('Course #' . $sr->moodlecourseid);
-                $sessionsmenu[(int)$sr->id] = $cname . ' — ' . format_string($sr->title);
+        $coursesmeta = [];
+        if (!empty($courseids)) {
+            [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'mc');
+            $crs = $DB->get_records_sql("SELECT c.id, c.fullname, c.shortname FROM {course} c WHERE c.id $insql ORDER BY c.shortname ASC", $inparams);
+            foreach ($crs as $c) {
+                $coursesmeta[(int)$c->id] = $c;
             }
         }
 
+        $programmeMeta = [];
+        try {
+            if (!empty($courseids)) {
+                $progRows = $DB->get_records_sql(
+                    "SELECT pc.moodlecourseid, pc.coursetype, s.name AS semesterlabel
+                       FROM {local_ulms_programme_courses} pc
+                  LEFT JOIN {local_ulms_semesters} s ON s.id = pc.semesterid
+                      WHERE pc.moodlecourseid IN (" . implode(',', array_map('intval', $courseids)) . ")"
+                );
+                foreach ($progRows as $pr) {
+                    $programmeMeta[(int)$pr->moodlecourseid] = [
+                        'coursetype' => !empty($pr->coursetype) ? ucfirst((string)$pr->coursetype) : 'Core',
+                        'semesterlabel' => !empty($pr->semesterlabel) ? (string)$pr->semesterlabel : '',
+                    ];
+                }
+            }
+        } catch (\Throwable) {
+            $programmeMeta = [];
+        }
+
+        $sessionsbycoursecounts = [];
+        $sessionrowspercourse = [];
+        if (!empty($courseids)) {
+            [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'mc');
+            $allsess = $DB->get_records_select('local_ulms_dashboard_session', "status <> 'cancelled' AND moodlecourseid " . $insql, $inparams, 'moodlecourseid ASC, title ASC', 'id, moodlecourseid, title, term_start_date, term_end_date, weekday, start_minutes, duration_minutes, lecturer_userid');
+            foreach ($allsess as $sr) {
+                $cid = (int)$sr->moodlecourseid;
+                if (!isset($sessionsbycoursecounts[$cid])) $sessionsbycoursecounts[$cid] = 0;
+                $sessionsbycoursecounts[$cid]++;
+                $sessionrowspercourse[$cid][] = $sr;
+            }
+        }
+
+        $attendanceaggpercourses = [];
+        $totalsessionsmarked = 0;
+        $global_present = 0;
+        $global_total = 0;
+        $atriskstudents = [];
+        if (!empty($courseids)) {
+            [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'mc');
+            $sql = "SELECT a.sessionid, a.session_occurrence_date, a.userid, a.status, s.moodlecourseid
+                      FROM {" . schedule_service::ATTENDANCE_TABLE . "} a
+                      JOIN {" . schedule_service::SESSION_TABLE . "} s ON s.id = a.sessionid
+                     WHERE s.status <> 'cancelled' AND s.moodlecourseid $insql";
+            try {
+                $markrows = $DB->get_records_sql($sql, $inparams);
+            } catch (\Throwable) {
+                $markrows = [];
+            }
+            $perStudentRates = [];
+            foreach ($markrows as $mr) {
+                $cid = (int)$mr->moodlecourseid;
+                $sid = (int)$mr->sessionid;
+                $od = (int)$mr->session_occurrence_date;
+                $coursekey = $cid;
+                if (!isset($attendanceaggpercourses[$coursekey])) {
+                    $attendanceaggpercourses[$coursekey] = ['total' => 0, 'present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0, 'sessionsmarked' => []];
+                }
+                $sokey = $sid . '|' . $od;
+                $attendanceaggpercourses[$coursekey]['sessionsmarked'][$sokey] = true;
+                $attendanceaggpercourses[$coursekey]['total']++;
+                $global_total++;
+                $st = (string)($mr->status ?? 'present');
+                if (in_array($st, ['present', 'late', 'absent', 'excused'], true)) {
+                    $attendanceaggpercourses[$coursekey][$st]++;
+                }
+                if ($st === 'present' || $st === 'late') {
+                    $global_present++;
+                }
+                $uid = (int)$mr->userid;
+                if (!isset($perStudentRates[$cid][$uid])) {
+                    $perStudentRates[$cid][$uid] = ['attended' => 0, 'total' => 0];
+                }
+                $perStudentRates[$cid][$uid]['total']++;
+                if ($st === 'present' || $st === 'late') {
+                    $perStudentRates[$cid][$uid]['attended']++;
+                }
+            }
+            foreach ($attendanceaggpercourses as $cid => $agg) {
+                $totalsessionsmarked += count($agg['sessionsmarked']);
+            }
+            foreach ($perStudentRates as $cid => $studentsmap) {
+                foreach ($studentsmap as $uid => $sv) {
+                    if ($sv['total'] <= 0) continue;
+                    $rate = (int)round(($sv['attended'] / $sv['total']) * 100);
+                    if ($rate < 80) {
+                        $atriskstudents[$cid][$uid] = $rate;
+                    }
+                }
+            }
+        }
+
+        $totalcourses = count($courseids);
+        $overallpct = $global_total > 0 ? number_format(($global_present / $global_total) * 100, 1) : '0.0';
+        $atriskcount = 0;
+        foreach ($atriskstudents as $cidmap) {
+            $atriskcount += count($cidmap);
+        }
+
+        $coursecards = [];
+        foreach ($courseids as $courseid) {
+            if (!isset($coursesmeta[$courseid])) continue;
+            $cr = $coursesmeta[$courseid];
+            $coursetitle = format_string((string)$cr->fullname);
+            $courseurl = new \moodle_url('/course/view.php', ['id' => (int)$courseid]);
+            $coursemeta = trim(format_string((string)($cr->shortname ?? ''))
+                . (isset($programmeMeta[$courseid]['coursetype']) ? ' · ' . format_string((string)$programmeMeta[$courseid]['coursetype']) : '')
+                . (isset($programmeMeta[$courseid]['semesterlabel']) ? ' · ' . format_string((string)$programmeMeta[$courseid]['semesterlabel']) : ''));
+
+            $sessionscount = (int)($sessionsbycoursecounts[$courseid] ?? 0);
+            $agg = $attendanceaggpercourses[$courseid] ?? ['total' => 0, 'present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0];
+            $badgehtml = self::render_course_attendance_badge($agg);
+
+            $c_attended = (int)$agg['present'] + (int)$agg['late'];
+            $c_ratepct = (int)$agg['total'] > 0 ? (int)round(($c_attended / (int)$agg['total']) * 100) : 0;
+            $rateclass = $c_ratepct >= 80 ? 'rate' : ($c_ratepct >= 60 ? 'rate-mid' : 'rate-low');
+            $barclass = $c_ratepct >= 80 ? 'present' : ($c_ratepct >= 60 ? 'mid' : 'low');
+
+            $subitems = [];
+            if (empty($sessionrowspercourse[$courseid])) {
+                $subitems[] = ['title' => self::safe_get_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.'), 'meta' => ''];
+            } else {
+                $attendanceurlbase = $this->get_routing_service()->get_url_for_route('lecturer.attendance');
+                foreach ($sessionrowspercourse[$courseid] as $sr) {
+                    $termstart = (int)($sr->term_start_date ?? 0);
+                    $termend = (int)($sr->term_end_date ?? 0);
+                    $weekday = (int)($sr->weekday ?? -1);
+                    $next_occ = 0;
+                    if ($termstart > 0) {
+                        if ($weekday >= 1 && $weekday <= 7 && $termend >= $termstart) {
+                            $cursor = max(time(), $termstart);
+                            for ($i = 0; $i < 14; $i++) {
+                                $dow = (int)date('N', $cursor);
+                                if ($dow === $weekday) {
+                                    $next_occ = (int)strtotime('midnight', $cursor);
+                                    break;
+                                }
+                                $cursor = strtotime('+1 day', $cursor);
+                                if ($cursor > $termend + 86400 * 7) break;
+                            }
+                        }
+                        if ($next_occ <= 0) {
+                            $next_occ = (int)strtotime('midnight', $termstart);
+                        }
+                    }
+                    $startstr = $next_occ > 0 ? s(date('D, M j Y', $next_occ)) : s(self::safe_get_string('schedulesessionrepeatflexible', 'Flexible schedule'));
+                    $start_min = (int)($sr->start_minutes ?? 0);
+                    $dur_min = (int)($sr->duration_minutes ?? 0);
+                    if ($start_min >= 0 && $start_min < 24 * 60 && $dur_min > 0) {
+                        $starth = (int)floor($start_min / 60);
+                        $startm = $start_min % 60;
+                        $end_total = $start_min + max($dur_min, 1);
+                        $endh = (int)floor($end_total / 60);
+                        $endm = $end_total % 60;
+                        $time = s(sprintf('%02d:%02d–%02d:%02d', $starth, $startm, $endh, $endm));
+                    } else {
+                        $time = '';
+                    }
+                    $occ = $next_occ > 0 ? $next_occ : (int)strtotime('today 00:00:00');
+                    $registerurl = new \moodle_url($attendanceurlbase, ['sessionid' => (int)$sr->id, 'occurrence_date' => date('Y-m-d', $occ)]);
+                    $openhtml = '<a href="' . $registerurl->out(false) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;white-space:nowrap;">' . self::safe_get_string('lecturerattendancepickregister', 'Open register') . '</a>';
+                    $sessionMeta = '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;width:100%;">'
+                        . '<div>' . $startstr . ($time !== '' ? ' · ' . $time : '') . '</div>'
+                        . $openhtml
+                        . '</div>';
+                    $subitems[] = [
+                        'title' => format_string((string)$sr->title),
+                        'meta' => $sessionMeta,
+                        'meta_raw' => true,
+                    ];
+                }
+            }
+
+            $coursecards[] = [
+                'title' => $coursetitle,
+                'meta' => $coursemeta,
+                'url' => $courseurl,
+                'badgehtml' => $badgehtml,
+                'assignments' => $subitems,
+                'sublistempty' => self::safe_get_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.'),
+                'footer' => '<div style="margin-top:8px;padding:0 8px 8px;">'
+                    . '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+                    . '<span class="ulms-attendancemeta ulms-attendancemeta--' . $rateclass . '">' . s($c_ratepct) . '%</span>'
+                    . '<span class="ulms-attendancemeta">' . $sessionscount . ' sessions</span>'
+                    . (isset($atriskstudents[$courseid]) && count($atriskstudents[$courseid]) > 0
+                        ? '<span class="ulms-coursestat ulms-coursestat--att-absent">At-risk: ' . count($atriskstudents[$courseid]) . '</span>'
+                        : '')
+                    . '</div>'
+                    . '<div style="margin-top:8px;" class="ulms-attendance-track">'
+                    . '<div class="ulms-attendance-fill ulms-attendance-bar--' . $barclass . '" style="width:' . s($c_ratepct) . '%;"></div>'
+                    . '</div>'
+                    . '</div>',
+            ];
+        }
+
         $summarycards = [
-            ['label' => 'Allocated Courses', 'value' => (string)count($mycourses), 'description' => 'Courses you are teaching'],
-            ['label' => 'Available Sessions', 'value' => (string)(count($sessionsmenu) - 1), 'description' => 'Scheduled class sessions'],
+            [
+                'label' => self::safe_get_string('lecturerattendanceallocatedcourses', 'Allocated courses'),
+                'value' => (string)$totalcourses,
+                'description' => self::safe_get_string('lecturerattendanceallocatedcoursesdesc', 'Courses you are currently assigned to teach this term.'),
+            ],
+            [
+                'label' => self::safe_get_string('lecturerattendanceoverall', 'Overall attendance'),
+                'value' => s($overallpct) . '%',
+                'description' => self::safe_get_string('lecturerattendanceoveralldesc', 'Aggregate Present + Late rate across every marked student in every allocated course.'),
+            ],
+            [
+                'label' => self::safe_get_string('lecturerattendancemarked', 'Marked sessions'),
+                'value' => (string)$totalsessionsmarked,
+                'description' => self::safe_get_string('lecturerattendancemarkeddesc', 'Total session-occurrences for which at least one student attendance mark exists.'),
+            ],
+            [
+                'label' => self::safe_get_string('lecturerattendanceatrisk', 'At-risk students'),
+                'value' => (string)$atriskcount,
+                'description' => self::safe_get_string('lecturerattendanceatriskdesc', 'Students below the 80% attendance threshold across any allocated course.'),
+            ],
         ];
 
         $html = '';
-        $html .= '<form method="get" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;align-items:flex-end;">';
-        $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
-        $html .= '<div class="ulms-form-field" style="flex:1 1 320px;min-width:220px;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Select Session</label>';
-        $html .= '<select name="sessionid" class="form-control custom-select" onchange="this.form.submit()">';
-        foreach ($sessionsmenu as $sidopt => $slbl) {
-            $sel = ((int)$sidopt === (int)$selected_sessionid) ? ' selected' : '';
-            $html .= '<option value="' . s($sidopt) . '"' . $sel . '>' . s($slbl) . '</option>';
-        }
-        $html .= '</select></div>';
-        $html .= '<div class="ulms-form-field" style="flex:0 0 220px;min-width:180px;"><label style="display:block;font-weight:600;margin-bottom:4px;color:#1d2733;">Occurrence Date</label>';
-        $od_default = $selected_occurrence_raw !== '' ? s($selected_occurrence_raw) : s(date('Y-m-d'));
-        $html .= '<input type="date" name="occurrence_date" class="form-control" value="' . $od_default . '"></div>';
-        $html .= '<div><button type="submit" name="action" value="register_open" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Show Register</button></div>';
-        $html .= '</form>';
 
         if ($selected_sessionid > 0) {
             $occurrence_ts = $selected_occurrence_raw !== '' ? (int)strtotime($selected_occurrence_raw . ' 00:00:00') : (int)strtotime('today 00:00:00');
             $summary = $service->get_session_attendance_summary($selected_sessionid, $occurrence_ts);
 
-            $summarycards = [
-                ['label' => 'Register Summary', 'value' => s($summary['marked']) . '/' . s($summary['total']) . ' Marked · ' . s($summary['percent_present']) . '% Present', 'description' => 'Present: ' . s($summary['present']) . ' · Late: ' . s($summary['late']) . ' · Absent: ' . s($summary['absent']) . ' · Excused: ' . s($summary['excused'])],
-            ];
+            $html .= '<div style="margin-bottom:20px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;">';
+            $sessionrec = $DB->get_record('local_ulms_dashboard_session', ['id' => $selected_sessionid], 'id, moodlecourseid, title');
+            $backurl = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.attendance'));
+            $header = '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between;margin-bottom:12px;">'
+                . '<div>'
+                . '<div style="font-weight:700;color:#0f4c81;font-size:1rem;">' . ($sessionrec ? format_string((string)$sessionrec->title) : 'Register') . '</div>'
+                . '<div style="color:#475569;font-size:.85rem;">' . s(date('l, F j, Y', $occurrence_ts)) . '</div>'
+                . '</div>'
+                . '<a href="' . $backurl->out(false) . '" class="ulms-btn" style="min-width:44px;min-height:44px;">← ' . self::safe_get_string('portalbacklink', 'Back to overview') . '</a>'
+                . '</div>';
 
-            $sessionrec = $DB->get_record('local_ulms_dashboard_session', ['id' => $selected_sessionid], 'id, moodlecourseid');
+            $html .= $header;
+            $html .= '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">';
+            $html .= '<span class="ulms-attendancemeta ulms-attendancemeta--rate">Present: ' . s($summary['percent_present']) . '%</span>';
+            $html .= '<span class="ulms-coursestat ulms-coursestat--att-present">' . self::safe_get_string('studentattendancepresentcount', '{$a} Present', (int)($summary['present'] ?? 0)) . '</span>';
+            if (!empty($summary['late'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-late">' . self::safe_get_string('studentattendancelatecount', '{$a} Late', (int)$summary['late']) . '</span>';
+            if (!empty($summary['absent'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-absent">' . self::safe_get_string('studentattendanceabsentcount', '{$a} Absent', (int)$summary['absent']) . '</span>';
+            if (!empty($summary['excused'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-excused">' . self::safe_get_string('studentattendanceexcusedcount', '{$a} Excused', (int)$summary['excused']) . '</span>';
+            $html .= '</div>';
+
+            $html .= '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">';
+            $html .= '<form method="post" style="display:inline;margin:0;" onsubmit="return confirm(\'' . self::safe_get_string('lecturerattendancebulkpresentconfirm', 'Mark every unmarked student in this register as Present? This cannot be undone per-student without manually editing.') . '\')"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="bulk_present"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Mark All Present</button></form>';
+            $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="export_csv"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn" style="min-width:44px;min-height:44px;">Export CSV</button></form>';
+            $html .= '</div>';
+
             $enrolled_students = [];
             if ($sessionrec) {
                 try {
                     $ctx = \context_course::instance((int)$sessionrec->moodlecourseid);
-                    $fn = '\enrol_get_enrolled_users';
-                    $enrolled_students = $fn($ctx, 'moodle/role:student');
-                } catch (\Throwable $_e) {
+                    $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student'], IGNORE_MISSING);
+                    if ($studentroleid > 0) {
+                        $enrolled_students = get_role_users($studentroleid, $ctx, false, 'u.*', 'u.lastname ASC, u.firstname ASC');
+                    }
+                    if (empty($enrolled_students) && function_exists('get_enrolled_users')) {
+                        $enrolled_students = get_enrolled_users($ctx, '', 0, 'u.*', 'u.lastname ASC, u.firstname ASC');
+                        $enrolled_students = array_values(array_filter($enrolled_students, static function ($u): bool {
+                            return empty($u->deleted) && (int)($u->id ?? 0) > 1;
+                        }));
+                    }
+                } catch (\Throwable) {
                     $enrolled_students = [];
                 }
             }
 
-            $html .= '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">';
-            $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="bulk_present"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Mark All Present</button></form>';
-            $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="export_csv"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn" style="min-width:44px;min-height:44px;">Export CSV</button></form>';
-            $html .= '</div>';
-
-            $html .= '<table class="ulms-attendance-register" data-ulms-attendance="true" data-ulms-attendance-marks="true">';
-            $html .= '<thead><tr><th data-label="Student ID">Student ID</th><th data-label="Name">Name</th><th data-label="Status">Status</th><th data-label="Marked At">Marked At</th><th data-label="Marked By">Marked By</th><th data-label="Quick Mark">Quick Mark (P / A / L / E)</th></tr></thead><tbody>';
+            $html .= '<div style="overflow-x:auto;"><table class="ulms-attendance-register" data-ulms-attendance="true" data-ulms-attendance-marks="true">';
+            $html .= '<thead><tr><th data-label="Student ID">Student ID</th><th data-label="Name">Name</th><th data-label="Status">Status</th><th data-label="Comment">Comment</th><th data-label="Marked At">Marked At</th><th data-label="Marked By">Marked By</th><th data-label="Quick Mark">Quick Mark (P / A / L / E)</th></tr></thead><tbody>';
 
             $marks = [];
             $rs = $DB->get_records('local_ulms_dashboard_attendance', ['sessionid' => $selected_sessionid, 'session_occurrence_date' => $occurrence_ts]);
@@ -2068,41 +3715,49 @@ class portal_overview_service {
                 $sidnum = s($u->idnumber ?? (string)$uid);
                 $fullname = fullname($u);
                 $statusclass = '';
-                $statuslabel = 'Unmarked';
+                $statuslabel = '—';
                 $markedat = '—';
                 $marker = '—';
+                $existingcomment = '';
                 if (isset($marks[$uid])) {
                     $m = $marks[$uid];
-                    $statusclass = 'ulms-status-badge--' . s($m->status);
-                    $statuslabel = s(ucfirst((string)$m->status));
+                    $rawstatus = (string)($m->status ?? 'present');
+                    $statusclass = self::attendance_status_css_class($rawstatus);
+                    $statuslabel = self::attendance_status_lang($rawstatus);
                     $markedat = (int)($m->marked_at ?? 0) > 0 ? s(userdate((int)$m->marked_at)) : '—';
                     if ((int)($m->marked_by ?? 0) > 0) {
                         $mu = \core_user::get_user((int)$m->marked_by);
                         $marker = $mu ? s(fullname($mu)) : '—';
                     }
+                    $existingcomment = !empty($m->comment) ? s((string)$m->comment) : '';
                 }
+                $statusbadge = ($statusclass === '')
+                    ? '<span class="ulms-attendancemeta">—</span>'
+                    : '<span class="ulms-attendancestatus ulms-attendancestatus--' . $statusclass . '">' . $statuslabel . '</span>';
 
                 $html .= '<tr data-ulms-attendance-row="true" data-studentid="' . s($uid) . '">';
                 $html .= '<td data-label="Student ID">' . $sidnum . '</td>';
                 $html .= '<td data-label="Name">' . $fullname . '</td>';
-                $html .= '<td data-label="Status"><span class="ulms-status-badge ' . $statusclass . '">' . $statuslabel . '</span></td>';
+                $html .= '<td data-label="Status">' . $statusbadge . '</td>';
+                $html .= '<td data-label="Comment"><form method="post" style="margin:0;display:flex;gap:6px;align-items:center;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="present"><input type="text" name="comment" class="form-control" style="min-width:180px;" value="' . $existingcomment . '" placeholder="' . s(self::safe_get_string('lecturerattendancecommentplaceholder', 'Optional comment about attendance for this session')) . '" aria-label="' . s(self::safe_get_string('lecturerattendancecommentlabel', 'Comment')) . '"></form></td>';
                 $html .= '<td data-label="Marked At">' . $markedat . '</td>';
                 $html .= '<td data-label="Marked By">' . $marker . '</td>';
                 $html .= '<td data-label="Quick Mark"><div class="ulms-mark-buttons" data-ulms-mark-buttons="true">';
 
                 $markdefs = [
-                    ['status' => 'present', 'mnemonic' => 'P', 'class' => 'ulms-btn--success', 'title' => 'Present [P]'],
-                    ['status' => 'absent',  'mnemonic' => 'A', 'class' => 'ulms-btn--danger',  'title' => 'Absent [A]'],
-                    ['status' => 'late',    'mnemonic' => 'L', 'class' => 'ulms-btn--warning', 'title' => 'Late [L]'],
-                    ['status' => 'excused', 'mnemonic' => 'E', 'class' => 'ulms-btn--info',    'title' => 'Excused [E]'],
+                    ['status' => 'present', 'mnemonic' => 'P', 'class' => 'ulms-btn--success', 'title' => self::safe_get_string('studentattendancestatuspresent', 'Present') . ' [P]'],
+                    ['status' => 'absent',  'mnemonic' => 'A', 'class' => 'ulms-btn--danger',  'title' => self::safe_get_string('studentattendancestatusabsent', 'Absent') . ' [A]'],
+                    ['status' => 'late',    'mnemonic' => 'L', 'class' => 'ulms-btn--warning', 'title' => self::safe_get_string('studentattendancestatuslate', 'Late') . ' [L]'],
+                    ['status' => 'excused', 'mnemonic' => 'E', 'class' => 'ulms-btn--info',    'title' => self::safe_get_string('studentattendancestatusexcused', 'Excused') . ' [E]'],
                 ];
                 foreach ($markdefs as $md) {
-                    $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="' . s($md['status']) . '"><button type="submit" class="ulms-btn ' . $md['class'] . ' ulms-mark-btn" data-status="' . s($md['status']) . '" data-mnemonic="' . s($md['mnemonic']) . '" style="min-width:44px;min-height:44px;margin:2px;" title="' . s($md['title']) . '">' . s($md['mnemonic']) . '</button></form>';
+                    $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="' . s($md['status']) . '"><input type="hidden" name="comment" value="' . $existingcomment . '"><button type="submit" class="ulms-btn ' . $md['class'] . ' ulms-mark-btn" data-status="' . s($md['status']) . '" data-mnemonic="' . s($md['mnemonic']) . '" style="min-width:44px;min-height:44px;margin:2px;" title="' . s($md['title']) . '">' . s($md['mnemonic']) . '</button></form>';
                 }
                 $html .= '</div></td>';
                 $html .= '</tr>';
             }
-            $html .= '</tbody></table>';
+            $html .= '</tbody></table></div>';
+            $html .= '</div>';
 
             $html .= <<<'FASTMARKSCRIPT'
 <script data-ulms-fastmark="true">
@@ -2125,16 +3780,40 @@ class portal_overview_service {
 FASTMARKSCRIPT;
         }
 
+        $emptytitle = self::safe_get_string('lecturerattendanceemptycourses', 'No allocated courses');
+        $emptydesc = self::safe_get_string('lecturerattendanceemptycoursesdesc', 'Courses will appear here once you have been allocated as a lecturer via Admin → Lecturer allocations.');
+        if (!empty($courseids)) {
+            $emptytitle = self::safe_get_string('norecentactivity', 'No sessions marked yet');
+            $emptydesc = self::safe_get_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.');
+        }
+
+        $overviewpanel = [
+            'title' => self::safe_get_string('lecturerattendancetitle', 'Attendance register'),
+            'subtitle' => self::safe_get_string('lecturerattendancedescgrouped', 'Overview by allocated course, at-risk students, and register drill-down for marking.'),
+            'style' => 'coursegroups',
+            'items' => $coursecards,
+            'emptytitle' => $emptytitle,
+            'emptydesc' => $emptydesc,
+        ];
+
+        if ($selected_sessionid > 0 && $html !== '') {
+            return [
+                'summarycards' => $summarycards,
+                'mainpanel' => $overviewpanel,
+                'secondarypanels' => [
+                    [
+                        'title' => self::safe_get_string('lecturerattendancetitle', 'Attendance register') . ' · Register',
+                        'subtitle' => '',
+                        'style' => 'html',
+                        'html' => $html,
+                    ],
+                ],
+            ];
+        }
+
         return [
             'summarycards' => $summarycards,
-            'mainpanel' => [
-                'title' => 'Attendance Register Manager',
-                'subtitle' => 'Mark individual attendance, bulk-mark all present, and export CSV registers',
-                'style' => 'html',
-                'html' => $html,
-                'emptytitle' => 'No Sessions Available',
-                'emptydesc' => 'Sessions will appear here once scheduled on the timetable.',
-            ],
+            'mainpanel' => $overviewpanel,
             'secondarypanels' => [],
         ];
     }
@@ -2323,5 +4002,526 @@ FASTMARKSCRIPT;
             ],
             'secondarypanels' => [],
         ];
+    }
+
+    /**
+     * Admin → Lecturer Course Allocations (Option A SSOT: Moodle editingteacher
+     * role enrolments via the Manual enrolment plugin). Provides cascade filters,
+     * per-course lecturer chips, primary pill, assign modal with transactional
+     * enrol/unenrol writes, and CSV bulk import.
+     *
+     * @return array{summarycards: array, mainpanel: array}
+     */
+    private function build_admin_lecturer_allocation_data(): array {
+        global $DB, $USER;
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            confirm_sesskey();
+            $action = optional_param('action', '', PARAM_ALPHA);
+            $routingservice = $this->get_routing_service();
+            $base = new \moodle_url($routingservice->get_url_for_route('management.lecturers'));
+            $f = ['facultyid', 'deptid', 'progid', 'semesterid', 'levelid'];
+            $qparams = [];
+            foreach ($f as $p) {
+                $qparams[$p] = optional_param($p, 0, PARAM_INT);
+            }
+
+            if ($action === 'allocate_save') {
+                $courseid = (int)optional_param('moodlecourseid', 0, PARAM_INT);
+                $lecturerids = optional_param_array('lecturerids', [], PARAM_INT);
+                $lecturerids = array_values(array_unique(array_map('intval', array_filter($lecturerids, static fn($v) => $v > 0))));
+                $primaryuid = (int)optional_param('primarylecturerid', 0, PARAM_INT);
+
+                $transaction = $DB->start_delegated_transaction();
+                try {
+                    $course = $DB->get_record('course', ['id' => $courseid], 'id, fullname, shortname', MUST_EXIST);
+                    $manual = enrol_get_plugin('manual');
+                    if (!$manual) {
+                        throw new \RuntimeException('Manual enrol plugin not available.');
+                    }
+                    $roleid = (int)$DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+
+                    $instances = enrol_get_instances($courseid, true);
+                    $manualinstance = null;
+                    foreach ($instances as $inst) {
+                        if ($inst->enrol === 'manual') {
+                            $manualinstance = $inst;
+                            break;
+                        }
+                    }
+                    if (!$manualinstance) {
+                        $manualinstance = $manual->add_instance($course);
+                    }
+
+                    $currentlyenrolled = [];
+                    $ctx = \context_course::instance($courseid);
+                    $existing = get_role_users($roleid, $ctx, false, 'u.id', 'u.id');
+                    foreach ($existing as $uid => $_) {
+                        $currentlyenrolled[(int)$uid] = (int)$uid;
+                    }
+
+                    $to_enrol = array_diff($lecturerids, $currentlyenrolled);
+                    $to_unenrol = array_diff($currentlyenrolled, $lecturerids);
+
+                    if (!empty($to_unenrol)) {
+                        $confirm = optional_param('confirm_remove', 0, PARAM_INT);
+                        if ($confirm !== 1) {
+                            $cnt = count($to_unenrol);
+                            $names = [];
+                            foreach (array_slice($to_unenrol, 0, 5) as $uid) {
+                                $u = \core_user::get_user($uid);
+                                $names[] = $u ? fullname($u) : '#'.$uid;
+                            }
+                            $msg = self::safe_get_string('adminlecturersremovalconfirm',
+                                '{$a->count} currently-assigned lecturer(s) will be un-enrolled from {$a->course}. Continue?',
+                                (object)['count' => $cnt, 'course' => format_string($course->fullname)]
+                            );
+                            $transaction->rollback(new \moodle_exception($msg . ' Please tick confirm-remove to proceed.'));
+                        }
+                        foreach ($to_unenrol as $uid) {
+                            $manual->unenrol_user($manualinstance, $uid);
+                        }
+                    }
+                    foreach ($to_enrol as $uid) {
+                        $manual->enrol_user($manualinstance, $uid, $roleid, 0, 0, ENROL_USER_ACTIVE);
+                    }
+                    $transaction->allow_commit();
+                    \core\notification::add(self::safe_get_string('adminlecturerssavesuccess',
+                        'Lecturer allocations saved. Enrolments updated.'),
+                        \core\output\notification::NOTIFY_SUCCESS
+                    );
+                } catch (\Throwable $e) {
+                    if (isset($transaction)) {
+                        try { $transaction->rollback($e); } catch (\Throwable) {}
+                    }
+                    $emsg = self::safe_get_string('adminlecturerssavefail',
+                        'Failed to save allocations: {$a}',
+                        $e->getMessage()
+                    );
+                    \core\notification::add($emsg, \core\output\notification::NOTIFY_ERROR);
+                }
+                redirect(new \moodle_url($base, $qparams));
+            }
+
+            if ($action === 'allocate_csv') {
+                $success = 0;
+                $skipped = 0;
+                $errors = 0;
+                $rawfile = $_FILES['csvfile'] ?? null;
+                if ($rawfile && is_uploaded_file($rawfile['tmp_name'] ?? '')) {
+                    $fh = fopen($rawfile['tmp_name'], 'rb');
+                    if ($fh) {
+                        $transaction = $DB->start_delegated_transaction();
+                        try {
+                            $header = fgetcsv($fh);
+                            if ($header && is_array($header)) {
+                                $manual_plugin = enrol_get_plugin('manual');
+                                if (!$manual_plugin) {
+                                    throw new \RuntimeException('Manual enrol plugin unavailable.');
+                                }
+                                $eroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+                                while (($row = fgetcsv($fh)) !== false) {
+                                    if (!is_array($row) || count($row) < 7) { $skipped++; continue; }
+                                    [$faculty, $dept, $prog, $semester, $level, $coursecode, $staffid] = $row;
+                                    if (trim((string)$coursecode) === '' || trim((string)$staffid) === '') { $skipped++; continue; }
+                                    $crs = $DB->get_record('course', ['shortname' => trim((string)$coursecode)], 'id');
+                                    if (!$crs) { $skipped++; continue; }
+                                    $staffrec = $DB->get_record('user', ['idnumber' => trim((string)$staffid)], 'id');
+                                    if (!$staffrec) { $skipped++; continue; }
+                                    $cid = (int)$crs->id;
+                                    $uid = (int)$staffrec->id;
+                                    $instances = enrol_get_instances($cid, true);
+                                    $minst = null;
+                                    foreach ($instances as $i) { if ($i->enrol === 'manual') { $minst = $i; break; } }
+                                    if (!$minst) { $minst = $manual_plugin->add_instance((object)['id' => $cid]); }
+                                    $ctx = \context_course::instance($cid);
+                                    if (!user_has_role_assignment($uid, $eroleid, $ctx->id)) {
+                                        $manual_plugin->enrol_user($minst, $uid, $eroleid, 0, 0, ENROL_USER_ACTIVE);
+                                    }
+                                    $success++;
+                                }
+                            }
+                            $transaction->allow_commit();
+                        } catch (\Throwable $e) {
+                            try { $transaction->rollback($e); } catch (\Throwable) {}
+                            $errors++;
+                        }
+                        fclose($fh);
+                    }
+                }
+                \core\notification::add(self::safe_get_string('adminlecturerscsvimported',
+                    'Imported {$a->success} rows. Skipped {$a->skipped}. Errors: {$a->errors}.',
+                    (object)['success' => $success, 'skipped' => $skipped, 'errors' => $errors]
+                ), \core\output\notification::NOTIFY_INFO);
+                redirect(new \moodle_url($base, $qparams));
+            }
+        }
+
+        $facultyid = optional_param('facultyid', 0, PARAM_INT);
+        $deptid = optional_param('deptid', 0, PARAM_INT);
+        $progid = optional_param('progid', 0, PARAM_INT);
+        $semesterid = optional_param('semesterid', 0, PARAM_INT);
+        $levelid = optional_param('levelid', 0, PARAM_INT);
+
+        $faculties = [0 => self::safe_get_string('adminlecturersfilterfaculty', '-- All Faculties --')]
+            + $DB->get_records_menu('local_ulms_faculties', null, 'name ASC', 'id, name');
+        $departments = [0 => self::safe_get_string('adminlecturersfilterdept', '-- All Departments --')]
+            + $DB->get_records_menu('local_ulms_departments', null, 'name ASC', 'id, name');
+        $programmes = [0 => self::safe_get_string('adminlecturersfilterprogramme', '-- All Programmes --')]
+            + $DB->get_records_menu('local_ulms_programmes', null, 'name ASC', 'id, name');
+        $semesters = [0 => self::safe_get_string('adminlecturersfiltersemester', '-- All Semesters / Levels --')]
+            + $DB->get_records_menu('local_ulms_semesters', null, 'name ASC', 'id, name');
+        $levels = [0 => '—'] + $DB->get_records_menu('local_ulms_levels', null, 'name ASC', 'id, name');
+
+        $wheres = ['1=1'];
+        $params = [];
+        $joins = '';
+        if ($facultyid > 0 || $deptid > 0) {
+            $joins .= " JOIN {local_ulms_programmes} p ON p.id = pc.programmeid
+                        JOIN {local_ulms_departments} d ON d.id = p.departmentid ";
+        }
+        if ($facultyid > 0) {
+            $joins .= " JOIN {local_ulms_faculties} f ON f.id = d.facultyid ";
+            $wheres[] = 'f.id = ?';
+            $params[] = $facultyid;
+        }
+        if ($deptid > 0) {
+            $wheres[] = 'd.id = ?';
+            $params[] = $deptid;
+        }
+        if ($progid > 0) {
+            $wheres[] = 'pc.programmeid = ?';
+            $params[] = $progid;
+        }
+        if ($semesterid > 0) {
+            $wheres[] = 'pc.semesterid = ?';
+            $params[] = $semesterid;
+        }
+        if ($levelid > 0) {
+            $wheres[] = 'pc.levelid = ?';
+            $params[] = $levelid;
+        }
+        $where = implode(' AND ', $wheres);
+        $sql = "SELECT pc.id AS pclink, pc.moodlecourseid, c.fullname, c.shortname
+                  FROM {local_ulms_programme_courses} pc
+                  JOIN {course} c ON c.id = pc.moodlecourseid
+                  $joins
+                 WHERE $where
+              ORDER BY c.shortname ASC";
+        $rows = $DB->get_records_sql($sql, $params);
+
+        $eroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'editingteacher']);
+        $courserows = [];
+        $courseswithlecturer = 0;
+        $uniquelecturers = [];
+        $programme_course_count = 0;
+        foreach ($rows as $r) {
+            $programme_course_count++;
+            $cid = (int)$r->moodlecourseid;
+            $ctx = \context_course::instance($cid, IGNORE_MISSING);
+            $lecturers = [];
+            if ($ctx) {
+                $rs = get_role_users($eroleid, $ctx, false, 'u.id, u.firstname, u.lastname, u.idnumber', 'u.lastname ASC');
+                foreach ($rs as $usr) {
+                    $lecturers[(int)$usr->id] = $usr;
+                    $uniquelecturers[(int)$usr->id] = true;
+                }
+            }
+            if (!empty($lecturers)) $courseswithlecturer++;
+            $studentcount = 0;
+            if ($ctx) {
+                $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student']);
+                $studentcount = $studentroleid > 0 ? count(get_role_users($studentroleid, $ctx, false, 'u.id')) : 0;
+            }
+            $chips = '';
+            $names = array_values($lecturers);
+            $shown = array_slice($names, 0, 3);
+            foreach ($shown as $usr) {
+                $chips .= '<span class="ulms-coursestat ulms-coursestat--att-present" style="margin:2px 4px 2px 0;">'
+                    . s(fullname($usr)) . '</span>';
+            }
+            if (count($lecturers) > count($shown)) {
+                $extra = count($lecturers) - count($shown);
+                $chips .= '<span class="ulms-coursestat ulms-coursestat--att-zero" style="margin:2px 4px;" title="'
+                    . s(implode(', ', array_map(static fn($u) => fullname($u), array_slice($names, 3))))
+                    . '">+' . $extra . '</span>';
+            }
+            if ($chips === '') {
+                $chips = '<span class="ulms-coursestat ulms-coursestat--att-zero">—</span>';
+            }
+            $courserows[] = (object)[
+                'courseid' => $cid,
+                'coursename' => format_string($r->fullname),
+                'shortname' => format_string($r->shortname),
+                'studentcount' => $studentcount,
+                'lecturercount' => count($lecturers),
+                'lecturerchips' => $chips,
+                'primarypill' => $lecturers ? '<span class="ulms-coursestat ulms-coursestat--att-present">Primary</span>' : '',
+            ];
+        }
+        $unassigned = $programme_course_count - $courseswithlecturer;
+        $totallecturers = count($uniquelecturers);
+
+        $routingservice = $this->get_routing_service();
+        $baseurl = new \moodle_url($routingservice->get_url_for_route('management.lecturers'));
+        $formurl = $baseurl->out(false);
+
+        $html = '';
+        $html .= '<form method="get" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px;padding:16px;border:1px solid #e1e7ee;border-radius:12px;background:#f8fbff;align-items:flex-end;">';
+        $selects = [
+            'facultyid' => $faculties,
+            'deptid' => $departments,
+            'progid' => $programmes,
+            'semesterid' => $semesters,
+        ];
+        $labels = [
+            'facultyid' => self::safe_get_string('adminlecturersfilterfaculty', 'Faculty'),
+            'deptid' => self::safe_get_string('adminlecturersfilterdept', 'Department'),
+            'progid' => self::safe_get_string('adminlecturersfilterprogramme', 'Programme'),
+            'semesterid' => self::safe_get_string('adminlecturersfiltersemester', 'Semester + Level'),
+        ];
+        $vals = [
+            'facultyid' => $facultyid,
+            'deptid' => $deptid,
+            'progid' => $progid,
+            'semesterid' => $semesterid,
+        ];
+        foreach ($selects as $pname => $opts) {
+            $html .= '<div><label for="alloc_' . $pname . '" style="display:block;margin-bottom:6px;font-weight:600;color:#0f4c81;">'
+                . s($labels[$pname]) . '</label><select id="alloc_' . $pname . '" name="' . $pname
+                . '" class="form-control" onchange="this.form.submit()" style="min-height:44px;">';
+            foreach ($opts as $vid => $vlabel) {
+                $sel = (int)$vals[$pname] === (int)$vid ? ' selected' : '';
+                $html .= '<option value="' . s($vid) . '"' . $sel . '>' . s((string)$vlabel) . '</option>';
+            }
+            $html .= '</select></div>';
+        }
+        $html .= '<div><label for="alloc_levelid" style="display:block;margin-bottom:6px;font-weight:600;color:#0f4c81;">'
+            . s(self::safe_get_string('adminlecturersfiltersemester', 'Level'))
+            . '</label><select id="alloc_levelid" name="levelid" class="form-control" onchange="this.form.submit()" style="min-height:44px;">';
+        foreach ($levels as $vid => $vlabel) {
+            $sel = $levelid === (int)$vid ? ' selected' : '';
+            $html .= '<option value="' . s($vid) . '"' . $sel . '>' . s((string)$vlabel) . '</option>';
+        }
+        $html .= '</select></div>';
+        $html .= '<noscript><button type="submit" class="ulms-btn ulms-btn--primary" style="min-height:44px;">Filter</button></noscript>';
+        $html .= '</form>';
+
+        $html .= '<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+        $html .= '<div><h3 style="margin:0;font-size:1.1rem;color:#0f4c81;">'
+            . s(self::safe_get_string('adminlecturerscolumns', 'Course allocations'))
+            . '</h3></div>';
+        $html .= '<form method="post" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+        $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
+        $html .= '<input type="hidden" name="action" value="allocate_csv">';
+        $html .= '<p style="margin:0;color:#475569;font-size:.85rem;">'
+            . s(self::safe_get_string('adminlecturerscsvhelp',
+                'Columns: Faculty,Department,Programme,Semester,Level,CourseCode,StaffID. One lecturer per row per course.'))
+            . '</p>';
+        $html .= '<input type="file" name="csvfile" accept=".csv" class="form-control" style="max-width:260px;">';
+        $html .= '<button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Import CSV</button>';
+        $html .= '</form>';
+        $html .= '</div>';
+
+        $html .= '<div style="overflow-x:auto;"><table class="table table-hover table-sm" style="width:100%;border-collapse:separate;border-spacing:0;">';
+        $html .= '<thead><tr style="background:#eaf2fb;">';
+        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(self::safe_get_string('adminlecturerscoursename', 'Course')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturersstudents', 'Students')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturerslecturercount', 'Lecturers')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(self::safe_get_string('adminlecturerslecturers', 'Assigned lecturers')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturersprimary', 'Primary')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturersassign', 'Action')) . '</th>';
+        $html .= '</tr></thead><tbody>';
+
+        foreach ($courserows as $r) {
+            $html .= '<tr style="border-bottom:1px solid #eef2f7;">';
+            $html .= '<td style="padding:10px 12px;"><div style="font-weight:600;color:#0f4c81;">' . s($r->coursename)
+                . '</div><div style="color:#64748b;font-size:.8rem;">' . s($r->shortname) . '</div></td>';
+            $html .= '<td style="padding:10px 12px;text-align:center;">' . s($r->studentcount) . '</td>';
+            $html .= '<td style="padding:10px 12px;text-align:center;">'
+                . '<span class="ulms-coursestat ulms-coursestat--att-present">' . s($r->lecturercount) . '</span></td>';
+            $html .= '<td style="padding:10px 12px;">' . $r->lecturerchips . '</td>';
+            $html .= '<td style="padding:10px 12px;text-align:center;">' . $r->primarypill . '</td>';
+            $html .= '<td style="padding:10px 12px;text-align:center;">'
+                . '<button type="button" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;"'
+                . ' onclick="document.getElementById(\'alloc-modal-' . s($r->courseid) . '\').style.display=\'block\'">'
+                . s(self::safe_get_string('adminlecturersassignedit', 'Edit lecturers'))
+                . '</button></td>';
+            $html .= '</tr>';
+
+            $candidates = $DB->get_records_sql(
+                "SELECT u.id, u.firstname, u.lastname, u.idnumber, u.email
+                   FROM {role_assignments} ra
+                   JOIN {role} r ON r.id = ra.roleid
+                   JOIN {user} u ON u.id = ra.userid
+                  WHERE r.shortname IN ('lecturer', 'editingteacher', 'teacher')
+                    AND u.deleted = 0
+                  GROUP BY u.id, u.firstname, u.lastname, u.idnumber, u.email
+                  ORDER BY u.lastname ASC, u.firstname ASC",
+                null,
+                0,
+                300
+            );
+            if (empty($candidates)) {
+                $candidates = [];
+            }
+            $ctx = \context_course::instance($r->courseid, IGNORE_MISSING);
+            $cur = [];
+            if ($ctx) {
+                $ccur = get_role_users($eroleid, $ctx, false, 'u.id, u.firstname, u.lastname', 'u.lastname ASC');
+                foreach ($ccur as $uid => $_) { $cur[(int)$uid] = (int)$uid; }
+            }
+            $html .= '<div id="alloc-modal-' . s($r->courseid) . '" style="display:none;position:fixed;inset:0;background:rgba(15,76,129,0.45);z-index:9999;padding:24px;overflow:auto;" onclick="if(event.target===this){this.style.display=\'none\';}">';
+            $html .= '<div style="max-width:640px;margin:0 auto;background:#fff;border-radius:16px;padding:24px;box-shadow:0 20px 50px rgba(15,76,129,0.25);">';
+            $html .= '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+            $html .= '<h3 style="margin:0;color:#0f4c81;">'
+                . s(self::safe_get_string('adminlecturersassignmodalh1', 'Lecturers for {$a}', $r->coursename))
+                . '</h3>';
+            $html .= '<button type="button" class="ulms-btn" style="min-width:44px;min-height:44px;" onclick="document.getElementById(\'alloc-modal-' . s($r->courseid) . '\').style.display=\'none\';">Close</button>';
+            $html .= '</div>';
+            $html .= '<p style="margin:0 0 16px;color:#475569;">'
+                . s(self::safe_get_string('adminlecturersassignhelp',
+                    'Multi-select below. Saving enrols/un-enrols lecturers via the Manual enrolment plugin.'))
+                . '</p>';
+            $html .= '<form method="post" action="' . s($formurl) . '">';
+            $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
+            $html .= '<input type="hidden" name="action" value="allocate_save">';
+            $html .= '<input type="hidden" name="moodlecourseid" value="' . s($r->courseid) . '">';
+            foreach (['facultyid'=>$facultyid,'deptid'=>$deptid,'progid'=>$progid,'semesterid'=>$semesterid,'levelid'=>$levelid] as $pn=>$pv) {
+                $html .= '<input type="hidden" name="' . $pn . '" value="' . s($pv) . '">';
+            }
+            if (empty($candidates)) {
+                $html .= '<div class="alert alert-warning">'
+                    . s(self::safe_get_string('adminlecturerssearchnocandidates',
+                        'No lecturer users exist yet. Create staff in Moodle users first.'))
+                    . '</div>';
+            } else {
+                $html .= '<div style="max-height:420px;overflow:auto;border:1px solid #e1e7ee;border-radius:12px;padding:12px;background:#f8fbff;">';
+                foreach ($candidates as $c) {
+                    $checked = isset($cur[(int)$c->id]) ? ' checked' : '';
+                    $html .= '<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 6px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background=\'#eef4fb\'" onmouseout="this.style.background=\'transparent\'">';
+                    $html .= '<input type="checkbox" name="lecturerids[]" value="' . s($c->id) . '" style="min-width:20px;min-height:20px;margin-top:3px;"' . $checked . '>';
+                    $html .= '<div><div style="font-weight:600;color:#0f172a;">' . s(fullname($c)) . '</div>';
+                    $html .= '<div style="color:#64748b;font-size:.8rem;">ID: ' . s((string)($c->idnumber ?? (string)$c->id))
+                        . (!empty($c->email) ? ' · ' . s($c->email) : '') . '</div></div>';
+                    $html .= '</label>';
+                }
+                $html .= '</div>';
+                $html .= '<div style="margin-top:12px;"><label style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="checkbox" name="confirm_remove" value="1" style="min-width:18px;min-height:18px;"> <span style="color:#b91c1c;font-weight:500;">Confirm that un-ticked lecturers will be UN-enrolled from this course.</span></label></div>';
+            }
+            $html .= '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;">';
+            $html .= '<button type="button" class="ulms-btn" style="min-width:44px;min-height:44px;" onclick="document.getElementById(\'alloc-modal-' . s($r->courseid) . '\').style.display=\'none\';">Cancel</button>';
+            $html .= '<button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Save allocations</button>';
+            $html .= '</div></form></div></div>';
+        }
+        if (empty($courserows)) {
+            $html .= '<tr><td colspan="6" style="padding:40px;text-align:center;color:#64748b;">'
+                . '<div style="font-weight:600;margin-bottom:6px;color:#475569;">'
+                . s(self::safe_get_string('adminlecturersempty', 'No courses in this funnel yet.'))
+                . '</div><div style="font-size:.9rem;">'
+                . s(self::safe_get_string('adminlecturersemptydesc',
+                    'Select an academic funnel above, or import rows in bulk from CSV.'))
+                . '</div></td></tr>';
+        }
+        $html .= '</tbody></table></div>';
+
+        $summarycards = [
+            ['label' => 'Programme–course rows', 'value' => (string)$programme_course_count, 'description' => 'Total active course links within the selected academic funnel.'],
+            ['label' => 'Courses with ≥1 lecturer', 'value' => (string)$courseswithlecturer, 'description' => 'Courses that have at least one editingteacher role enrolment via Manual plugin.'],
+            ['label' => 'Unassigned courses', 'value' => (string)$unassigned, 'description' => 'Courses with zero lecturers allocated.'],
+            ['label' => 'Unique lecturers', 'value' => (string)$totallecturers, 'description' => 'Distinct editingteacher users assigned to at least one course in the funnel.'],
+        ];
+
+        return [
+            'summarycards' => $summarycards,
+            'mainpanel' => [
+                'title' => self::safe_get_string('adminlecturerstitle', 'Lecturer Course Allocations'),
+                'subtitle' => self::safe_get_string('adminlecturersdesc',
+                    'Assign and manage which lecturers teach each course. Writes to Moodle course enrolments using the Manual enrolment plugin.'),
+                'style' => 'html',
+                'html' => $html,
+            ],
+            'secondarypanels' => [],
+        ];
+    }
+
+    /**
+     * Renders the aggregate status badges for a course's attendance summary.
+     *
+     * Urgency-first priority: Absent (red) > Late (amber) > Excused (slate)
+     * > Present (green) > Zero (slate grey). Only the highest-priority
+     * non-zero bucket is rendered first so at-risk courses surface first
+     * visually; secondary buckets are appended only when they also carry
+     * non-trivial counts so the chip row stays scannable.
+     *
+     * @param array{total:int, present:int, late:int, absent:int, excused:int} $c
+     * @return string HTML chip row (zero or more .ulms-coursestat spans)
+     */
+    private static function render_course_attendance_badge(array $c): string {
+        $total = (int)($c['total'] ?? 0);
+        if ($total <= 0) {
+            return '<span class="ulms-coursestat ulms-coursestat--att-zero">'
+                . self::safe_get_string('studentattendancezero', 'No sessions marked')
+                . '</span>';
+        }
+        $parts = [];
+        if (!empty($c['absent'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-absent">'
+                . self::safe_get_string('studentattendanceabsentcount', '{$a} Absent', (int)$c['absent'])
+                . '</span>';
+        }
+        if (!empty($c['late'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-late">'
+                . self::safe_get_string('studentattendancelatecount', '{$a} Late', (int)$c['late'])
+                . '</span>';
+        }
+        if (!empty($c['excused'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-excused">'
+                . self::safe_get_string('studentattendanceexcusedcount', '{$a} Excused', (int)$c['excused'])
+                . '</span>';
+        }
+        if (!empty($c['present'])) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-present">'
+                . self::safe_get_string('studentattendancepresentcount', '{$a} Present', (int)$c['present'])
+                . '</span>';
+        }
+        if (empty($parts)) {
+            $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-zero">'
+                . self::safe_get_string('studentattendancetotalcount', 'Total: {$a}', $total)
+                . '</span>';
+        }
+        return implode('', $parts);
+    }
+
+    /**
+     * Returns the CSS modifier class used by a per-session attendance pill.
+     *
+     * @param string $status one of present/late/absent/excused
+     * @return string
+     */
+    private static function attendance_status_css_class(string $status): string {
+        return match ($status) {
+            'present' => 'present',
+            'late' => 'late',
+            'absent' => 'absent',
+            'excused' => 'excused',
+            default => 'present',
+        };
+    }
+
+    /**
+     * Human-readable label for a per-session attendance status pill.
+     *
+     * @param string $status
+     * @return string
+     */
+    private static function attendance_status_lang(string $status): string {
+        return match ($status) {
+            'present' => self::safe_get_string('studentattendancestatuspresent', 'Present'),
+            'late' => self::safe_get_string('studentattendancestatuslate', 'Late'),
+            'absent' => self::safe_get_string('studentattendancestatusabsent', 'Absent'),
+            'excused' => self::safe_get_string('studentattendancestatusexcused', 'Excused'),
+            default => self::safe_get_string('studentattendancestatuspresent', 'Present'),
+        };
     }
 }

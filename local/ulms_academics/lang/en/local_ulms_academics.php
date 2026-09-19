@@ -168,3 +168,6 @@ $string['mappingcolumnlevel'] = 'Level';
 $string['mappingcolumnsession'] = 'Academic Session';
 $string['mappingfilterlevelreset'] = 'The applied level filter did not match any active level and has been reset.';
 $string['mappingfiltersessionreset'] = 'The applied academic session filter did not match any session and has been reset.';
+$string['mappingcolumnlecturers'] = 'Lecturers';
+$string['mappingmanagelecturers'] = 'Manage allocations';
+$string['mappinglecturersempty'] = 'No lecturers assigned';

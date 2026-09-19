@@ -97,6 +97,7 @@ class landing_page_service {
             'management.courses' => ['path' => '/management/courses', 'params' => ['view' => 'courses']],
             'management.academicsschedule' => ['path' => '/management/academics/schedule', 'params' => ['view' => 'schedule']],
             'management.academicsattendanceaudit' => ['path' => '/management/academics/attendance-audit', 'params' => ['view' => 'attendanceaudit']],
+            'management.lecturers' => ['path' => '/management/academics/lecturer-allocations', 'params' => ['view' => 'lecturers']],
             'management.reports' => ['path' => '/management/reports', 'params' => ['view' => 'reports']],
             'management.auditlogs' => ['path' => '/management/audit-logs', 'params' => ['view' => 'auditlogs']],
             'management.settings' => ['path' => '/management/settings'],

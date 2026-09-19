@@ -58,15 +58,15 @@ $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_sesskey();
-    $title = trim(required_param('title', PARAM_TEXT));
+    $title = trim(optional_param('title', '', PARAM_TEXT));
     $instructions = trim(optional_param('instructions', '', PARAM_RAW));
-    $programmeid = max(0, (int)required_param('programmeid', PARAM_INT));
-    $levelid = max(0, (int)required_param('levelid', PARAM_INT));
-    $sessionid = max(0, (int)required_param('sessionid', PARAM_INT));
-    $semesterid = max(0, (int)required_param('semesterid', PARAM_INT));
-    $courseid = max(0, (int)required_param('courseid', PARAM_INT));
-    $startraw = trim(required_param('start_ts', PARAM_RAW));
-    $endraw = trim(required_param('end_ts', PARAM_RAW));
+    $programmeid = max(0, (int)optional_param('programmeid', 0, PARAM_INT));
+    $levelid = max(0, (int)optional_param('levelid', 0, PARAM_INT));
+    $sessionid = max(0, (int)optional_param('sessionid', 0, PARAM_INT));
+    $semesterid = max(0, (int)optional_param('semesterid', 0, PARAM_INT));
+    $courseid = max(0, (int)optional_param('courseid', 0, PARAM_INT));
+    $startraw = trim(optional_param('start_ts', '', PARAM_RAW));
+    $endraw = trim(optional_param('end_ts', '', PARAM_RAW));
     $durationmin = max(0, (int)optional_param('durationmin', 0, PARAM_INT));
     $passpct = max(0, min(100, (float)optional_param('passpct', 0, PARAM_FLOAT)));
     $shufflequestions = optional_param('shufflequestions', 0, PARAM_BOOL) ? 1 : 0;
@@ -76,35 +76,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $startts = is_numeric($startraw) ? (int)$startraw : (strtotime($startraw) ?: 0);
     $endts = is_numeric($endraw) ? (int)$endraw : (strtotime($endraw) ?: 0);
 
-    try {
-        $payload = [
-            'title' => $title, 'instructions' => $instructions,
-            'programmeid' => $programmeid,
-            'levelid' => $levelid,
-            'sessionid' => $sessionid,
-            'semesterid' => $semesterid,
-            'courseid' => $courseid,
-            'start_ts' => $startts, 'end_ts' => $endts,
-            'durationsec' => $durationmin * 60,
-            'passpct' => $passpct,
-            'shufflequestions' => $shufflequestions,
-            'shufflechoices' => $shufflechoices,
-            'allowresume' => $allowresume,
-        ];
-        if ($examid > 0) {
-            $exam = $examservice->update_exam($examid, $payload);
-            $notice = get_string('examsaved', 'local_ulms_exam');
-            $nexturl = $routingservice->get_url_for_route('lecturer.exams');
-            redirect($nexturl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
-        } else {
-            $exam = $examservice->create_exam($payload);
-            $notice = get_string('examsaved', 'local_ulms_exam');
-            $nexturl = $routingservice->get_url_for_route('lecturer.examsquestions', ['examid' => (int)$exam->id]);
-            redirect($nexturl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+    $validation_errors = [];
+    if ($title === '') {
+        $validation_errors[] = get_string('err_required_title', 'local_ulms_exam', null, 'Exam title is required.');
+    }
+    if ($programmeid <= 0) {
+        $validation_errors[] = get_string('err_required_programme', 'local_ulms_exam', null, 'Programme is required — select Faculty → Department → Programme.');
+    }
+    if ($levelid <= 0) {
+        $validation_errors[] = get_string('err_required_level', 'local_ulms_exam', null, 'Level is required.');
+    }
+    if ($sessionid <= 0) {
+        $validation_errors[] = get_string('err_required_session', 'local_ulms_exam', null, 'Academic Session is required.');
+    }
+    if ($semesterid <= 0) {
+        $validation_errors[] = get_string('err_required_semester', 'local_ulms_exam', null, 'Semester is required.');
+    }
+    if ($courseid <= 0) {
+        $validation_errors[] = get_string('err_required_course', 'local_ulms_exam', null, 'Course is required — ensure the course is mapped under that Programme+Level+Semester combination.');
+    }
+    if ($startts <= 0) {
+        $validation_errors[] = get_string('err_required_start', 'local_ulms_exam', null, 'Start date/time is required.');
+    }
+    if ($endts <= 0) {
+        $validation_errors[] = get_string('err_required_end', 'local_ulms_exam', null, 'End date/time is required.');
+    }
+    if ($startts > 0 && $endts > 0 && $endts <= $startts) {
+        $validation_errors[] = get_string('err_end_before_start', 'local_ulms_exam', null, 'End time must be after start time.');
+    }
+    if (!empty($validation_errors)) {
+        foreach ($validation_errors as $ve) {
+            \core\notification::add($ve, \core\output\notification::NOTIFY_ERROR);
         }
-    } catch (\Throwable $exception) {
-        if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'lecturer_exam_create::save_new_exam', []); }
-        $errors[] = $exception->getMessage();
+    } else {
+        try {
+            $payload = [
+                'title' => $title, 'instructions' => $instructions,
+                'programmeid' => $programmeid,
+                'levelid' => $levelid,
+                'sessionid' => $sessionid,
+                'semesterid' => $semesterid,
+                'courseid' => $courseid,
+                'start_ts' => $startts, 'end_ts' => $endts,
+                'durationsec' => $durationmin * 60,
+                'passpct' => $passpct,
+                'shufflequestions' => $shufflequestions,
+                'shufflechoices' => $shufflechoices,
+                'allowresume' => $allowresume,
+            ];
+            if ($examid > 0) {
+                $exam = $examservice->update_exam($examid, $payload);
+                $notice = get_string('examsaved', 'local_ulms_exam');
+                $nexturl = $routingservice->get_url_for_route('lecturer.exams');
+                redirect($nexturl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+            } else {
+                $exam = $examservice->create_exam($payload);
+                $notice = get_string('examsaved', 'local_ulms_exam');
+                $nexturl = $routingservice->get_url_for_route('lecturer.examsquestions', ['examid' => (int)$exam->id]);
+                redirect($nexturl, $notice, null, \core\output\notification::NOTIFY_SUCCESS);
+            }
+        } catch (\Throwable $exception) {
+            if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'lecturer_exam_create::save_new_exam', []); }
+            $errors[] = $exception->getMessage();
+        }
     }
 }
 

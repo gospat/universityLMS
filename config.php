@@ -11,17 +11,25 @@
 @ini_set('display_errors', '0');
 @ini_set('display_startup_errors', '0');
 @ini_set('html_errors', '0');
+@ini_set('log_errors', '1');
+
+if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
+    @ob_start();
+}
 
 function ulms_emergency_shutdown_fallback(): void {
     if (PHP_SAPI === 'cli') {
+        @ob_end_flush();
         return;
     }
     $err = error_get_last();
     if ($err === null) {
+        @ob_end_flush();
         return;
     }
     $fatals = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR];
     if (!in_array($err['type'], $fatals, true)) {
+        @ob_end_flush();
         return;
     }
     while (ob_get_level() > 0) {
@@ -230,11 +238,14 @@ if ($running_via_cli) {
 if (in_array(strtolower($debug), ['1', 'true', 'yes', 'on'], true)) {
     @error_reporting(E_ALL);
     $CFG->debug = 38911;
-    $CFG->debugdisplay = 1;
+    $CFG->debugdisplay = $running_via_cli ? 1 : 0;
+    @ini_set('display_errors', $running_via_cli ? '1' : '0');
+    @ini_set('log_errors', '1');
 } else {
     @error_reporting(0);
     $CFG->debug = 0;
     $CFG->debugdisplay = 0;
+    @ini_set('display_errors', '0');
 }
 
 if (empty($CFG->smtphosts)) {

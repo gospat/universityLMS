@@ -23,6 +23,41 @@ defined('MOODLE_INTERNAL') || die();
  */
 class super_admin_portal_service {
     /**
+     * Safe language string resolver. Returns the resolved string when
+     * available; otherwise returns the caller-supplied fallback. The
+     * explicit `[[` detection prevents Moodle placeholder leaks from
+     * surfacing in the UI when caches are stale or strings are missing.
+     *
+     * @param string $identifier String identifier for local_ulms_dashboard.
+     * @param string $fallback   Literal fallback text (identical to the
+     *                           language file value).
+     * @param mixed  $a          Optional string substitution value.
+     * @return string
+     */
+    private static function safe_get_string(string $identifier, string $fallback, $a = null): string {
+        try {
+            if ($a === null) {
+                $value = @get_string($identifier, 'local_ulms_dashboard');
+            } else {
+                $value = @get_string($identifier, 'local_ulms_dashboard', $a);
+            }
+        } catch (\Throwable) {
+            $value = '';
+        }
+        if (!is_string($value) || $value === '' || strpos($value, '[[') !== false) {
+            if ($a !== null && is_scalar($a)) {
+                $str = (string)$a;
+                if (str_contains($fallback, '{$a}')) {
+                    return strtr($fallback, ['{$a}' => $str]);
+                }
+                return trim($fallback . ' ' . $str);
+            }
+            return $fallback;
+        }
+        return $value;
+    }
+
+    /**
      * Returns the single-source-of-truth list of super admin portal routes.
      * Covers both native super-admin sections AND inherited admin feature
      * sections (where a siteadmin keeps the super admin shell/identity).
@@ -438,8 +473,8 @@ class super_admin_portal_service {
             'navigationaria' => @get_string('superadminportalnavigation', 'local_ulms_dashboard') ?: 'Super admin portal navigation',
             'currentuserrole' => @get_string('superadminportalshellrole', 'local_ulms_dashboard') ?: 'Super administrator',
             'navgroups' => $navgroups,
-            'headercontext' => $headercontext,
-            'summarycards' => $summarycards,
+            'headercontext' => null,
+            'summarycards' => [],
             'quickaccess' => $quickaccess,
         ];
     }
@@ -600,46 +635,48 @@ class super_admin_portal_service {
         $iconschedule = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><rect x="8" y="14" width="3" height="3" rx="0.5"/><rect x="13" y="14" width="3" height="3" rx="0.5"/><rect x="8" y="18" width="3" height="2" rx="0.5"/><rect x="13" y="18" width="3" height="2" rx="0.5"/></svg>';
         $iconprovisioning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
         $iconbulk = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>';
+        $iconlecturers = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M12 13.5l1.5 1.5 3-3"/></svg>';
 
         return [
             [
-                'heading' => get_string('superadminnavgroupoverview', 'local_ulms_dashboard'),
+                'heading' => self::safe_get_string('superadminnavgroupoverview', 'Overview'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'dashboard', 'label' => get_string('superadminnavdashboard', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.dashboard')->out(false), 'icon' => $icondashboard],
-                    ['key' => 'health', 'label' => get_string('superadminnavhealth', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.health')->out(false), 'icon' => $iconhealth],
-                    ['key' => 'reports', 'label' => get_string('superadminnavreports', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.reports')->out(false), 'icon' => $iconreports],
+                    ['key' => 'dashboard', 'label' => self::safe_get_string('superadminnavdashboard', 'Dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.dashboard')->out(false), 'icon' => $icondashboard],
+                    ['key' => 'health', 'label' => self::safe_get_string('superadminnavhealth', 'System health'), 'url' => $routingservice->get_url_for_route('superadmin.health')->out(false), 'icon' => $iconhealth],
+                    ['key' => 'reports', 'label' => self::safe_get_string('superadminnavreports', 'Reports'), 'url' => $routingservice->get_url_for_route('superadmin.reports')->out(false), 'icon' => $iconreports],
                 ], $section),
             ],
             [
-                'heading' => get_string('superadminnavgroupgovernance', 'local_ulms_dashboard'),
+                'heading' => self::safe_get_string('superadminnavgroupgovernance', 'Governance'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'administrators', 'label' => get_string('superadminnavadministrators', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.administrators')->out(false), 'icon' => $iconadmins],
-                    ['key' => 'users', 'label' => get_string('superadminnavusers', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.users')->out(false), 'icon' => $iconusers],
-                    ['key' => 'institution', 'label' => get_string('superadminnavinstitution', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.institution')->out(false), 'icon' => $iconinstitution],
-                    ['key' => 'auditlogs', 'label' => get_string('superadminnavauditlogs', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.auditlogs')->out(false), 'icon' => $iconaudit],
+                    ['key' => 'administrators', 'label' => self::safe_get_string('superadminnavadministrators', 'Administrators'), 'url' => $routingservice->get_url_for_route('superadmin.administrators')->out(false), 'icon' => $iconadmins],
+                    ['key' => 'users', 'label' => self::safe_get_string('superadminnavusers', 'Users'), 'url' => $routingservice->get_url_for_route('superadmin.users')->out(false), 'icon' => $iconusers],
+                    ['key' => 'institution', 'label' => self::safe_get_string('superadminnavinstitution', 'Institution'), 'url' => $routingservice->get_url_for_route('superadmin.institution')->out(false), 'icon' => $iconinstitution],
+                    ['key' => 'auditlogs', 'label' => self::safe_get_string('superadminnavauditlogs', 'Audit logs'), 'url' => $routingservice->get_url_for_route('superadmin.auditlogs')->out(false), 'icon' => $iconaudit],
                 ], $section),
             ],
             [
-                'heading' => get_string('superadminnavgroupsystem', 'local_ulms_dashboard'),
+                'heading' => self::safe_get_string('superadminnavgroupsystem', 'System'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'integrations', 'label' => get_string('superadminnavintegrations', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.integrations')->out(false), 'icon' => $iconintegrations],
-                    ['key' => 'security', 'label' => get_string('superadminnavsecurity', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.security')->out(false), 'icon' => $iconsecurity],
-                    ['key' => 'settings', 'label' => get_string('superadminnavsettings', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.settings')->out(false), 'icon' => $iconsettings],
+                    ['key' => 'integrations', 'label' => self::safe_get_string('superadminnavintegrations', 'Integrations'), 'url' => $routingservice->get_url_for_route('superadmin.integrations')->out(false), 'icon' => $iconintegrations],
+                    ['key' => 'security', 'label' => self::safe_get_string('superadminnavsecurity', 'Security'), 'url' => $routingservice->get_url_for_route('superadmin.security')->out(false), 'icon' => $iconsecurity],
+                    ['key' => 'settings', 'label' => self::safe_get_string('superadminnavsettings', 'Settings'), 'url' => $routingservice->get_url_for_route('superadmin.settings')->out(false), 'icon' => $iconsettings],
                 ], $section),
             ],
             [
                 'heading' => get_string('adminportaltitle', 'local_ulms_auth'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'admin_dashboard', 'label' => get_string('adminnavdashboard', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.dashboard')->out(false), 'icon' => $icondashboard],
-                    ['key' => 'admin_users', 'label' => get_string('adminnavusermanagement', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.users')->out(false), 'icon' => $iconusers],
-                    ['key' => 'admin_provisioning', 'label' => get_string('adminnavprovisioning', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.provisioning')->out(false), 'icon' => $iconprovisioning],
-                    ['key' => 'admin_bulkupload', 'label' => get_string('adminnavbulkupload', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.bulkupload')->out(false), 'icon' => $iconbulk],
-                    ['key' => 'admin_analytics', 'label' => get_string('adminnavanalytics', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.analytics')->out(false), 'icon' => $iconanalytics],
-                    ['key' => 'admin_academics', 'label' => get_string('adminnavacademics', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.academics')->out(false), 'icon' => $iconacademics],
-                    ['key' => 'admin_courses', 'label' => get_string('adminnavcourses', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.courses')->out(false), 'icon' => $iconcourses],
-                    ['key' => 'admin_reports', 'label' => get_string('adminnavreports', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.reports')->out(false), 'icon' => $iconreports],
-                    ['key' => 'admin_auditlogs', 'label' => get_string('adminnavauditlogs', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.auditlogs')->out(false), 'icon' => $iconaudit],
-                    ['key' => 'admin_settings', 'label' => get_string('adminnavsettings', 'local_ulms_dashboard'), 'url' => $routingservice->get_url_for_route('management.settings')->out(false), 'icon' => $iconsettings],
+                    ['key' => 'admin_dashboard', 'label' => self::safe_get_string('adminnavdashboard', 'Dashboard'), 'url' => $routingservice->get_url_for_route('management.dashboard')->out(false), 'icon' => $icondashboard],
+                    ['key' => 'admin_users', 'label' => self::safe_get_string('adminnavusermanagement', 'User management'), 'url' => $routingservice->get_url_for_route('management.users')->out(false), 'icon' => $iconusers],
+                    ['key' => 'admin_provisioning', 'label' => self::safe_get_string('adminnavprovisioning', 'User provisioning'), 'url' => $routingservice->get_url_for_route('management.provisioning')->out(false), 'icon' => $iconprovisioning],
+                    ['key' => 'admin_bulkupload', 'label' => self::safe_get_string('adminnavbulkupload', 'Bulk upload'), 'url' => $routingservice->get_url_for_route('management.bulkupload')->out(false), 'icon' => $iconbulk],
+                    ['key' => 'admin_analytics', 'label' => self::safe_get_string('adminnavanalytics', 'Analytics'), 'url' => $routingservice->get_url_for_route('management.analytics')->out(false), 'icon' => $iconanalytics],
+                    ['key' => 'admin_academics', 'label' => self::safe_get_string('adminnavacademics', 'Academic structure'), 'url' => $routingservice->get_url_for_route('management.academics')->out(false), 'icon' => $iconacademics],
+                    ['key' => 'admin_courses', 'label' => self::safe_get_string('adminnavcourses', 'Courses'), 'url' => $routingservice->get_url_for_route('management.courses')->out(false), 'icon' => $iconcourses],
+                    ['key' => 'admin_lecturers', 'label' => self::safe_get_string('adminnavlecturers', 'Lecturer allocations'), 'url' => $routingservice->get_url_for_route('management.lecturers')->out(false), 'icon' => $iconlecturers],
+                    ['key' => 'admin_reports', 'label' => 'Admin: ' . self::safe_get_string('adminnavreports', 'Reports'), 'url' => $routingservice->get_url_for_route('management.reports')->out(false), 'icon' => $iconreports],
+                    ['key' => 'admin_auditlogs', 'label' => 'Admin: ' . self::safe_get_string('adminnavauditlogs', 'Audit logs'), 'url' => $routingservice->get_url_for_route('management.auditlogs')->out(false), 'icon' => $iconaudit],
+                    ['key' => 'admin_settings', 'label' => 'Admin: ' . self::safe_get_string('adminnavsettings', 'Settings'), 'url' => $routingservice->get_url_for_route('management.settings')->out(false), 'icon' => $iconsettings],
                 ], $section),
             ],
         ];

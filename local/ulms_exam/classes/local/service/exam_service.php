@@ -107,11 +107,15 @@ class exam_service {
         $rows = [];
         if (!empty($mycourses)) {
             [$insql, $inparams] = $DB->get_in_or_equal(array_keys($mycourses), SQL_PARAMS_NAMED);
-            $sql = "SELECT e.* FROM {local_ulms_exams} e
+            $sql = "SELECT DISTINCT e.id AS _uid, e.* FROM {local_ulms_exams} e
                      WHERE e.courseid $insql
                         OR e.createdby = :uid
                      ORDER BY e.timemodified DESC";
             $rows = $DB->get_records_sql($sql, $inparams + ['uid' => (int)$USER->id]);
+            foreach ($rows as $k => $r) {
+                unset($r->_uid);
+                $rows[$k] = $r;
+            }
         } else {
             $rows = $DB->get_records('local_ulms_exams', ['createdby' => (int)$USER->id], 'timemodified DESC');
         }

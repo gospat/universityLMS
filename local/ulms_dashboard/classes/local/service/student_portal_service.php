@@ -435,8 +435,8 @@ class student_portal_service {
             'navigationaria' => get_string('studentportalnavigation', 'local_ulms_dashboard'),
             'currentuserrole' => get_string('studentportalshellrole', 'local_ulms_dashboard'),
             'navgroups' => $navgroups,
-            'headercontext' => $headercontext,
-            'summarycards' => $summarycards,
+            'headercontext' => null,
+            'summarycards' => [],
             'quickaccess' => $quickaccess,
         ];
     }

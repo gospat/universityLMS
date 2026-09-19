@@ -29,7 +29,7 @@ $dashboardservice->require_admin_permissions();
 
 $context = \context::instance_by_id(\context_system::instance()->id);
 $view = optional_param('view', 'courses', PARAM_ALPHA);
-$allowedviews = ['courses', 'reports', 'auditlogs', 'schedule', 'attendanceaudit'];
+$allowedviews = ['courses', 'reports', 'auditlogs', 'schedule', 'attendanceaudit', 'lecturers'];
 if (!in_array($view, $allowedviews, true)) {
     $view = 'courses';
 }
@@ -40,6 +40,7 @@ $routekey = match ($view) {
     'auditlogs' => 'management.auditlogs',
     'schedule' => 'management.academicsschedule',
     'attendanceaudit' => 'management.academicsattendanceaudit',
+    'lecturers' => 'management.lecturers',
     default => 'management.courses',
 };
 $routingservice->maybe_redirect_legacy_request($routekey);

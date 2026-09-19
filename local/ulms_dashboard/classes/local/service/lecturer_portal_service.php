@@ -490,8 +490,8 @@ class lecturer_portal_service {
             'navigationaria' => @get_string('lecturerportalnavigation', 'local_ulms_dashboard') ?: 'Lecturer portal navigation',
             'currentuserrole' => @get_string('lecturerportalshellrole', 'local_ulms_dashboard') ?: 'Lecturer',
             'navgroups' => $navgroups,
-            'headercontext' => $headercontext,
-            'summarycards' => $summarycards,
+            'headercontext' => null,
+            'summarycards' => [],
             'quickaccess' => $quickaccess,
         ];
     }

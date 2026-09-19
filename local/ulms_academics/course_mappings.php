@@ -863,8 +863,43 @@ $table->head = [
         $sort,
         $dir
     ),
+    get_string('mappingcolumnlecturers', 'local_ulms_academics'),
     get_string('actions', 'local_ulms_academics'),
 ];
+
+$lecturersbycourse = [];
+if (!empty($mappings)) {
+    $courseids = [];
+    foreach ($mappings as $m) {
+        $cid = (int)($m->moodlecourseid ?? 0);
+        if ($cid > 0) {
+            $courseids[$cid] = $cid;
+        }
+    }
+    if (!empty($courseids)) {
+        [$insql, $inparams] = $DB->get_in_or_equal(array_values($courseids), SQL_PARAMS_QM);
+        $sql = "SELECT ctx.instanceid AS courseid, u.id AS userid, u.firstname, u.lastname, u.idnumber
+                  FROM {context} ctx
+                  JOIN {role_assignments} ra ON ra.contextid = ctx.id
+                  JOIN {role} r ON r.id = ra.roleid AND r.shortname = ?
+                  JOIN {user} u ON u.id = ra.userid AND u.deleted = 0
+                 WHERE ctx.contextlevel = ?
+                   AND ctx.instanceid {$insql}
+              ORDER BY u.lastname ASC, u.firstname ASC";
+        $params = array_merge(['editingteacher', CONTEXT_COURSE], $inparams);
+        $rs = $DB->get_recordset_sql($sql, $params);
+        foreach ($rs as $row) {
+            $cid = (int)$row->courseid;
+            if (!isset($lecturersbycourse[$cid])) {
+                $lecturersbycourse[$cid] = [];
+            }
+            $lecturersbycourse[$cid][] = $row;
+        }
+        $rs->close();
+    }
+}
+
+$allocationsurl = $routingservice->get_url_for_route('management.lecturers', $filterparams);
 
 foreach ($mappings as $mapping) {
     $deleteurl = $routingservice->get_url_for_route('management.academicsmappings', [
@@ -899,6 +934,53 @@ foreach ($mappings as $mapping) {
         format_string($sessionname),
         format_string($coursetypes[$mapping->coursetype] ?? $mapping->coursetype),
         !empty($mapping->iscore) ? get_string('yes') : get_string('no'),
+        (static function (int $courseid, array $lecturersbycourse, moodle_url $allocationsurl) use ($mapping): string {
+            $cid = $courseid;
+            $users = $lecturersbycourse[$cid] ?? [];
+            if (empty($users)) {
+                $empty = html_writer::tag(
+                    'span',
+                    get_string('mappinglecturersempty', 'local_ulms_academics'),
+                    ['class' => 'text-muted small']
+                );
+                $link = html_writer::link(
+                    $allocationsurl,
+                    get_string('mappingmanagelecturers', 'local_ulms_academics'),
+                    ['class' => 'btn btn-sm btn-outline-secondary ml-2']
+                );
+                return $empty . ' ' . $link;
+            }
+            $chips = [];
+            $show = array_slice($users, 0, 3);
+            $extra = count($users) - count($show);
+            foreach ($show as $u) {
+                $name = trim(sprintf('%s %s', $u->firstname ?? '', $u->lastname ?? ''));
+                if ($name === '') {
+                    $name = '#' . ($u->userid ?? '?');
+                }
+                $chips[] = html_writer::tag(
+                    'span',
+                    s($name),
+                    ['class' => 'ulms-badge ulms-badge--soft ulms-badge--success']
+                );
+            }
+            if ($extra > 0) {
+                $chips[] = html_writer::tag(
+                    'span',
+                    sprintf('+%d', $extra),
+                    [
+                        'class' => 'ulms-badge ulms-badge--soft',
+                        'title' => get_string('ofmanymore', 'core', $extra),
+                    ]
+                );
+            }
+            $link = html_writer::link(
+                $allocationsurl,
+                get_string('mappingmanagelecturers', 'local_ulms_academics'),
+                ['class' => 'btn btn-sm btn-outline-secondary ml-2']
+            );
+            return implode(' ', $chips) . ' ' . $link;
+        })((int)($mapping->moodlecourseid ?? 0), $lecturersbycourse, $allocationsurl),
         html_writer::link($editurl, get_string('edit')) . ' | ' . html_writer::link($deleteurl, get_string('delete')),
     ];
 }
