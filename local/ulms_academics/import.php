@@ -27,7 +27,7 @@ $previewimport = optional_param('previewimport', 0, PARAM_BOOL);
 $confirmimport = optional_param('confirmimport', 0, PARAM_BOOL);
 $service = new \local_ulms_academics\local\service\academic_structure_service();
 $routingservice = new \local_ulms_auth\local\service\landing_page_service();
-$allowedentities = ['faculties', 'departments', 'programmes'];
+$allowedentities = ['faculties', 'departments', 'programmes', 'courses'];
 
 $importstateparams = [
     'entity' => $entity,
@@ -79,6 +79,10 @@ $templates = [
     'programmes' => [
         ['code', 'name', 'status', 'departmentcode', 'awardtype', 'durationyears'],
         ['BSC-CS', 'BSc Computer Science', 'active', 'CSC', 'BSc', '4'],
+    ],
+    'courses' => [
+        ['shortname', 'fullname', 'idnumber', 'category', 'visible', 'summary', 'format', 'numsections', 'lang'],
+        ['CSC101', 'Introduction to Computer Science', 'CSC-101-2026', '1', '1', 'An introduction to the fundamentals of computing.', 'topics', '12', 'en'],
     ],
 ];
 
@@ -190,6 +194,24 @@ echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel__body');
 echo html_writer::div(implode('', $templatecards), 'ulms-action-grid');
+if ($entity === 'courses') {
+    $defcat = $DB->get_record('course_categories', ['name' => 'Miscellaneous'], 'id', IGNORE_MISSING);
+    if (!$defcat) {
+        $defcat = $DB->get_record_sql('SELECT id FROM {course_categories} ORDER BY id ASC LIMIT 1', [], IGNORE_MISSING);
+    }
+    $defaultcatid = $defcat ? (int)$defcat->id : 1;
+    $singlecard = html_writer::link(
+        new moodle_url('/course/edit.php', [
+            'category' => $defaultcatid,
+            'returnto' => 'url',
+            'returnurl' => $routingservice->get_url_for_route('management.academicsimport', ['entity' => 'courses'])->out_as_local_url(false),
+        ]),
+        html_writer::tag('div', get_string('courses', 'local_ulms_academics') . ' — ' . get_string('add'), ['class' => 'ulms-action-card__title']) .
+        html_writer::tag('div', get_string('csvonesingle', 'local_ulms_academics') ?: 'Create one course at a time', ['class' => 'ulms-action-card__meta']),
+        ['class' => 'ulms-action-card ulms-action-card--emphasis']
+    );
+    echo html_writer::div($singlecard, 'ulms-action-grid mt-3');
+}
 echo html_writer::end_div();
 echo html_writer::end_div();
 
@@ -284,12 +306,16 @@ echo html_writer::start_div('ulms-form-grid');
 
 echo html_writer::start_div('ulms-form-field');
 echo html_writer::label(get_string('csventity', 'local_ulms_academics'), 'id_entity');
+$entityoptions = [
+    'faculties' => get_string('faculties', 'local_ulms_academics'),
+    'departments' => get_string('departments', 'local_ulms_academics'),
+    'programmes' => get_string('programmes', 'local_ulms_academics'),
+];
+if (in_array('courses', $allowedentities, true)) {
+    $entityoptions['courses'] = get_string('courses', 'local_ulms_academics');
+}
 echo html_writer::select(
-    [
-        'faculties' => get_string('faculties', 'local_ulms_academics'),
-        'departments' => get_string('departments', 'local_ulms_academics'),
-        'programmes' => get_string('programmes', 'local_ulms_academics'),
-    ],
+    $entityoptions,
     'entity',
     $entity,
     false,

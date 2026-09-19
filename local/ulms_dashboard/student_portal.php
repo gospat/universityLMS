@@ -62,28 +62,17 @@ $routingservice->maybe_redirect_legacy_request($routekey);
 $url = $routingservice->get_url_for_route($routekey);
 local_ulms_dashboard_prepare_page($context, $url, $pagetitle);
 
-$portalservice = new \local_ulms_dashboard\local\service\student_portal_service();
 $overviewservice = new \local_ulms_dashboard\local\service\portal_overview_service();
-$data = $overviewservice->get_student_overview_data($view);
 
-echo $OUTPUT->header();
-$headercontext = $portalservice->get_header_context_for_section($view);
-echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => get_string('studentportaleyebrow', 'local_ulms_dashboard'),
-    'title' => $headercontext['title'] ?? get_string('studentportalpagetitle', 'local_ulms_dashboard'),
-    'meta' => $headercontext['meta'] ?? '',
-]);
-local_ulms_dashboard_start_shell_wrap();
-echo local_ulms_dashboard_render_summary_cards($data['summarycards'] ?? []);
-echo local_ulms_dashboard_render_panel($data['mainpanel'] ?? []);
-
-if (!empty($data['secondarypanels'])) {
-    echo html_writer::start_div('ulms-layout-grid');
-    foreach ($data['secondarypanels'] as $panel) {
-        echo local_ulms_dashboard_render_panel($panel);
+local_ulms_dashboard_render_role_portal_page(
+    \local_ulms_dashboard\local\service\student_portal_service::class,
+    $view,
+    fn() => $overviewservice->get_student_overview_data($view),
+    static function (array $h) {
+        return [
+            'eyebrow' => get_string('studentportaleyebrow', 'local_ulms_dashboard'),
+            'title'   => $h['title'] ?? get_string('studentportalpagetitle', 'local_ulms_dashboard'),
+            'meta'    => $h['meta'] ?? '',
+        ];
     }
-    echo html_writer::end_div();
-}
-
-local_ulms_dashboard_end_shell_wrap();
-echo $OUTPUT->footer();
+);

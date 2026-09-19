@@ -912,9 +912,12 @@ foreach ($mappings as $mapping) {
     ] + $filterparams);
 
     $leveldisplay = get_string('mappinglevelwide', 'local_ulms_academics');
+    $levelbadgeclass = 'ulms-badge ulms-badge--soft ulms-badge--muted';
     if (!empty($mapping->levelname) || !empty($mapping->levelcode)) {
         $leveldisplay = trim(sprintf('%s %s', $mapping->levelcode ?? '', $mapping->levelname ?? ''));
+        $levelbadgeclass = 'ulms-badge ulms-badge--soft ulms-badge--info font-weight-bold';
     }
+    $levelbadge = html_writer::tag('span', s($leveldisplay), ['class' => $levelbadgeclass]);
     $sessionname = '';
     if (!empty($mapping->semestersessionid) && isset($sessions[$mapping->semestersessionid])) {
         $s = $sessions[$mapping->semestersessionid];
@@ -930,7 +933,7 @@ foreach ($mappings as $mapping) {
         format_string($mapping->departmentname),
         format_string($mapping->facultyname),
         format_string($mapping->semestername ?? get_string('notset', 'local_ulms_academics')),
-        format_string($leveldisplay),
+        $levelbadge,
         format_string($sessionname),
         format_string($coursetypes[$mapping->coursetype] ?? $mapping->coursetype),
         !empty($mapping->iscore) ? get_string('yes') : get_string('no'),
@@ -1059,6 +1062,27 @@ echo html_writer::select($courses, 'moodlecourseid', $formvalues['moodlecourseid
     'id' => 'id_moodlecourseid',
     'class' => 'custom-select',
 ]);
+$defaultcatid = 0;
+$defcat = $DB->get_record('course_categories', ['name' => 'Miscellaneous'], 'id', IGNORE_MISSING);
+if (!$defcat) {
+    $defcat = $DB->get_record_sql('SELECT id FROM {course_categories} ORDER BY id ASC LIMIT 1', [], IGNORE_MISSING);
+}
+if ($defcat) {
+    $defaultcatid = (int)$defcat->id;
+}
+$newcourseurl = new moodle_url('/course/edit.php', [
+    'category' => $defaultcatid,
+    'returnto' => 'url',
+    'returnurl' => $contexturl->out_as_local_url(false),
+]);
+echo html_writer::div(
+    html_writer::link(
+        $newcourseurl,
+        get_string('mappingcreatenewcourse', 'local_ulms_academics') ?: '+ Create new course',
+        ['class' => 'btn btn-sm btn-outline-secondary mt-2', 'target' => '_blank', 'rel' => 'noopener']
+    ),
+    'ulms-form-subnote'
+);
 echo html_writer::end_div();
 
 echo html_writer::start_div('col-md-6 mb-3');

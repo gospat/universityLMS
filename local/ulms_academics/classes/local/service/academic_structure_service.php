@@ -315,6 +315,7 @@ class academic_structure_service {
             'faculties' => \get_string('faculties', 'local_ulms_academics'),
             'departments' => \get_string('departments', 'local_ulms_academics'),
             'programmes' => \get_string('programmes', 'local_ulms_academics'),
+            'courses' => \get_string('courses', 'local_ulms_academics'),
             'sessions' => \get_string('academicsessions', 'local_ulms_academics'),
             'semesters' => \get_string('semesters', 'local_ulms_academics'),
             'coursemappings' => \get_string('mappings', 'local_ulms_academics'),
@@ -1309,6 +1310,80 @@ class academic_structure_service {
             'previewrows' => [],
         ];
 
+        if ($entity === 'courses') {
+            global $DB;
+            foreach ($rows as $index => $row) {
+                $linenumber = $index + 2;
+                $rowerrors = [];
+                $shortname = trim((string)($row['shortname'] ?? ''));
+                $fullname  = trim((string)($row['fullname'] ?? ''));
+                $idnumber  = trim((string)($row['idnumber'] ?? ''));
+                $category  = trim((string)($row['category'] ?? ''));
+                $visible   = (string)($row['visible'] ?? '1') === '' ? '1' : trim((string)($row['visible'] ?? '1'));
+
+                if ($shortname === '' || $fullname === '') {
+                    $rowerrors[] = \get_string('csvmissingrequired', 'local_ulms_academics', $linenumber);
+                }
+
+                $categoryid = 0;
+                if ($category !== '') {
+                    if (is_numeric($category)) {
+                        $catrec = $DB->get_record('course_categories', ['id' => (int)$category], 'id', IGNORE_MISSING);
+                        $categoryid = $catrec ? (int)$catrec->id : 0;
+                    } else {
+                        $catrec = $DB->get_record('course_categories', ['idnumber' => $category], 'id', IGNORE_MISSING);
+                        if (!$catrec) {
+                            $catrec = $DB->get_record('course_categories', ['name' => $category], 'id', IGNORE_MISSING);
+                        }
+                        $categoryid = $catrec ? (int)$catrec->id : 0;
+                    }
+                }
+                if ($category === '' || $categoryid <= 0) {
+                    $misc = $DB->get_record('course_categories', ['name' => 'Miscellaneous'], 'id', IGNORE_MISSING);
+                    if (!$misc) {
+                        $misc = $DB->get_record_sql("SELECT id FROM {course_categories} ORDER BY id ASC LIMIT 1", [], IGNORE_MISSING);
+                    }
+                    $categoryid = $misc ? (int)$misc->id : 1;
+                }
+
+                $existing = null;
+                if ($idnumber !== '') {
+                    $existing = $DB->get_record('course', ['idnumber' => $idnumber], 'id,shortname,fullname,visible,category,idnumber', IGNORE_MISSING);
+                }
+                if (!$existing && $shortname !== '') {
+                    $existing = $DB->get_record('course', ['shortname' => $shortname], 'id,shortname,fullname,visible,category,idnumber', IGNORE_MISSING);
+                }
+
+                $valid = empty($rowerrors);
+                if ($valid) {
+                    $result['valid']++;
+                } else {
+                    $result['invalid']++;
+                    $result['errors'] = array_merge($result['errors'], $rowerrors);
+                }
+
+                $previewrow = [
+                    'linenumber' => $linenumber,
+                    'code'       => $shortname,
+                    'name'       => $fullname,
+                    'parent'     => (string)$categoryid,
+                    'status'     => $visible === '0' || strcasecmp($visible, 'no') === 0 || strcasecmp($visible, 'hidden') === 0 ? 'hidden' : 'visible',
+                    'action'     => !$valid
+                        ? \get_string('csvactioninvalid', 'local_ulms_academics')
+                        : ($existing
+                            ? \get_string('csvactionupdate', 'local_ulms_academics')
+                            : \get_string('csvactioncreate', 'local_ulms_academics')),
+                    'message'    => $valid
+                        ? \get_string('csvvalidationpassed', 'local_ulms_academics')
+                        : implode(' ', $rowerrors),
+                    'valid'      => $valid,
+                ];
+                $result['previewrows'][] = $previewrow;
+                $result['processed']++;
+            }
+            return $result;
+        }
+
         foreach ($rows as $index => $row) {
             $linenumber = $index + 2;
             $rowerrors = [];
@@ -1388,6 +1463,90 @@ class academic_structure_service {
             'updated' => 0,
             'errors' => [],
         ];
+
+        if ($entity === 'courses') {
+            global $CFG, $DB;
+            require_once($CFG->dirroot . '/course/lib.php');
+            foreach ($rows as $index => $row) {
+                $linenumber = $index + 2;
+                $shortname = trim((string)($row['shortname'] ?? ''));
+                $fullname  = trim((string)($row['fullname'] ?? ''));
+                $idnumber  = trim((string)($row['idnumber'] ?? ''));
+                $category  = trim((string)($row['category'] ?? ''));
+                $visible   = trim((string)($row['visible'] ?? '1'));
+                $summary   = trim((string)($row['summary'] ?? ''));
+                $format    = trim((string)($row['format'] ?? 'topics'));
+                $numsec    = trim((string)($row['numsections'] ?? ''));
+                $lang      = trim((string)($row['lang'] ?? ''));
+
+                if ($shortname === '' || $fullname === '') {
+                    $result['errors'][] = \get_string('csvmissingrequired', 'local_ulms_academics', $linenumber);
+                    continue;
+                }
+
+                $categoryid = 0;
+                if ($category !== '') {
+                    if (is_numeric($category)) {
+                        $catrec = $DB->get_record('course_categories', ['id' => (int)$category], 'id', IGNORE_MISSING);
+                        $categoryid = $catrec ? (int)$catrec->id : 0;
+                    } else {
+                        $catrec = $DB->get_record('course_categories', ['idnumber' => $category], 'id', IGNORE_MISSING);
+                        if (!$catrec) {
+                            $catrec = $DB->get_record('course_categories', ['name' => $category], 'id', IGNORE_MISSING);
+                        }
+                        $categoryid = $catrec ? (int)$catrec->id : 0;
+                    }
+                }
+                if ($categoryid <= 0) {
+                    $misc = $DB->get_record('course_categories', ['name' => 'Miscellaneous'], 'id', IGNORE_MISSING);
+                    if (!$misc) {
+                        $misc = $DB->get_record_sql("SELECT id FROM {course_categories} ORDER BY id ASC LIMIT 1", [], IGNORE_MISSING);
+                    }
+                    $categoryid = $misc ? (int)$misc->id : 1;
+                }
+
+                $existing = null;
+                if ($idnumber !== '') {
+                    $existing = $DB->get_record('course', ['idnumber' => $idnumber], '*', IGNORE_MISSING);
+                }
+                if (!$existing && $shortname !== '') {
+                    $existing = $DB->get_record('course', ['shortname' => $shortname], '*', IGNORE_MISSING);
+                }
+
+                $visiblenum = ($visible === '0' || strcasecmp($visible, 'no') === 0 || strcasecmp($visible, 'hidden') === 0) ? 0 : 1;
+
+                $data = new \stdClass();
+                $data->shortname    = $shortname;
+                $data->fullname     = $fullname;
+                $data->idnumber     = $idnumber;
+                $data->category     = $categoryid;
+                $data->visible      = $visiblenum;
+                $data->summary      = $summary;
+                $data->summaryformat = FORMAT_HTML;
+                $data->format       = $format !== '' ? $format : 'topics';
+                if ($numsec !== '' && is_numeric($numsec)) {
+                    $data->numsections = (int)$numsec;
+                }
+                if ($lang !== '') {
+                    $data->lang = $lang;
+                }
+
+                try {
+                    if ($existing) {
+                        $data->id = (int)$existing->id;
+                        update_course($data);
+                        $result['updated']++;
+                    } else {
+                        create_course($data);
+                        $result['created']++;
+                    }
+                    $result['processed']++;
+                } catch (\Throwable $e) {
+                    $result['errors'][] = 'Line ' . $linenumber . ': ' . s($e->getMessage());
+                }
+            }
+            return $result;
+        }
 
         foreach ($rows as $index => $row) {
             $linenumber = $index + 2;

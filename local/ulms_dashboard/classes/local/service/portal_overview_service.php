@@ -28,40 +28,6 @@ require_once __DIR__ . '/../../../../../lib/enrollib.php';
  */
 class portal_overview_service {
     /**
-     * Safe wrapper around get_string() that guards against Moodle cache-stale
-     * literal `[[stringid]]` placeholders leaking into the UI by falling back to
-     * a supplied human-readable default whenever the translated string is empty
-     * or contains the unknown-string marker.
-     *
-     * @param string $identifier language string identifier
-     * @param string $fallback   plain-text fallback used when the identifier cannot be resolved
-     * @param string|int|float|object|array|null $a optional placeholder substitution value
-     * @return string resolved language string (or fallback)
-     */
-    private static function safe_get_string(string $identifier, string $fallback, $a = null): string {
-        try {
-            if ($a === null) {
-                $value = @get_string($identifier, 'local_ulms_dashboard');
-            } else {
-                $value = @get_string($identifier, 'local_ulms_dashboard', $a);
-            }
-        } catch (\Throwable) {
-            $value = '';
-        }
-        if (!is_string($value) || $value === '' || strpos($value, '[[') !== false) {
-            if ($a !== null && is_scalar($a)) {
-                $str = (string)$a;
-                if (str_contains($fallback, '{$a}')) {
-                    return strtr($fallback, ['{$a}' => $str]);
-                }
-                return trim($fallback . ' ' . $str);
-            }
-            return $fallback;
-        }
-        return $value;
-    }
-
-    /**
      * Returns the shared ULMS routing service.
      *
      * @return \local_ulms_auth\local\service\landing_page_service
@@ -463,35 +429,10 @@ class portal_overview_service {
      * @return array<string, mixed>
      */
     public function get_header_context_for_section(string $section): array {
-        $eyebrowmap = [
-            'dashboard' => get_string('superadmin.dashboard.eyebrow', 'local_ulms_dashboard'),
-            'administrators' => get_string('superadmin.administrators.eyebrow', 'local_ulms_dashboard'),
-            'users' => get_string('superadmin.users.eyebrow', 'local_ulms_dashboard'),
-            'institution' => get_string('superadmin.institution.eyebrow', 'local_ulms_dashboard'),
-            'health' => get_string('superadmin.health.eyebrow', 'local_ulms_dashboard'),
-            'integrations' => get_string('superadmin.integrations.eyebrow', 'local_ulms_dashboard'),
-            'security' => get_string('superadmin.security.eyebrow', 'local_ulms_dashboard'),
-            'auditlogs' => get_string('superadmin.auditlogs.eyebrow', 'local_ulms_dashboard'),
-            'reports' => get_string('superadmin.reports.eyebrow', 'local_ulms_dashboard'),
-            'settings' => get_string('superadmin.settings.eyebrow', 'local_ulms_dashboard'),
-        ];
-
-        $titles = [
-            'dashboard' => get_string('superadminplatformoverviewheading', 'local_ulms_dashboard'),
-            'administrators' => get_string('superadminadministrators', 'local_ulms_dashboard'),
-            'users' => get_string('superadminusers', 'local_ulms_dashboard'),
-            'institution' => get_string('superadmininstitution', 'local_ulms_dashboard'),
-            'health' => get_string('superadminhealth', 'local_ulms_dashboard'),
-            'integrations' => get_string('superadminintegrations', 'local_ulms_dashboard'),
-            'security' => get_string('superadminsecurity', 'local_ulms_dashboard'),
-            'auditlogs' => get_string('superadminauditlogs', 'local_ulms_dashboard'),
-            'reports' => get_string('superadminreports', 'local_ulms_dashboard'),
-            'settings' => get_string('superadminsettings', 'local_ulms_dashboard'),
-        ];
-
+        $def = dashboard_commons::get_portal_overview_sa_header_defs();
         return [
-            'eyebrow' => $eyebrowmap[$section] ?? get_string('superadmin.dashboard.eyebrow', 'local_ulms_dashboard'),
-            'title' => $titles[$section] ?? get_string('superadminplatformoverviewheading', 'local_ulms_dashboard'),
+            'eyebrow' => $def['eyebrow'][$section] ?? ($def['eyebrow'][$def['default_eyebrow_key']] ?? get_string('superadmin.dashboard.eyebrow', 'local_ulms_dashboard')),
+            'title'   => $def['titles'][$section] ?? get_string($def['default_title_key'], 'local_ulms_dashboard'),
         ];
     }
 
@@ -505,36 +446,14 @@ class portal_overview_service {
      * @return array<int,int> moodlecourseid list (empty if student has no programme)
      */
     public static function resolve_programme_courseids_for_student(int $userid): array {
-        global $DB;
-        if ($userid <= 0) {
-            return [];
-        }
-        $profile = $DB->get_record(
-            'local_ulms_user_profile',
-            ['userid' => $userid],
-            'id,programmeid',
-            IGNORE_MISSING
-        );
-        $programmeid = (int)($profile->programmeid ?? 0);
-        if ($programmeid <= 0) {
-            return [];
-        }
-        try {
-            $rows = $DB->get_records_sql(
-                "SELECT DISTINCT pc.moodlecourseid
-                   FROM {local_ulms_programme_courses} pc
-                   JOIN {course} c ON c.id = pc.moodlecourseid
-                  WHERE pc.programmeid = :pid
-                    AND c.id > 1
-                    AND c.visible = 1",
-                ['pid' => $programmeid]
-            );
-        } catch (\Throwable) {
+        $scoped = \local_ulms_academics\local\repository\academic_repository::get_student_programme_courseids($userid, true, null);
+        $courseids = $scoped['courseids'] ?? [];
+        if (empty($courseids)) {
             return [];
         }
         $out = [];
-        foreach ($rows as $r) {
-            $cid = (int)$r->moodlecourseid;
+        foreach ($courseids as $cid) {
+            $cid = (int)$cid;
             if ($cid > 0) {
                 $out[$cid] = $cid;
             }
@@ -702,6 +621,8 @@ class portal_overview_service {
                 IGNORE_MISSING
             );
             $programmeid = (int)($profile->programmeid ?? 0);
+            $studylevel_raw = $profile->studylevel ?? 0;
+            $studylevel = \local_ulms_academics\local\repository\academic_repository::resolve_level_id_from_studylevel($studylevel_raw);
             if ($programmeid > 0) {
                 $programme = $DB->get_record(
                     'local_ulms_programmes',
@@ -710,6 +631,8 @@ class portal_overview_service {
                     IGNORE_MISSING
                 );
             }
+        } else {
+            $studylevel = 0;
         }
 
         $items = [];
@@ -718,15 +641,23 @@ class portal_overview_service {
         $sesskey = sesskey();
         $enrolurl = (new \moodle_url('/student/catalog/enrol.php'))->out(false);
         if ($programmeid > 0) {
+            $sqlparams = ['pid' => $programmeid];
+            $extrawhere = '';
+            if ($studylevel > 0) {
+                $extrawhere = ' AND (pc.levelid = :slevel OR pc.levelid = :slevel0 OR pc.levelid IS NULL)';
+                $sqlparams['slevel']  = $studylevel;
+                $sqlparams['slevel0'] = 0;
+            }
             $sql = "SELECT c.id, c.shortname, c.fullname, c.summary, c.visible,
                            pc.semesterid, pc.coursetype, pc.iscore
                       FROM {local_ulms_programme_courses} pc
                       JOIN {course} c ON c.id = pc.moodlecourseid
                      WHERE pc.programmeid = :pid
+                       {$extrawhere}
                        AND c.id > 1
                        AND c.visible = 1
                   ORDER BY pc.semesterid ASC, pc.iscore DESC, c.shortname ASC";
-            $rows = $DB->get_records_sql($sql, ['pid' => $programmeid]);
+            $rows = $DB->get_records_sql($sql, $sqlparams);
             $programmetotal = count($rows);
             foreach ($rows as $row) {
                 try {
@@ -2666,12 +2597,12 @@ class portal_overview_service {
                 'url' => $courseurl,
                 'badgehtml' => $badgehtml,
                 'assignments' => $subitems,
-                'sublistempty' => self::safe_get_string('studentattendancenosessionscourse', 'No sessions have been marked for this course yet.'),
+                'sublistempty' => dashboard_commons::safe_lang_string('studentattendancenosessionscourse', 'No sessions have been marked for this course yet.'),
                 'footer' => $c_total > 0
                     ? '<div style="margin-top:8px;padding:0 8px 8px;">'
                         . '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
                         . '<span class="ulms-attendancemeta ulms-attendancemeta--' . $rateclass . '">' . s($c_ratepct) . '%</span>'
-                        . '<span class="ulms-attendancemeta">' . $c_total . ' ' . self::safe_get_string('studentattendancetotalcount', 'Total: {$a}', $c_total) . '</span>'
+                        . '<span class="ulms-attendancemeta">' . $c_total . ' ' . dashboard_commons::safe_lang_string('studentattendancetotalcount', 'Total: {$a}', $c_total) . '</span>'
                         . '</div>'
                         . '<div style="margin-top:8px;" class="ulms-attendance-track">'
                         . '<div class="ulms-attendance-fill ulms-attendance-bar--' . $barclass . '" style="width:' . s($c_ratepct) . '%;"></div>'
@@ -2688,33 +2619,33 @@ class portal_overview_service {
         return [
             'summarycards' => [
                 [
-                    'label' => self::safe_get_string('studentattendancetotalcourses', 'Enrolled courses'),
+                    'label' => dashboard_commons::safe_lang_string('studentattendancetotalcourses', 'Enrolled courses'),
                     'value' => (string)count($coursecards),
-                    'description' => self::safe_get_string('studentattendancetotalcoursesdesc', 'Every course you are actively taking appears here even if no attendance has been marked yet.'),
+                    'description' => dashboard_commons::safe_lang_string('studentattendancetotalcoursesdesc', 'Every course you are actively taking appears here even if no attendance has been marked yet.'),
                 ],
                 [
-                    'label' => self::safe_get_string('studentattendanceoverall', 'Overall attendance'),
+                    'label' => dashboard_commons::safe_lang_string('studentattendanceoverall', 'Overall attendance'),
                     'value' => s($overallPct) . '%',
-                    'description' => self::safe_get_string('studentattendanceoveralldesc', 'Present + Late divided by all marked sessions across every enrolled course.'),
+                    'description' => dashboard_commons::safe_lang_string('studentattendanceoveralldesc', 'Present + Late divided by all marked sessions across every enrolled course.'),
                 ],
                 [
-                    'label' => self::safe_get_string('studentattendancepresent', 'Attended sessions'),
+                    'label' => dashboard_commons::safe_lang_string('studentattendancepresent', 'Attended sessions'),
                     'value' => (string)$totalAttendedAll,
-                    'description' => self::safe_get_string('studentattendancepresentdesc', 'Sessions marked Present or Late. Late sessions still count toward the official attendance rate.'),
+                    'description' => dashboard_commons::safe_lang_string('studentattendancepresentdesc', 'Sessions marked Present or Late. Late sessions still count toward the official attendance rate.'),
                 ],
                 [
-                    'label' => self::safe_get_string('studentattendancemissed', 'Missed sessions'),
+                    'label' => dashboard_commons::safe_lang_string('studentattendancemissed', 'Missed sessions'),
                     'value' => (string)$totalMissedAll,
-                    'description' => self::safe_get_string('studentattendancemisseddesc', 'Sessions marked Absent or Excused. Contact your lecturer about excused absences.'),
+                    'description' => dashboard_commons::safe_lang_string('studentattendancemisseddesc', 'Sessions marked Absent or Excused. Contact your lecturer about excused absences.'),
                 ],
             ],
             'mainpanel' => [
-                'title' => self::safe_get_string('studentattendancetitle', 'My Attendance Record'),
-                'subtitle' => self::safe_get_string('studentattendancedescgrouped', 'Attendance by enrolled course, with per-session status, comment history and rate progress.'),
+                'title' => dashboard_commons::safe_lang_string('studentattendancetitle', 'My Attendance Record'),
+                'subtitle' => dashboard_commons::safe_lang_string('studentattendancedescgrouped', 'Attendance by enrolled course, with per-session status, comment history and rate progress.'),
                 'style' => 'coursegroups',
                 'items' => $coursecards,
-                'emptytitle' => self::safe_get_string('studentattendanceemptycourses', 'No attendance records yet'),
-                'emptydesc' => self::safe_get_string('studentattendanceemptycoursesdesc', 'Attendance will appear here once your lecturer marks sessions for your enrolled courses.'),
+                'emptytitle' => dashboard_commons::safe_lang_string('studentattendanceemptycourses', 'No attendance records yet'),
+                'emptydesc' => dashboard_commons::safe_lang_string('studentattendanceemptycoursesdesc', 'Attendance will appear here once your lecturer marks sessions for your enrolled courses.'),
             ],
             'secondarypanels' => [],
         ];
@@ -2822,7 +2753,7 @@ class portal_overview_service {
             $out[$cid]['sessions'][] = [
                 'date' => (int)($r->session_occurrence_date ?? 0),
                 'status' => $status,
-                'title' => !empty($r->title) ? format_string((string)$r->title) : self::safe_get_string('attendance.status.' . $status, 'Attendance session'),
+                'title' => !empty($r->title) ? format_string((string)$r->title) : dashboard_commons::safe_lang_string('attendance.status.' . $status, 'Attendance session'),
                 'delivery' => (string)($r->delivery_mode ?? ''),
                 'comment' => !empty($r->comment) ? (string)$r->comment : '',
             ];
@@ -3392,9 +3323,9 @@ class portal_overview_service {
                 $comment = $comment_raw !== '' ? $comment_raw : null;
                 $r = $service->mark_attendance($sid, $od, $uid, $st, (int)$USER->id, $comment);
                 if (!empty($r['success'])) {
-                    \core\notification::add(self::safe_get_string('lecturerattendancemarksuccess', 'Attendance mark saved successfully.'), \core\output\notification::NOTIFY_SUCCESS);
+                    \core\notification::add(dashboard_commons::safe_lang_string('lecturerattendancemarksuccess', 'Attendance mark saved successfully.'), \core\output\notification::NOTIFY_SUCCESS);
                 } else {
-                    $msg = self::safe_get_string('lecturerattendancemarkfail', 'Failed to save attendance mark. {$a}', s($r['message'] ?? 'error'));
+                    $msg = dashboard_commons::safe_lang_string('lecturerattendancemarkfail', 'Failed to save attendance mark. {$a}', s($r['message'] ?? 'error'));
                     \core\notification::add($msg, \core\output\notification::NOTIFY_ERROR);
                 }
                 $redir = new \moodle_url($this->get_routing_service()->get_url_for_route('lecturer.attendance'), ['sessionid' => $sid, 'occurrence_date' => $od_raw !== '' ? date('Y-m-d', $od) : '']);
@@ -3553,7 +3484,7 @@ class portal_overview_service {
 
             $subitems = [];
             if (empty($sessionrowspercourse[$courseid])) {
-                $subitems[] = ['title' => self::safe_get_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.'), 'meta' => ''];
+                $subitems[] = ['title' => dashboard_commons::safe_lang_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.'), 'meta' => ''];
             } else {
                 $attendanceurlbase = $this->get_routing_service()->get_url_for_route('lecturer.attendance');
                 foreach ($sessionrowspercourse[$courseid] as $sr) {
@@ -3578,7 +3509,7 @@ class portal_overview_service {
                             $next_occ = (int)strtotime('midnight', $termstart);
                         }
                     }
-                    $startstr = $next_occ > 0 ? s(date('D, M j Y', $next_occ)) : s(self::safe_get_string('schedulesessionrepeatflexible', 'Flexible schedule'));
+                    $startstr = $next_occ > 0 ? s(date('D, M j Y', $next_occ)) : s(dashboard_commons::safe_lang_string('schedulesessionrepeatflexible', 'Flexible schedule'));
                     $start_min = (int)($sr->start_minutes ?? 0);
                     $dur_min = (int)($sr->duration_minutes ?? 0);
                     if ($start_min >= 0 && $start_min < 24 * 60 && $dur_min > 0) {
@@ -3593,7 +3524,7 @@ class portal_overview_service {
                     }
                     $occ = $next_occ > 0 ? $next_occ : (int)strtotime('today 00:00:00');
                     $registerurl = new \moodle_url($attendanceurlbase, ['sessionid' => (int)$sr->id, 'occurrence_date' => date('Y-m-d', $occ)]);
-                    $openhtml = '<a href="' . $registerurl->out(false) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;white-space:nowrap;">' . self::safe_get_string('lecturerattendancepickregister', 'Open register') . '</a>';
+                    $openhtml = '<a href="' . $registerurl->out(false) . '" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;white-space:nowrap;">' . dashboard_commons::safe_lang_string('lecturerattendancepickregister', 'Open register') . '</a>';
                     $sessionMeta = '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;width:100%;">'
                         . '<div>' . $startstr . ($time !== '' ? ' · ' . $time : '') . '</div>'
                         . $openhtml
@@ -3612,7 +3543,7 @@ class portal_overview_service {
                 'url' => $courseurl,
                 'badgehtml' => $badgehtml,
                 'assignments' => $subitems,
-                'sublistempty' => self::safe_get_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.'),
+                'sublistempty' => dashboard_commons::safe_lang_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.'),
                 'footer' => '<div style="margin-top:8px;padding:0 8px 8px;">'
                     . '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
                     . '<span class="ulms-attendancemeta ulms-attendancemeta--' . $rateclass . '">' . s($c_ratepct) . '%</span>'
@@ -3630,24 +3561,24 @@ class portal_overview_service {
 
         $summarycards = [
             [
-                'label' => self::safe_get_string('lecturerattendanceallocatedcourses', 'Allocated courses'),
+                'label' => dashboard_commons::safe_lang_string('lecturerattendanceallocatedcourses', 'Allocated courses'),
                 'value' => (string)$totalcourses,
-                'description' => self::safe_get_string('lecturerattendanceallocatedcoursesdesc', 'Courses you are currently assigned to teach this term.'),
+                'description' => dashboard_commons::safe_lang_string('lecturerattendanceallocatedcoursesdesc', 'Courses you are currently assigned to teach this term.'),
             ],
             [
-                'label' => self::safe_get_string('lecturerattendanceoverall', 'Overall attendance'),
+                'label' => dashboard_commons::safe_lang_string('lecturerattendanceoverall', 'Overall attendance'),
                 'value' => s($overallpct) . '%',
-                'description' => self::safe_get_string('lecturerattendanceoveralldesc', 'Aggregate Present + Late rate across every marked student in every allocated course.'),
+                'description' => dashboard_commons::safe_lang_string('lecturerattendanceoveralldesc', 'Aggregate Present + Late rate across every marked student in every allocated course.'),
             ],
             [
-                'label' => self::safe_get_string('lecturerattendancemarked', 'Marked sessions'),
+                'label' => dashboard_commons::safe_lang_string('lecturerattendancemarked', 'Marked sessions'),
                 'value' => (string)$totalsessionsmarked,
-                'description' => self::safe_get_string('lecturerattendancemarkeddesc', 'Total session-occurrences for which at least one student attendance mark exists.'),
+                'description' => dashboard_commons::safe_lang_string('lecturerattendancemarkeddesc', 'Total session-occurrences for which at least one student attendance mark exists.'),
             ],
             [
-                'label' => self::safe_get_string('lecturerattendanceatrisk', 'At-risk students'),
+                'label' => dashboard_commons::safe_lang_string('lecturerattendanceatrisk', 'At-risk students'),
                 'value' => (string)$atriskcount,
-                'description' => self::safe_get_string('lecturerattendanceatriskdesc', 'Students below the 80% attendance threshold across any allocated course.'),
+                'description' => dashboard_commons::safe_lang_string('lecturerattendanceatriskdesc', 'Students below the 80% attendance threshold across any allocated course.'),
             ],
         ];
 
@@ -3665,20 +3596,20 @@ class portal_overview_service {
                 . '<div style="font-weight:700;color:#0f4c81;font-size:1rem;">' . ($sessionrec ? format_string((string)$sessionrec->title) : 'Register') . '</div>'
                 . '<div style="color:#475569;font-size:.85rem;">' . s(date('l, F j, Y', $occurrence_ts)) . '</div>'
                 . '</div>'
-                . '<a href="' . $backurl->out(false) . '" class="ulms-btn" style="min-width:44px;min-height:44px;">← ' . self::safe_get_string('portalbacklink', 'Back to overview') . '</a>'
+                . '<a href="' . $backurl->out(false) . '" class="ulms-btn" style="min-width:44px;min-height:44px;">← ' . dashboard_commons::safe_lang_string('portalbacklink', 'Back to overview') . '</a>'
                 . '</div>';
 
             $html .= $header;
             $html .= '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">';
             $html .= '<span class="ulms-attendancemeta ulms-attendancemeta--rate">Present: ' . s($summary['percent_present']) . '%</span>';
-            $html .= '<span class="ulms-coursestat ulms-coursestat--att-present">' . self::safe_get_string('studentattendancepresentcount', '{$a} Present', (int)($summary['present'] ?? 0)) . '</span>';
-            if (!empty($summary['late'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-late">' . self::safe_get_string('studentattendancelatecount', '{$a} Late', (int)$summary['late']) . '</span>';
-            if (!empty($summary['absent'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-absent">' . self::safe_get_string('studentattendanceabsentcount', '{$a} Absent', (int)$summary['absent']) . '</span>';
-            if (!empty($summary['excused'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-excused">' . self::safe_get_string('studentattendanceexcusedcount', '{$a} Excused', (int)$summary['excused']) . '</span>';
+            $html .= '<span class="ulms-coursestat ulms-coursestat--att-present">' . dashboard_commons::safe_lang_string('studentattendancepresentcount', '{$a} Present', (int)($summary['present'] ?? 0)) . '</span>';
+            if (!empty($summary['late'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-late">' . dashboard_commons::safe_lang_string('studentattendancelatecount', '{$a} Late', (int)$summary['late']) . '</span>';
+            if (!empty($summary['absent'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-absent">' . dashboard_commons::safe_lang_string('studentattendanceabsentcount', '{$a} Absent', (int)$summary['absent']) . '</span>';
+            if (!empty($summary['excused'])) $html .= '<span class="ulms-coursestat ulms-coursestat--att-excused">' . dashboard_commons::safe_lang_string('studentattendanceexcusedcount', '{$a} Excused', (int)$summary['excused']) . '</span>';
             $html .= '</div>';
 
             $html .= '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">';
-            $html .= '<form method="post" style="display:inline;margin:0;" onsubmit="return confirm(\'' . self::safe_get_string('lecturerattendancebulkpresentconfirm', 'Mark every unmarked student in this register as Present? This cannot be undone per-student without manually editing.') . '\')"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="bulk_present"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Mark All Present</button></form>';
+            $html .= '<form method="post" style="display:inline;margin:0;" onsubmit="return confirm(\'' . dashboard_commons::safe_lang_string('lecturerattendancebulkpresentconfirm', 'Mark every unmarked student in this register as Present? This cannot be undone per-student without manually editing.') . '\')"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="bulk_present"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;">Mark All Present</button></form>';
             $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="export_csv"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><button type="submit" class="ulms-btn" style="min-width:44px;min-height:44px;">Export CSV</button></form>';
             $html .= '</div>';
 
@@ -3739,16 +3670,16 @@ class portal_overview_service {
                 $html .= '<td data-label="Student ID">' . $sidnum . '</td>';
                 $html .= '<td data-label="Name">' . $fullname . '</td>';
                 $html .= '<td data-label="Status">' . $statusbadge . '</td>';
-                $html .= '<td data-label="Comment"><form method="post" style="margin:0;display:flex;gap:6px;align-items:center;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="present"><input type="text" name="comment" class="form-control" style="min-width:180px;" value="' . $existingcomment . '" placeholder="' . s(self::safe_get_string('lecturerattendancecommentplaceholder', 'Optional comment about attendance for this session')) . '" aria-label="' . s(self::safe_get_string('lecturerattendancecommentlabel', 'Comment')) . '"></form></td>';
+                $html .= '<td data-label="Comment"><form method="post" style="margin:0;display:flex;gap:6px;align-items:center;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="present"><input type="text" name="comment" class="form-control" style="min-width:180px;" value="' . $existingcomment . '" placeholder="' . s(dashboard_commons::safe_lang_string('lecturerattendancecommentplaceholder', 'Optional comment about attendance for this session')) . '" aria-label="' . s(dashboard_commons::safe_lang_string('lecturerattendancecommentlabel', 'Comment')) . '"></form></td>';
                 $html .= '<td data-label="Marked At">' . $markedat . '</td>';
                 $html .= '<td data-label="Marked By">' . $marker . '</td>';
                 $html .= '<td data-label="Quick Mark"><div class="ulms-mark-buttons" data-ulms-mark-buttons="true">';
 
                 $markdefs = [
-                    ['status' => 'present', 'mnemonic' => 'P', 'class' => 'ulms-btn--success', 'title' => self::safe_get_string('studentattendancestatuspresent', 'Present') . ' [P]'],
-                    ['status' => 'absent',  'mnemonic' => 'A', 'class' => 'ulms-btn--danger',  'title' => self::safe_get_string('studentattendancestatusabsent', 'Absent') . ' [A]'],
-                    ['status' => 'late',    'mnemonic' => 'L', 'class' => 'ulms-btn--warning', 'title' => self::safe_get_string('studentattendancestatuslate', 'Late') . ' [L]'],
-                    ['status' => 'excused', 'mnemonic' => 'E', 'class' => 'ulms-btn--info',    'title' => self::safe_get_string('studentattendancestatusexcused', 'Excused') . ' [E]'],
+                    ['status' => 'present', 'mnemonic' => 'P', 'class' => 'ulms-btn--success', 'title' => dashboard_commons::safe_lang_string('studentattendancestatuspresent', 'Present') . ' [P]'],
+                    ['status' => 'absent',  'mnemonic' => 'A', 'class' => 'ulms-btn--danger',  'title' => dashboard_commons::safe_lang_string('studentattendancestatusabsent', 'Absent') . ' [A]'],
+                    ['status' => 'late',    'mnemonic' => 'L', 'class' => 'ulms-btn--warning', 'title' => dashboard_commons::safe_lang_string('studentattendancestatuslate', 'Late') . ' [L]'],
+                    ['status' => 'excused', 'mnemonic' => 'E', 'class' => 'ulms-btn--info',    'title' => dashboard_commons::safe_lang_string('studentattendancestatusexcused', 'Excused') . ' [E]'],
                 ];
                 foreach ($markdefs as $md) {
                     $html .= '<form method="post" style="display:inline;margin:0;"><input type="hidden" name="sesskey" value="' . s(sesskey()) . '"><input type="hidden" name="action" value="mark"><input type="hidden" name="sessionid" value="' . s($selected_sessionid) . '"><input type="hidden" name="occurrence_date" value="' . s(date('Y-m-d', $occurrence_ts)) . '"><input type="hidden" name="userid" value="' . s($uid) . '"><input type="hidden" name="status" value="' . s($md['status']) . '"><input type="hidden" name="comment" value="' . $existingcomment . '"><button type="submit" class="ulms-btn ' . $md['class'] . ' ulms-mark-btn" data-status="' . s($md['status']) . '" data-mnemonic="' . s($md['mnemonic']) . '" style="min-width:44px;min-height:44px;margin:2px;" title="' . s($md['title']) . '">' . s($md['mnemonic']) . '</button></form>';
@@ -3780,16 +3711,16 @@ class portal_overview_service {
 FASTMARKSCRIPT;
         }
 
-        $emptytitle = self::safe_get_string('lecturerattendanceemptycourses', 'No allocated courses');
-        $emptydesc = self::safe_get_string('lecturerattendanceemptycoursesdesc', 'Courses will appear here once you have been allocated as a lecturer via Admin → Lecturer allocations.');
+        $emptytitle = dashboard_commons::safe_lang_string('lecturerattendanceemptycourses', 'No allocated courses');
+        $emptydesc = dashboard_commons::safe_lang_string('lecturerattendanceemptycoursesdesc', 'Courses will appear here once you have been allocated as a lecturer via Admin → Lecturer allocations.');
         if (!empty($courseids)) {
-            $emptytitle = self::safe_get_string('norecentactivity', 'No sessions marked yet');
-            $emptydesc = self::safe_get_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.');
+            $emptytitle = dashboard_commons::safe_lang_string('norecentactivity', 'No sessions marked yet');
+            $emptydesc = dashboard_commons::safe_lang_string('lecturerattendancenosessionscourse', 'No sessions have been scheduled for this course yet.');
         }
 
         $overviewpanel = [
-            'title' => self::safe_get_string('lecturerattendancetitle', 'Attendance register'),
-            'subtitle' => self::safe_get_string('lecturerattendancedescgrouped', 'Overview by allocated course, at-risk students, and register drill-down for marking.'),
+            'title' => dashboard_commons::safe_lang_string('lecturerattendancetitle', 'Attendance register'),
+            'subtitle' => dashboard_commons::safe_lang_string('lecturerattendancedescgrouped', 'Overview by allocated course, at-risk students, and register drill-down for marking.'),
             'style' => 'coursegroups',
             'items' => $coursecards,
             'emptytitle' => $emptytitle,
@@ -3802,7 +3733,7 @@ FASTMARKSCRIPT;
                 'mainpanel' => $overviewpanel,
                 'secondarypanels' => [
                     [
-                        'title' => self::safe_get_string('lecturerattendancetitle', 'Attendance register') . ' · Register',
+                        'title' => dashboard_commons::safe_lang_string('lecturerattendancetitle', 'Attendance register') . ' · Register',
                         'subtitle' => '',
                         'style' => 'html',
                         'html' => $html,
@@ -4072,7 +4003,7 @@ FASTMARKSCRIPT;
                                 $u = \core_user::get_user($uid);
                                 $names[] = $u ? fullname($u) : '#'.$uid;
                             }
-                            $msg = self::safe_get_string('adminlecturersremovalconfirm',
+                            $msg = dashboard_commons::safe_lang_string('adminlecturersremovalconfirm',
                                 '{$a->count} currently-assigned lecturer(s) will be un-enrolled from {$a->course}. Continue?',
                                 (object)['count' => $cnt, 'course' => format_string($course->fullname)]
                             );
@@ -4086,7 +4017,7 @@ FASTMARKSCRIPT;
                         $manual->enrol_user($manualinstance, $uid, $roleid, 0, 0, ENROL_USER_ACTIVE);
                     }
                     $transaction->allow_commit();
-                    \core\notification::add(self::safe_get_string('adminlecturerssavesuccess',
+                    \core\notification::add(dashboard_commons::safe_lang_string('adminlecturerssavesuccess',
                         'Lecturer allocations saved. Enrolments updated.'),
                         \core\output\notification::NOTIFY_SUCCESS
                     );
@@ -4094,7 +4025,7 @@ FASTMARKSCRIPT;
                     if (isset($transaction)) {
                         try { $transaction->rollback($e); } catch (\Throwable) {}
                     }
-                    $emsg = self::safe_get_string('adminlecturerssavefail',
+                    $emsg = dashboard_commons::safe_lang_string('adminlecturerssavefail',
                         'Failed to save allocations: {$a}',
                         $e->getMessage()
                     );
@@ -4149,7 +4080,7 @@ FASTMARKSCRIPT;
                         fclose($fh);
                     }
                 }
-                \core\notification::add(self::safe_get_string('adminlecturerscsvimported',
+                \core\notification::add(dashboard_commons::safe_lang_string('adminlecturerscsvimported',
                     'Imported {$a->success} rows. Skipped {$a->skipped}. Errors: {$a->errors}.',
                     (object)['success' => $success, 'skipped' => $skipped, 'errors' => $errors]
                 ), \core\output\notification::NOTIFY_INFO);
@@ -4163,13 +4094,13 @@ FASTMARKSCRIPT;
         $semesterid = optional_param('semesterid', 0, PARAM_INT);
         $levelid = optional_param('levelid', 0, PARAM_INT);
 
-        $faculties = [0 => self::safe_get_string('adminlecturersfilterfaculty', '-- All Faculties --')]
+        $faculties = [0 => dashboard_commons::safe_lang_string('adminlecturersfilterfaculty', '-- All Faculties --')]
             + $DB->get_records_menu('local_ulms_faculties', null, 'name ASC', 'id, name');
-        $departments = [0 => self::safe_get_string('adminlecturersfilterdept', '-- All Departments --')]
+        $departments = [0 => dashboard_commons::safe_lang_string('adminlecturersfilterdept', '-- All Departments --')]
             + $DB->get_records_menu('local_ulms_departments', null, 'name ASC', 'id, name');
-        $programmes = [0 => self::safe_get_string('adminlecturersfilterprogramme', '-- All Programmes --')]
+        $programmes = [0 => dashboard_commons::safe_lang_string('adminlecturersfilterprogramme', '-- All Programmes --')]
             + $DB->get_records_menu('local_ulms_programmes', null, 'name ASC', 'id, name');
-        $semesters = [0 => self::safe_get_string('adminlecturersfiltersemester', '-- All Semesters / Levels --')]
+        $semesters = [0 => dashboard_commons::safe_lang_string('adminlecturersfiltersemester', '-- All Semesters / Levels --')]
             + $DB->get_records_menu('local_ulms_semesters', null, 'name ASC', 'id, name');
         $levels = [0 => '—'] + $DB->get_records_menu('local_ulms_levels', null, 'name ASC', 'id, name');
 
@@ -4275,10 +4206,10 @@ FASTMARKSCRIPT;
             'semesterid' => $semesters,
         ];
         $labels = [
-            'facultyid' => self::safe_get_string('adminlecturersfilterfaculty', 'Faculty'),
-            'deptid' => self::safe_get_string('adminlecturersfilterdept', 'Department'),
-            'progid' => self::safe_get_string('adminlecturersfilterprogramme', 'Programme'),
-            'semesterid' => self::safe_get_string('adminlecturersfiltersemester', 'Semester + Level'),
+            'facultyid' => dashboard_commons::safe_lang_string('adminlecturersfilterfaculty', 'Faculty'),
+            'deptid' => dashboard_commons::safe_lang_string('adminlecturersfilterdept', 'Department'),
+            'progid' => dashboard_commons::safe_lang_string('adminlecturersfilterprogramme', 'Programme'),
+            'semesterid' => dashboard_commons::safe_lang_string('adminlecturersfiltersemester', 'Semester + Level'),
         ];
         $vals = [
             'facultyid' => $facultyid,
@@ -4297,7 +4228,7 @@ FASTMARKSCRIPT;
             $html .= '</select></div>';
         }
         $html .= '<div><label for="alloc_levelid" style="display:block;margin-bottom:6px;font-weight:600;color:#0f4c81;">'
-            . s(self::safe_get_string('adminlecturersfiltersemester', 'Level'))
+            . s(dashboard_commons::safe_lang_string('adminlecturersfiltersemester', 'Level'))
             . '</label><select id="alloc_levelid" name="levelid" class="form-control" onchange="this.form.submit()" style="min-height:44px;">';
         foreach ($levels as $vid => $vlabel) {
             $sel = $levelid === (int)$vid ? ' selected' : '';
@@ -4309,13 +4240,13 @@ FASTMARKSCRIPT;
 
         $html .= '<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-bottom:16px;">';
         $html .= '<div><h3 style="margin:0;font-size:1.1rem;color:#0f4c81;">'
-            . s(self::safe_get_string('adminlecturerscolumns', 'Course allocations'))
+            . s(dashboard_commons::safe_lang_string('adminlecturerscolumns', 'Course allocations'))
             . '</h3></div>';
         $html .= '<form method="post" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
         $html .= '<input type="hidden" name="sesskey" value="' . s(sesskey()) . '">';
         $html .= '<input type="hidden" name="action" value="allocate_csv">';
         $html .= '<p style="margin:0;color:#475569;font-size:.85rem;">'
-            . s(self::safe_get_string('adminlecturerscsvhelp',
+            . s(dashboard_commons::safe_lang_string('adminlecturerscsvhelp',
                 'Columns: Faculty,Department,Programme,Semester,Level,CourseCode,StaffID. One lecturer per row per course.'))
             . '</p>';
         $html .= '<input type="file" name="csvfile" accept=".csv" class="form-control" style="max-width:260px;">';
@@ -4325,12 +4256,12 @@ FASTMARKSCRIPT;
 
         $html .= '<div style="overflow-x:auto;"><table class="table table-hover table-sm" style="width:100%;border-collapse:separate;border-spacing:0;">';
         $html .= '<thead><tr style="background:#eaf2fb;">';
-        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(self::safe_get_string('adminlecturerscoursename', 'Course')) . '</th>';
-        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturersstudents', 'Students')) . '</th>';
-        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturerslecturercount', 'Lecturers')) . '</th>';
-        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(self::safe_get_string('adminlecturerslecturers', 'Assigned lecturers')) . '</th>';
-        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturersprimary', 'Primary')) . '</th>';
-        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(self::safe_get_string('adminlecturersassign', 'Action')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(dashboard_commons::safe_lang_string('adminlecturerscoursename', 'Course')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersstudents', 'Students')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturerslecturercount', 'Lecturers')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(dashboard_commons::safe_lang_string('adminlecturerslecturers', 'Assigned lecturers')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersprimary', 'Primary')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersassign', 'Action')) . '</th>';
         $html .= '</tr></thead><tbody>';
 
         foreach ($courserows as $r) {
@@ -4345,7 +4276,7 @@ FASTMARKSCRIPT;
             $html .= '<td style="padding:10px 12px;text-align:center;">'
                 . '<button type="button" class="ulms-btn ulms-btn--primary" style="min-width:44px;min-height:44px;"'
                 . ' onclick="document.getElementById(\'alloc-modal-' . s($r->courseid) . '\').style.display=\'block\'">'
-                . s(self::safe_get_string('adminlecturersassignedit', 'Edit lecturers'))
+                . s(dashboard_commons::safe_lang_string('adminlecturersassignedit', 'Edit lecturers'))
                 . '</button></td>';
             $html .= '</tr>';
 
@@ -4375,12 +4306,12 @@ FASTMARKSCRIPT;
             $html .= '<div style="max-width:640px;margin:0 auto;background:#fff;border-radius:16px;padding:24px;box-shadow:0 20px 50px rgba(15,76,129,0.25);">';
             $html .= '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
             $html .= '<h3 style="margin:0;color:#0f4c81;">'
-                . s(self::safe_get_string('adminlecturersassignmodalh1', 'Lecturers for {$a}', $r->coursename))
+                . s(dashboard_commons::safe_lang_string('adminlecturersassignmodalh1', 'Lecturers for {$a}', $r->coursename))
                 . '</h3>';
             $html .= '<button type="button" class="ulms-btn" style="min-width:44px;min-height:44px;" onclick="document.getElementById(\'alloc-modal-' . s($r->courseid) . '\').style.display=\'none\';">Close</button>';
             $html .= '</div>';
             $html .= '<p style="margin:0 0 16px;color:#475569;">'
-                . s(self::safe_get_string('adminlecturersassignhelp',
+                . s(dashboard_commons::safe_lang_string('adminlecturersassignhelp',
                     'Multi-select below. Saving enrols/un-enrols lecturers via the Manual enrolment plugin.'))
                 . '</p>';
             $html .= '<form method="post" action="' . s($formurl) . '">';
@@ -4392,7 +4323,7 @@ FASTMARKSCRIPT;
             }
             if (empty($candidates)) {
                 $html .= '<div class="alert alert-warning">'
-                    . s(self::safe_get_string('adminlecturerssearchnocandidates',
+                    . s(dashboard_commons::safe_lang_string('adminlecturerssearchnocandidates',
                         'No lecturer users exist yet. Create staff in Moodle users first.'))
                     . '</div>';
             } else {
@@ -4417,9 +4348,9 @@ FASTMARKSCRIPT;
         if (empty($courserows)) {
             $html .= '<tr><td colspan="6" style="padding:40px;text-align:center;color:#64748b;">'
                 . '<div style="font-weight:600;margin-bottom:6px;color:#475569;">'
-                . s(self::safe_get_string('adminlecturersempty', 'No courses in this funnel yet.'))
+                . s(dashboard_commons::safe_lang_string('adminlecturersempty', 'No courses in this funnel yet.'))
                 . '</div><div style="font-size:.9rem;">'
-                . s(self::safe_get_string('adminlecturersemptydesc',
+                . s(dashboard_commons::safe_lang_string('adminlecturersemptydesc',
                     'Select an academic funnel above, or import rows in bulk from CSV.'))
                 . '</div></td></tr>';
         }
@@ -4435,8 +4366,8 @@ FASTMARKSCRIPT;
         return [
             'summarycards' => $summarycards,
             'mainpanel' => [
-                'title' => self::safe_get_string('adminlecturerstitle', 'Lecturer Course Allocations'),
-                'subtitle' => self::safe_get_string('adminlecturersdesc',
+                'title' => dashboard_commons::safe_lang_string('adminlecturerstitle', 'Lecturer Course Allocations'),
+                'subtitle' => dashboard_commons::safe_lang_string('adminlecturersdesc',
                     'Assign and manage which lecturers teach each course. Writes to Moodle course enrolments using the Manual enrolment plugin.'),
                 'style' => 'html',
                 'html' => $html,
@@ -4461,33 +4392,33 @@ FASTMARKSCRIPT;
         $total = (int)($c['total'] ?? 0);
         if ($total <= 0) {
             return '<span class="ulms-coursestat ulms-coursestat--att-zero">'
-                . self::safe_get_string('studentattendancezero', 'No sessions marked')
+                . dashboard_commons::safe_lang_string('studentattendancezero', 'No sessions marked')
                 . '</span>';
         }
         $parts = [];
         if (!empty($c['absent'])) {
             $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-absent">'
-                . self::safe_get_string('studentattendanceabsentcount', '{$a} Absent', (int)$c['absent'])
+                . dashboard_commons::safe_lang_string('studentattendanceabsentcount', '{$a} Absent', (int)$c['absent'])
                 . '</span>';
         }
         if (!empty($c['late'])) {
             $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-late">'
-                . self::safe_get_string('studentattendancelatecount', '{$a} Late', (int)$c['late'])
+                . dashboard_commons::safe_lang_string('studentattendancelatecount', '{$a} Late', (int)$c['late'])
                 . '</span>';
         }
         if (!empty($c['excused'])) {
             $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-excused">'
-                . self::safe_get_string('studentattendanceexcusedcount', '{$a} Excused', (int)$c['excused'])
+                . dashboard_commons::safe_lang_string('studentattendanceexcusedcount', '{$a} Excused', (int)$c['excused'])
                 . '</span>';
         }
         if (!empty($c['present'])) {
             $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-present">'
-                . self::safe_get_string('studentattendancepresentcount', '{$a} Present', (int)$c['present'])
+                . dashboard_commons::safe_lang_string('studentattendancepresentcount', '{$a} Present', (int)$c['present'])
                 . '</span>';
         }
         if (empty($parts)) {
             $parts[] = '<span class="ulms-coursestat ulms-coursestat--att-zero">'
-                . self::safe_get_string('studentattendancetotalcount', 'Total: {$a}', $total)
+                . dashboard_commons::safe_lang_string('studentattendancetotalcount', 'Total: {$a}', $total)
                 . '</span>';
         }
         return implode('', $parts);
@@ -4517,11 +4448,11 @@ FASTMARKSCRIPT;
      */
     private static function attendance_status_lang(string $status): string {
         return match ($status) {
-            'present' => self::safe_get_string('studentattendancestatuspresent', 'Present'),
-            'late' => self::safe_get_string('studentattendancestatuslate', 'Late'),
-            'absent' => self::safe_get_string('studentattendancestatusabsent', 'Absent'),
-            'excused' => self::safe_get_string('studentattendancestatusexcused', 'Excused'),
-            default => self::safe_get_string('studentattendancestatuspresent', 'Present'),
+            'present' => dashboard_commons::safe_lang_string('studentattendancestatuspresent', 'Present'),
+            'late' => dashboard_commons::safe_lang_string('studentattendancestatuslate', 'Late'),
+            'absent' => dashboard_commons::safe_lang_string('studentattendancestatusabsent', 'Absent'),
+            'excused' => dashboard_commons::safe_lang_string('studentattendancestatusexcused', 'Excused'),
+            default => dashboard_commons::safe_lang_string('studentattendancestatuspresent', 'Present'),
         };
     }
 }

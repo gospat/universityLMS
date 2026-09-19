@@ -551,6 +551,71 @@ function &local_ulms_dashboard_shell_depth(): int {
 }
 
 /**
+ * D2 dedup — Renders the canonical role-portal pipeline used by
+ * student_portal.php, admin_portal.php and super_admin.php.  Encapsulates
+ * the 17-line identical sequence (OUTPUT header → page header → shell
+ * wrap → summary cards → main panel → secondary panels → shell close
+ * → footer).  Each controller stays under ~20 lines.
+ *
+ * Usage from a controller:
+ *   local_ulms_dashboard_render_role_portal_page(
+ *       $portalserviceclass,
+ *       $view,
+ *       fn() => $overviewservice->get_admin_overview_data($view)
+ *   );
+ *
+ * @param string   $portalserviceclass Fully qualified class name of the role
+ *                                     portal service (used to instantiate and
+ *                                     call get_header_context_for_section()).
+ * @param string   $view               Current view/section slug (e.g.
+ *                                     'courses', 'dashboard').
+ * @param callable $datafetcher        Signature: () : array{summarycards?:array, mainpanel?:array, secondarypanels?:array}
+ *                                     Callback that returns the overview data.
+ * @param callable|null $headermapper  Optional header transformer.
+ *                                     Signature: (array $headercontext):array
+ *                                     If supplied, its return value is passed
+ *                                     to local_ulms_dashboard_render_page_header()
+ *                                     instead of the raw service header.
+ *                                     Used by the student portal to inject
+ *                                     the fixed student eyebrow.
+ * @return void
+ */
+function local_ulms_dashboard_render_role_portal_page(
+    string $portalserviceclass,
+    string $view,
+    callable $datafetcher,
+    ?callable $headermapper = null
+): void {
+    global $OUTPUT;
+
+    $portalservice = new $portalserviceclass();
+    $data = $datafetcher();
+
+    echo $OUTPUT->header();
+
+    $headercontext = $portalservice->get_header_context_for_section($view);
+    if ($headermapper !== null) {
+        $headercontext = $headermapper($headercontext);
+    }
+    echo local_ulms_dashboard_render_page_header($headercontext);
+
+    local_ulms_dashboard_start_shell_wrap();
+    echo local_ulms_dashboard_render_summary_cards($data['summarycards'] ?? []);
+    echo local_ulms_dashboard_render_panel($data['mainpanel'] ?? []);
+
+    if (!empty($data['secondarypanels'])) {
+        echo html_writer::start_div('ulms-layout-grid');
+        foreach ($data['secondarypanels'] as $panel) {
+            echo local_ulms_dashboard_render_panel($panel);
+        }
+        echo html_writer::end_div();
+    }
+
+    local_ulms_dashboard_end_shell_wrap();
+    echo $OUTPUT->footer();
+}
+
+/**
  * Recursively scrubs sensitive PII fields from log payloads to prevent credential
  * leakage into `error_log`. Operates on both array payloads:
  *  • Scrubs keys matching: password, token, api[_-]?key, secret, apikey,

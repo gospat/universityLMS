@@ -23,41 +23,6 @@ defined('MOODLE_INTERNAL') || die();
  */
 class super_admin_portal_service {
     /**
-     * Safe language string resolver. Returns the resolved string when
-     * available; otherwise returns the caller-supplied fallback. The
-     * explicit `[[` detection prevents Moodle placeholder leaks from
-     * surfacing in the UI when caches are stale or strings are missing.
-     *
-     * @param string $identifier String identifier for local_ulms_dashboard.
-     * @param string $fallback   Literal fallback text (identical to the
-     *                           language file value).
-     * @param mixed  $a          Optional string substitution value.
-     * @return string
-     */
-    private static function safe_get_string(string $identifier, string $fallback, $a = null): string {
-        try {
-            if ($a === null) {
-                $value = @get_string($identifier, 'local_ulms_dashboard');
-            } else {
-                $value = @get_string($identifier, 'local_ulms_dashboard', $a);
-            }
-        } catch (\Throwable) {
-            $value = '';
-        }
-        if (!is_string($value) || $value === '' || strpos($value, '[[') !== false) {
-            if ($a !== null && is_scalar($a)) {
-                $str = (string)$a;
-                if (str_contains($fallback, '{$a}')) {
-                    return strtr($fallback, ['{$a}' => $str]);
-                }
-                return trim($fallback . ' ' . $str);
-            }
-            return $fallback;
-        }
-        return $value;
-    }
-
-    /**
      * Returns the single-source-of-truth list of super admin portal routes.
      * Covers both native super-admin sections AND inherited admin feature
      * sections (where a siteadmin keeps the super admin shell/identity).
@@ -531,79 +496,17 @@ class super_admin_portal_service {
      * @return array
      */
     public function get_header_context_for_section(string $section): array {
-        $titles = [
-            'dashboard' => get_string('superadmindashboard', 'local_ulms_dashboard'),
-            'administrators' => get_string('superadminadministrators', 'local_ulms_dashboard'),
-            'users' => get_string('superadminusers', 'local_ulms_dashboard'),
-            'institution' => get_string('superadmininstitution', 'local_ulms_dashboard'),
-            'health' => get_string('superadminhealth', 'local_ulms_dashboard'),
-            'integrations' => get_string('superadminintegrations', 'local_ulms_dashboard'),
-            'security' => get_string('superadminsecurity', 'local_ulms_dashboard'),
-            'auditlogs' => get_string('superadminauditlogs', 'local_ulms_dashboard'),
-            'reports' => get_string('superadminreports', 'local_ulms_dashboard'),
-            'settings' => get_string('superadminsettings', 'local_ulms_dashboard'),
-            'admin_dashboard' => get_string('admindashboard', 'local_ulms_dashboard'),
-            'admin_users' => get_string('adminusermanagementlink', 'local_ulms_dashboard'),
-            'admin_provisioning' => get_string('adminuserprovisioning', 'local_ulms_dashboard'),
-            'admin_bulkupload' => get_string('adminnavbulkupload', 'local_ulms_dashboard'),
-            'admin_analytics' => get_string('analyticsdashboard', 'local_ulms_dashboard'),
-            'admin_academics' => get_string('manageacademicstructurelink', 'local_ulms_dashboard'),
-            'admin_courses' => get_string('admincoursestitle', 'local_ulms_dashboard'),
-            'admin_reports' => get_string('adminreportstitle', 'local_ulms_dashboard'),
-            'admin_auditlogs' => get_string('adminauditlogstitle', 'local_ulms_dashboard'),
-            'admin_settings' => get_string('adminsettingsheading', 'local_ulms_dashboard'),
-        ];
-        $meta = [
-            'dashboard' => get_string('superadmindashboarddesc', 'local_ulms_dashboard'),
-            'administrators' => get_string('superadminadministratorsdesc', 'local_ulms_dashboard'),
-            'users' => get_string('superadminusersdesc', 'local_ulms_dashboard'),
-            'institution' => get_string('superadmininstitutiondesc', 'local_ulms_dashboard'),
-            'health' => get_string('superadminhealthdesc', 'local_ulms_dashboard'),
-            'integrations' => get_string('superadminintegrationsdesc', 'local_ulms_dashboard'),
-            'security' => get_string('superadminsecuritydesc', 'local_ulms_dashboard'),
-            'auditlogs' => get_string('superadminauditlogsdesc', 'local_ulms_dashboard'),
-            'reports' => get_string('superadminreportsdesc', 'local_ulms_dashboard'),
-            'settings' => get_string('superadminsettingsdesc', 'local_ulms_dashboard'),
-            'admin_dashboard' => get_string('admindashboarddesc', 'local_ulms_dashboard'),
-            'admin_users' => get_string('adminusermanagementlinkdesc', 'local_ulms_dashboard'),
-            'admin_provisioning' => get_string('adminuserprovisioningdesc', 'local_ulms_dashboard'),
-            'admin_bulkupload' => get_string('adminbulkuploaddesc', 'local_ulms_dashboard'),
-            'admin_analytics' => get_string('analyticsdashboarddesc', 'local_ulms_dashboard'),
-            'admin_academics' => get_string('adminacademicstructurelinkdesc', 'local_ulms_dashboard'),
-            'admin_courses' => get_string('admincoursesdesc', 'local_ulms_dashboard'),
-            'admin_reports' => get_string('adminreportsdesc', 'local_ulms_dashboard'),
-            'admin_auditlogs' => get_string('adminauditlogsdesc', 'local_ulms_dashboard'),
-            'admin_settings' => get_string('adminsettingsdesc', 'local_ulms_dashboard'),
-        ];
+        $def = dashboard_commons::get_superadmin_native_header_defs();
+        dashboard_commons::merge_admin_prefixed_defs_into($def);
 
-        $eyebrowmap = [
-            'dashboard' => get_string('superadmin.dashboard.eyebrow', 'local_ulms_dashboard'),
-            'administrators' => get_string('superadmin.administrators.eyebrow', 'local_ulms_dashboard'),
-            'users' => get_string('superadmin.users.eyebrow', 'local_ulms_dashboard'),
-            'institution' => get_string('superadmin.institution.eyebrow', 'local_ulms_dashboard'),
-            'health' => get_string('superadmin.health.eyebrow', 'local_ulms_dashboard'),
-            'integrations' => get_string('superadmin.integrations.eyebrow', 'local_ulms_dashboard'),
-            'security' => get_string('superadmin.security.eyebrow', 'local_ulms_dashboard'),
-            'auditlogs' => get_string('superadmin.auditlogs.eyebrow', 'local_ulms_dashboard'),
-            'reports' => get_string('superadmin.reports.eyebrow', 'local_ulms_dashboard'),
-            'settings' => get_string('superadmin.settings.eyebrow', 'local_ulms_dashboard'),
-            'admin_dashboard' => get_string('management.users.eyebrow', 'local_ulms_dashboard'),
-            'admin_users' => get_string('management.users.eyebrow', 'local_ulms_dashboard'),
-            'admin_provisioning' => get_string('management.provisioning.eyebrow', 'local_ulms_dashboard'),
-            'admin_bulkupload' => get_string('management.provisioning.eyebrow', 'local_ulms_dashboard'),
-            'admin_analytics' => get_string('management.analytics.eyebrow', 'local_ulms_dashboard'),
-            'admin_academics' => get_string('management.academics.eyebrow', 'local_ulms_dashboard'),
-            'admin_courses' => get_string('management.courses.eyebrow', 'local_ulms_dashboard'),
-            'admin_reports' => get_string('management.reports.eyebrow', 'local_ulms_dashboard'),
-            'admin_auditlogs' => get_string('management.reports.eyebrow', 'local_ulms_dashboard'),
-            'admin_settings' => get_string('management.users.eyebrow', 'local_ulms_dashboard'),
-        ];
+        $defaultseyebrow = get_string($def['default_eyebrow_key'], 'local_ulms_dashboard');
+        $defaultstitle  = get_string($def['default_title_key'], 'local_ulms_dashboard');
 
         return [
-            'eyebrow' => $eyebrowmap[$section] ?? get_string('superadmin.dashboard.eyebrow', 'local_ulms_dashboard'),
-            'navigationaria' => get_string('superadminportalnavigation', 'local_ulms_dashboard'),
-            'title' => $titles[$section] ?? get_string('superadmindashboard', 'local_ulms_dashboard'),
-            'meta' => $meta[$section] ?? '',
+            'eyebrow' => $def['eyebrow'][$section] ?? $defaultseyebrow,
+            'navigationaria' => $def['navigationaria'],
+            'title' => $def['titles'][$section] ?? $defaultstitle,
+            'meta' => $def['meta'][$section] ?? '',
             'showtitle' => true,
             'hasbreadcrumbs' => true,
             'breadcrumbs' => $this->get_breadcrumbs_for_section($section),
@@ -619,65 +522,49 @@ class super_admin_portal_service {
     public function get_navigation_groups(string $section): array {
         $routingservice = $this->get_routing_service();
 
-        $icondashboard = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>';
-        $iconhealth = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
-        $iconreports = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
-        $iconadmins = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>';
-        $iconusers = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
-        $iconinstitution = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>';
-        $iconaudit = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>';
-        $iconintegrations = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="3" width="20" height="6" rx="1.5"/><rect x="2" y="15" width="20" height="6" rx="1.5"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>';
-        $iconsecurity = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
-        $iconsettings = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
-        $iconanalytics = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>';
-        $iconacademics = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>';
-        $iconcourses = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
-        $iconschedule = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><rect x="8" y="14" width="3" height="3" rx="0.5"/><rect x="13" y="14" width="3" height="3" rx="0.5"/><rect x="8" y="18" width="3" height="2" rx="0.5"/><rect x="13" y="18" width="3" height="2" rx="0.5"/></svg>';
-        $iconprovisioning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
-        $iconbulk = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>';
-        $iconlecturers = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M12 13.5l1.5 1.5 3-3"/></svg>';
+        $adminShortcuts = [];
+        foreach (dashboard_commons::get_admin_portal_shortcut_defs() as $def) {
+            $label = dashboard_commons::safe_lang_string($def['label_lang_id'], $def['label_fallback']);
+            if ($def['prefix_label']) {
+                $label = 'Admin: ' . $label;
+            }
+            $adminShortcuts[] = [
+                'key'   => 'admin_' . $def['section_key'],
+                'label' => $label,
+                'url'   => $routingservice->get_url_for_route($def['route_key'], $def['route_params'])->out(false),
+                'icon'  => dashboard_commons::icon_svg($def['icon_key']),
+            ];
+        }
 
         return [
             [
-                'heading' => self::safe_get_string('superadminnavgroupoverview', 'Overview'),
+                'heading' => dashboard_commons::safe_lang_string('superadminnavgroupoverview', 'Overview'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'dashboard', 'label' => self::safe_get_string('superadminnavdashboard', 'Dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.dashboard')->out(false), 'icon' => $icondashboard],
-                    ['key' => 'health', 'label' => self::safe_get_string('superadminnavhealth', 'System health'), 'url' => $routingservice->get_url_for_route('superadmin.health')->out(false), 'icon' => $iconhealth],
-                    ['key' => 'reports', 'label' => self::safe_get_string('superadminnavreports', 'Reports'), 'url' => $routingservice->get_url_for_route('superadmin.reports')->out(false), 'icon' => $iconreports],
+                    ['key' => 'dashboard', 'label' => dashboard_commons::safe_lang_string('superadminnavdashboard', 'Dashboard'), 'url' => $routingservice->get_url_for_route('superadmin.dashboard')->out(false), 'icon' => dashboard_commons::icon_svg('dashboard')],
+                    ['key' => 'health', 'label' => dashboard_commons::safe_lang_string('superadminnavhealth', 'System health'), 'url' => $routingservice->get_url_for_route('superadmin.health')->out(false), 'icon' => dashboard_commons::icon_svg('health')],
+                    ['key' => 'reports', 'label' => dashboard_commons::safe_lang_string('superadminnavreports', 'Reports'), 'url' => $routingservice->get_url_for_route('superadmin.reports')->out(false), 'icon' => dashboard_commons::icon_svg('reports')],
                 ], $section),
             ],
             [
-                'heading' => self::safe_get_string('superadminnavgroupgovernance', 'Governance'),
+                'heading' => dashboard_commons::safe_lang_string('superadminnavgroupgovernance', 'Governance'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'administrators', 'label' => self::safe_get_string('superadminnavadministrators', 'Administrators'), 'url' => $routingservice->get_url_for_route('superadmin.administrators')->out(false), 'icon' => $iconadmins],
-                    ['key' => 'users', 'label' => self::safe_get_string('superadminnavusers', 'Users'), 'url' => $routingservice->get_url_for_route('superadmin.users')->out(false), 'icon' => $iconusers],
-                    ['key' => 'institution', 'label' => self::safe_get_string('superadminnavinstitution', 'Institution'), 'url' => $routingservice->get_url_for_route('superadmin.institution')->out(false), 'icon' => $iconinstitution],
-                    ['key' => 'auditlogs', 'label' => self::safe_get_string('superadminnavauditlogs', 'Audit logs'), 'url' => $routingservice->get_url_for_route('superadmin.auditlogs')->out(false), 'icon' => $iconaudit],
+                    ['key' => 'administrators', 'label' => dashboard_commons::safe_lang_string('superadminnavadministrators', 'Administrators'), 'url' => $routingservice->get_url_for_route('superadmin.administrators')->out(false), 'icon' => dashboard_commons::icon_svg('admins')],
+                    ['key' => 'users', 'label' => dashboard_commons::safe_lang_string('superadminnavusers', 'Users'), 'url' => $routingservice->get_url_for_route('superadmin.users')->out(false), 'icon' => dashboard_commons::icon_svg('users')],
+                    ['key' => 'institution', 'label' => dashboard_commons::safe_lang_string('superadminnavinstitution', 'Institution'), 'url' => $routingservice->get_url_for_route('superadmin.institution')->out(false), 'icon' => dashboard_commons::icon_svg('institution')],
+                    ['key' => 'auditlogs', 'label' => dashboard_commons::safe_lang_string('superadminnavauditlogs', 'Audit logs'), 'url' => $routingservice->get_url_for_route('superadmin.auditlogs')->out(false), 'icon' => dashboard_commons::icon_svg('audit')],
                 ], $section),
             ],
             [
-                'heading' => self::safe_get_string('superadminnavgroupsystem', 'System'),
+                'heading' => dashboard_commons::safe_lang_string('superadminnavgroupsystem', 'System'),
                 'items' => $this->mark_active_items([
-                    ['key' => 'integrations', 'label' => self::safe_get_string('superadminnavintegrations', 'Integrations'), 'url' => $routingservice->get_url_for_route('superadmin.integrations')->out(false), 'icon' => $iconintegrations],
-                    ['key' => 'security', 'label' => self::safe_get_string('superadminnavsecurity', 'Security'), 'url' => $routingservice->get_url_for_route('superadmin.security')->out(false), 'icon' => $iconsecurity],
-                    ['key' => 'settings', 'label' => self::safe_get_string('superadminnavsettings', 'Settings'), 'url' => $routingservice->get_url_for_route('superadmin.settings')->out(false), 'icon' => $iconsettings],
+                    ['key' => 'integrations', 'label' => dashboard_commons::safe_lang_string('superadminnavintegrations', 'Integrations'), 'url' => $routingservice->get_url_for_route('superadmin.integrations')->out(false), 'icon' => dashboard_commons::icon_svg('integrations')],
+                    ['key' => 'security', 'label' => dashboard_commons::safe_lang_string('superadminnavsecurity', 'Security'), 'url' => $routingservice->get_url_for_route('superadmin.security')->out(false), 'icon' => dashboard_commons::icon_svg('security')],
+                    ['key' => 'settings', 'label' => dashboard_commons::safe_lang_string('superadminnavsettings', 'Settings'), 'url' => $routingservice->get_url_for_route('superadmin.settings')->out(false), 'icon' => dashboard_commons::icon_svg('settings')],
                 ], $section),
             ],
             [
                 'heading' => get_string('adminportaltitle', 'local_ulms_auth'),
-                'items' => $this->mark_active_items([
-                    ['key' => 'admin_dashboard', 'label' => self::safe_get_string('adminnavdashboard', 'Dashboard'), 'url' => $routingservice->get_url_for_route('management.dashboard')->out(false), 'icon' => $icondashboard],
-                    ['key' => 'admin_users', 'label' => self::safe_get_string('adminnavusermanagement', 'User management'), 'url' => $routingservice->get_url_for_route('management.users')->out(false), 'icon' => $iconusers],
-                    ['key' => 'admin_provisioning', 'label' => self::safe_get_string('adminnavprovisioning', 'User provisioning'), 'url' => $routingservice->get_url_for_route('management.provisioning')->out(false), 'icon' => $iconprovisioning],
-                    ['key' => 'admin_bulkupload', 'label' => self::safe_get_string('adminnavbulkupload', 'Bulk upload'), 'url' => $routingservice->get_url_for_route('management.bulkupload')->out(false), 'icon' => $iconbulk],
-                    ['key' => 'admin_analytics', 'label' => self::safe_get_string('adminnavanalytics', 'Analytics'), 'url' => $routingservice->get_url_for_route('management.analytics')->out(false), 'icon' => $iconanalytics],
-                    ['key' => 'admin_academics', 'label' => self::safe_get_string('adminnavacademics', 'Academic structure'), 'url' => $routingservice->get_url_for_route('management.academics')->out(false), 'icon' => $iconacademics],
-                    ['key' => 'admin_courses', 'label' => self::safe_get_string('adminnavcourses', 'Courses'), 'url' => $routingservice->get_url_for_route('management.courses')->out(false), 'icon' => $iconcourses],
-                    ['key' => 'admin_lecturers', 'label' => self::safe_get_string('adminnavlecturers', 'Lecturer allocations'), 'url' => $routingservice->get_url_for_route('management.lecturers')->out(false), 'icon' => $iconlecturers],
-                    ['key' => 'admin_reports', 'label' => 'Admin: ' . self::safe_get_string('adminnavreports', 'Reports'), 'url' => $routingservice->get_url_for_route('management.reports')->out(false), 'icon' => $iconreports],
-                    ['key' => 'admin_auditlogs', 'label' => 'Admin: ' . self::safe_get_string('adminnavauditlogs', 'Audit logs'), 'url' => $routingservice->get_url_for_route('management.auditlogs')->out(false), 'icon' => $iconaudit],
-                    ['key' => 'admin_settings', 'label' => 'Admin: ' . self::safe_get_string('adminnavsettings', 'Settings'), 'url' => $routingservice->get_url_for_route('management.settings')->out(false), 'icon' => $iconsettings],
-                ], $section),
+                'items' => $this->mark_active_items($adminShortcuts, $section),
             ],
         ];
     }
