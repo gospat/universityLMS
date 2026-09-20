@@ -49,18 +49,21 @@ final class dashboard_commons {
      * placeholder leaks from surfacing in the UI when caches are
      * stale or strings are missing.
      *
-     * @param string $identifier String identifier for local_ulms_dashboard.
+     * @param string $identifier String identifier for the target plugin.
      * @param string $fallback   Literal fallback text (identical to the
      *                           language file value).
      * @param mixed  $a          Optional string substitution value.
+     * @param string $plugin     Optional plugin component name.  Defaults
+     *                           to local_ulms_dashboard for backwards
+     *                           compatibility with the 100+ existing calls.
      * @return string
      */
-    public static function safe_lang_string(string $identifier, string $fallback, $a = null): string {
+    public static function safe_lang_string(string $identifier, string $fallback, $a = null, string $plugin = 'local_ulms_dashboard'): string {
         try {
             if ($a === null) {
-                $value = @get_string($identifier, 'local_ulms_dashboard');
+                $value = @get_string($identifier, $plugin);
             } else {
-                $value = @get_string($identifier, 'local_ulms_dashboard', $a);
+                $value = @get_string($identifier, $plugin, $a);
             }
         } catch (\Throwable) {
             $value = '';

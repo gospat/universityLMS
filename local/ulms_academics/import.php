@@ -206,8 +206,18 @@ if ($entity === 'courses') {
             'returnto' => 'url',
             'returnurl' => $routingservice->get_url_for_route('management.academicsimport', ['entity' => 'courses'])->out_as_local_url(false),
         ]),
-        html_writer::tag('div', get_string('courses', 'local_ulms_academics') . ' — ' . get_string('add'), ['class' => 'ulms-action-card__title']) .
-        html_writer::tag('div', get_string('csvonesingle', 'local_ulms_academics') ?: 'Create one course at a time', ['class' => 'ulms-action-card__meta']),
+        html_writer::tag('div', \local_ulms_dashboard\local\service\dashboard_commons::safe_lang_string(
+            'courses',
+            'Courses',
+            null,
+            'local_ulms_academics'
+        ) . ' — ' . get_string('add'), ['class' => 'ulms-action-card__title']) .
+        html_writer::tag('div', \local_ulms_dashboard\local\service\dashboard_commons::safe_lang_string(
+            'csvonesingle',
+            'Add / Create one course at a time',
+            null,
+            'local_ulms_academics'
+        ), ['class' => 'ulms-action-card__meta']),
         ['class' => 'ulms-action-card ulms-action-card--emphasis']
     );
     echo html_writer::div($singlecard, 'ulms-action-grid mt-3');
@@ -312,7 +322,12 @@ $entityoptions = [
     'programmes' => get_string('programmes', 'local_ulms_academics'),
 ];
 if (in_array('courses', $allowedentities, true)) {
-    $entityoptions['courses'] = get_string('courses', 'local_ulms_academics');
+    $entityoptions['courses'] = \local_ulms_dashboard\local\service\dashboard_commons::safe_lang_string(
+        'courses',
+        'Courses',
+        null,
+        'local_ulms_academics'
+    );
 }
 echo html_writer::select(
     $entityoptions,

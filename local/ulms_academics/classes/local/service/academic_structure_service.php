@@ -315,7 +315,12 @@ class academic_structure_service {
             'faculties' => \get_string('faculties', 'local_ulms_academics'),
             'departments' => \get_string('departments', 'local_ulms_academics'),
             'programmes' => \get_string('programmes', 'local_ulms_academics'),
-            'courses' => \get_string('courses', 'local_ulms_academics'),
+            'courses' => \local_ulms_dashboard\local\service\dashboard_commons::safe_lang_string(
+                'courses',
+                'Courses',
+                null,
+                'local_ulms_academics'
+            ),
             'sessions' => \get_string('academicsessions', 'local_ulms_academics'),
             'semesters' => \get_string('semesters', 'local_ulms_academics'),
             'coursemappings' => \get_string('mappings', 'local_ulms_academics'),

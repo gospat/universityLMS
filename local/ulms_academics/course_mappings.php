@@ -1078,7 +1078,12 @@ $newcourseurl = new moodle_url('/course/edit.php', [
 echo html_writer::div(
     html_writer::link(
         $newcourseurl,
-        get_string('mappingcreatenewcourse', 'local_ulms_academics') ?: '+ Create new course',
+        \local_ulms_dashboard\local\service\dashboard_commons::safe_lang_string(
+            'mappingcreatenewcourse',
+            '+ Create new course →',
+            null,
+            'local_ulms_academics'
+        ),
         ['class' => 'btn btn-sm btn-outline-secondary mt-2', 'target' => '_blank', 'rel' => 'noopener']
     ),
     'ulms-form-subnote'
