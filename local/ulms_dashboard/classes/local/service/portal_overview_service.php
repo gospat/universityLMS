@@ -498,6 +498,9 @@ class portal_overview_service {
         if (!$coursectx) {
             return ['ok' => false, 'already' => false, 'msg' => 'Course not found.'];
         }
+        if (!($coursectx instanceof \context)) {
+            return ['ok' => false, 'already' => false, 'msg' => 'Course not found.'];
+        }
         if (is_enrolled($coursectx, $actoruserid, null, true)) {
             return ['ok' => true, 'already' => true, 'msg' => 'You are already enrolled in this course.'];
         }
@@ -665,7 +668,7 @@ class portal_overview_service {
                 } catch (\Throwable) {
                     $coursectx = null;
                 }
-                $isenrolled = $coursectx && is_enrolled($coursectx, $userid, null, true);
+                $isenrolled = $coursectx instanceof \context && is_enrolled($coursectx, $userid, null, true);
                 if ($isenrolled) {
                     $enrolledcount++;
                 }
@@ -808,7 +811,7 @@ class portal_overview_service {
      * @return array<string, mixed>
      */
     private function build_assignment_section_data(array $snapshot, bool $islecturer): array {
-        global $DB, $USER;
+        global $USER;
 
         if ($islecturer) {
             $items = $this->get_assignment_list_items($snapshot['courseids'], 12);
@@ -933,7 +936,7 @@ class portal_overview_service {
      *
      * @param int[] $courseids enrolled set
      * @param int $userid student
-     * @return array<int, array{course:object, assignments:array<int, array>, counts:array{total:int, open:int, duesoon24:int, duesoon7:int, overdue:int, submitted:int, graded:int}>
+     * @return array<int, array<string, mixed>>
      */
     private function get_assignments_grouped_by_course(array $courseids, int $userid): array {
         global $DB;
@@ -1190,7 +1193,7 @@ class portal_overview_service {
      * @return array<string, mixed>
      */
     private function build_quiz_section_data(array $snapshot, bool $islecturer): array {
-        global $DB, $USER;
+        global $USER;
 
         if ($islecturer) {
             $items = $this->get_quiz_list_items($snapshot['courseids'], 12);
@@ -2660,7 +2663,7 @@ class portal_overview_service {
      *
      * @param int[] $courseids enrolled set
      * @param int $userid student
-     * @return array<int, array{course:object, sessions:array<int, array>, counts:array{total:int, present:int, late:int, absent:int, excused:int}>
+     * @return array<int, array<string, mixed>>
      */
     private function get_attendance_grouped_by_course(array $courseids, int $userid): array {
         global $DB;
@@ -3616,16 +3619,20 @@ class portal_overview_service {
             $enrolled_students = [];
             if ($sessionrec) {
                 try {
-                    $ctx = \context_course::instance((int)$sessionrec->moodlecourseid);
-                    $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student'], IGNORE_MISSING);
-                    if ($studentroleid > 0) {
-                        $enrolled_students = get_role_users($studentroleid, $ctx, false, 'u.*', 'u.lastname ASC, u.firstname ASC');
-                    }
-                    if (empty($enrolled_students) && function_exists('get_enrolled_users')) {
-                        $enrolled_students = get_enrolled_users($ctx, '', 0, 'u.*', 'u.lastname ASC, u.firstname ASC');
-                        $enrolled_students = array_values(array_filter($enrolled_students, static function ($u): bool {
-                            return empty($u->deleted) && (int)($u->id ?? 0) > 1;
-                        }));
+                    $coursectx = \context_course::instance((int)$sessionrec->moodlecourseid);
+                    if (!($coursectx instanceof \context)) {
+                        $enrolled_students = [];
+                    } else {
+                        $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student'], IGNORE_MISSING);
+                        if ($studentroleid > 0) {
+                            $enrolled_students = get_role_users($studentroleid, $coursectx, false, 'u.*', 'u.lastname ASC, u.firstname ASC');
+                        }
+                        if (empty($enrolled_students) && function_exists('get_enrolled_users')) {
+                            $enrolled_students = get_enrolled_users($coursectx, '', 0, 'u.*', 'u.lastname ASC, u.firstname ASC');
+                            $enrolled_students = array_values(array_filter($enrolled_students, static function ($u): bool {
+                                return empty($u->deleted) && (int)($u->id ?? 0) > 1;
+                            }));
+                        }
                     }
                 } catch (\Throwable) {
                     $enrolled_students = [];
@@ -3944,7 +3951,7 @@ FASTMARKSCRIPT;
      * @return array{summarycards: array, mainpanel: array}
      */
     private function build_admin_lecturer_allocation_data(): array {
-        global $DB, $USER;
+        global $DB;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             confirm_sesskey();
@@ -3961,7 +3968,7 @@ FASTMARKSCRIPT;
                 $courseid = (int)optional_param('moodlecourseid', 0, PARAM_INT);
                 $lecturerids = optional_param_array('lecturerids', [], PARAM_INT);
                 $lecturerids = array_values(array_unique(array_map('intval', array_filter($lecturerids, static fn($v) => $v > 0))));
-                $primaryuid = (int)optional_param('primarylecturerid', 0, PARAM_INT);
+                (int)optional_param('primarylecturerid', 0, PARAM_INT);
 
                 $transaction = $DB->start_delegated_transaction();
                 try {
@@ -3985,8 +3992,11 @@ FASTMARKSCRIPT;
                     }
 
                     $currentlyenrolled = [];
-                    $ctx = \context_course::instance($courseid);
-                    $existing = get_role_users($roleid, $ctx, false, 'u.id', 'u.id');
+                    $coursectx_save = \context_course::instance($courseid);
+                    if (!($coursectx_save instanceof \context)) {
+                        throw new \RuntimeException('Course context unavailable.');
+                    }
+                    $existing = get_role_users($roleid, $coursectx_save, false, 'u.id', 'u.id');
                     foreach ($existing as $uid => $_) {
                         $currentlyenrolled[(int)$uid] = (int)$uid;
                     }
@@ -4053,9 +4063,10 @@ FASTMARKSCRIPT;
                                 $eroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
                                 while (($row = fgetcsv($fh)) !== false) {
                                     if (!is_array($row) || count($row) < 7) { $skipped++; continue; }
-                                    [$faculty, $dept, $prog, $semester, $level, $coursecode, $staffid] = $row;
-                                    if (trim((string)$coursecode) === '' || trim((string)$staffid) === '') { $skipped++; continue; }
-                                    $crs = $DB->get_record('course', ['shortname' => trim((string)$coursecode)], 'id');
+                                    $coursecode = trim((string)($row[5] ?? ''));
+                                    $staffid = trim((string)($row[6] ?? ''));
+                                    if ($coursecode === '' || $staffid === '') { $skipped++; continue; }
+                                    $crs = $DB->get_record('course', ['shortname' => $coursecode], 'id');
                                     if (!$crs) { $skipped++; continue; }
                                     $staffrec = $DB->get_record('user', ['idnumber' => trim((string)$staffid)], 'id');
                                     if (!$staffrec) { $skipped++; continue; }
@@ -4149,10 +4160,10 @@ FASTMARKSCRIPT;
         foreach ($rows as $r) {
             $programme_course_count++;
             $cid = (int)$r->moodlecourseid;
-            $ctx = \context_course::instance($cid, IGNORE_MISSING);
+            $coursectx_alloc = \context_course::instance($cid, IGNORE_MISSING);
             $lecturers = [];
-            if ($ctx) {
-                $rs = get_role_users($eroleid, $ctx, false, 'u.id, u.firstname, u.lastname, u.idnumber', 'u.lastname ASC');
+            if ($coursectx_alloc instanceof \context) {
+                $rs = get_role_users($eroleid, $coursectx_alloc, false, 'u.id, u.firstname, u.lastname, u.idnumber', 'u.lastname ASC');
                 foreach ($rs as $usr) {
                     $lecturers[(int)$usr->id] = $usr;
                     $uniquelecturers[(int)$usr->id] = true;
@@ -4160,9 +4171,9 @@ FASTMARKSCRIPT;
             }
             if (!empty($lecturers)) $courseswithlecturer++;
             $studentcount = 0;
-            if ($ctx) {
+            if ($coursectx_alloc instanceof \context) {
                 $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student']);
-                $studentcount = $studentroleid > 0 ? count(get_role_users($studentroleid, $ctx, false, 'u.id')) : 0;
+                $studentcount = $studentroleid > 0 ? count(get_role_users($studentroleid, $coursectx_alloc, false, 'u.id')) : 0;
             }
             $chips = '';
             $names = array_values($lecturers);
@@ -4296,10 +4307,10 @@ FASTMARKSCRIPT;
             if (empty($candidates)) {
                 $candidates = [];
             }
-            $ctx = \context_course::instance($r->courseid, IGNORE_MISSING);
+            $coursectx_modal = \context_course::instance($r->courseid, IGNORE_MISSING);
             $cur = [];
-            if ($ctx) {
-                $ccur = get_role_users($eroleid, $ctx, false, 'u.id, u.firstname, u.lastname', 'u.lastname ASC');
+            if ($coursectx_modal instanceof \context) {
+                $ccur = get_role_users($eroleid, $coursectx_modal, false, 'u.id, u.firstname, u.lastname', 'u.lastname ASC');
                 foreach ($ccur as $uid => $_) { $cur[(int)$uid] = (int)$uid; }
             }
             $html .= '<div id="alloc-modal-' . s($r->courseid) . '" style="display:none;position:fixed;inset:0;background:rgba(15,76,129,0.45);z-index:9999;padding:24px;overflow:auto;" onclick="if(event.target===this){this.style.display=\'none\';}">';

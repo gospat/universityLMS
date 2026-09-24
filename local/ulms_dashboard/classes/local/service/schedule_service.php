@@ -279,7 +279,6 @@ class schedule_service {
             $errors['term_end_date'] = 'Term end date must be on or after term start date.';
         }
         if ($termstart > 0 && $termend > 0 && $dur > 0) {
-            $dayminutes = 24 * 60;
             if (($termend - $termstart) < ($dur * 60)) {
                 $errors['duration_minutes'] = 'Duration exceeds length of term.';
             }
@@ -887,14 +886,14 @@ class schedule_service {
         }
         $courseid = (int)$session->moodlecourseid;
         try {
-            $ctx = \context_course::instance($courseid);
+            $coursectx = \context_course::instance($courseid);
             $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student'], IGNORE_MISSING);
             $students = [];
-            if ($studentroleid > 0) {
-                $students = get_role_users($studentroleid, $ctx, false, 'u.*', 'u.lastname ASC, u.firstname ASC');
+            if ($studentroleid > 0 && $coursectx instanceof \context) {
+                $students = get_role_users($studentroleid, $coursectx, false, 'u.*', 'u.lastname ASC, u.firstname ASC');
             }
-            if (empty($students) && function_exists('get_enrolled_users')) {
-                $students = get_enrolled_users($ctx, '', 0, 'u.*', 'u.lastname ASC, u.firstname ASC');
+            if (empty($students) && function_exists('get_enrolled_users') && $coursectx instanceof \context) {
+                $students = get_enrolled_users($coursectx, '', 0, 'u.*', 'u.lastname ASC, u.firstname ASC');
                 $students = array_values(array_filter($students, static fn($u): bool => empty($u->deleted) && (int)($u->id ?? 0) > 1));
             }
         } catch (\Throwable $_e) {

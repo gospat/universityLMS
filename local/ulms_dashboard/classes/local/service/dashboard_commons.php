@@ -31,18 +31,6 @@ defined('MOODLE_INTERNAL') || die();
 final class dashboard_commons {
 
     /**
-     * Labels that must receive the "Admin: " prefix when they are
-     * rendered inside the Super Admin sidebar to disambiguate
-     * collisions with native Super Admin navigation labels that use
-     * the same language identifier.
-     */
-    private const ADMIN_PREFIX_LABEL_KEYS = [
-        'adminnavreports',
-        'adminnavauditlogs',
-        'adminnavsettings',
-    ];
-
-    /**
      * Safe language string resolver (D6 dedup).  Returns the resolved
      * string when available; otherwise returns the caller-supplied
      * fallback.  The explicit `[[` detection prevents Moodle

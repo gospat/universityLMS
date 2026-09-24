@@ -195,6 +195,7 @@ echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel__body');
 echo html_writer::div(implode('', $templatecards), 'ulms-action-grid');
 if ($entity === 'courses') {
+    global $DB;
     $defcat = $DB->get_record('course_categories', ['name' => 'Miscellaneous'], 'id', IGNORE_MISSING);
     if (!$defcat) {
         $defcat = $DB->get_record_sql('SELECT id FROM {course_categories} ORDER BY id ASC LIMIT 1', [], IGNORE_MISSING);
