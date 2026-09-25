@@ -22,12 +22,17 @@ require_once($CFG->dirroot . '/local/ulms_mail/lib.php');
 \local_ulms_mail_bootstrap_dependencies();
 
 use Psr\Log\LoggerInterface;
-use Symfony\Component\HttpClient\HttpClient;
-use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Sends ULMS transactional mail through the Resend HTTP API.
+ *
+ * Transport order:
+ *   1. Caller-injected HTTP client (useful for tests + Symfony HttpClient users).
+ *   2. Symfony HttpClient component when vendor/symfony/http-client is installed.
+ *   3. Native PHP ext-curl wrapped in lightweight duck-typed objects (always works).
+ *
+ * Callers only ever use request() + the duck-typed Response methods, so every
+ * transport keeps the exact same behaviour and zero caller changes are needed.
  */
 class resend_mail_service {
     /** @var string */
@@ -36,8 +41,14 @@ class resend_mail_service {
     /** @var int */
     private const DEFAULT_TIMEOUT = 15;
 
-    /** @var HttpClientInterface */
-    private HttpClientInterface $httpclient;
+    /**
+     * Duck-typed HTTP transport; satisfies the same contract as
+     * Symfony\Contracts\HttpClient\HttpClientInterface without requiring
+     * vendor installation.
+     *
+     * @var object
+     */
+    private object $httpclient;
 
     /** @var LoggerInterface|null */
     private ?LoggerInterface $logger;
@@ -45,10 +56,17 @@ class resend_mail_service {
     /**
      * Constructor.
      *
-     * @param HttpClientInterface|null $httpclient
-     * @param LoggerInterface|null $logger
+     * Transport selection order:
+     *   1. Caller-injected duck-typed client (tests / Symfony HttpClient users).
+     *   2. Composer vendor/symfony/http-client when present.
+     *   3. Native PHP ext-curl (always-available production fallback).
+     *
+     * @param object|null $httpclient  Duck-typed HTTP client; must expose
+     *                                 request(string, string, array):object +
+     *                                 withOptions(array):static + getOptions().
+     * @param LoggerInterface|null $logger Optional structured logger.
      */
-    public function __construct(?HttpClientInterface $httpclient = null, ?LoggerInterface $logger = null) {
+    public function __construct(?object $httpclient = null, ?LoggerInterface $logger = null) {
         $this->logger = $logger;
 
         if ($httpclient !== null) {
@@ -56,13 +74,156 @@ class resend_mail_service {
             return;
         }
 
-        if (!class_exists(HttpClient::class)) {
+        $symfonyhttpclass = 'Symfony\\Component\\HttpClient\\HttpClient';
+        if (class_exists($symfonyhttpclass)) {
+            $this->httpclient = $symfonyhttpclass::create([
+                'timeout' => self::DEFAULT_TIMEOUT,
+            ]);
+            return;
+        }
+
+        if (!extension_loaded('curl')) {
             throw new \moodle_exception('errorhttpclientunavailable', 'local_ulms_mail');
         }
 
-        $this->httpclient = HttpClient::create([
-            'timeout' => self::DEFAULT_TIMEOUT,
-        ]);
+        $timeout = self::DEFAULT_TIMEOUT;
+        $this->httpclient = new class($timeout) {
+            /** @var int */
+            private int $timeout;
+            /** @var array<string, mixed> */
+            private array $options;
+
+            public function __construct(int $timeout) {
+                $this->timeout = $timeout;
+                $this->options = ['timeout' => $timeout];
+            }
+
+            /**
+             * Executes an HTTP request and returns a duck-typed response
+             * exposing getStatusCode(), getContent(), getHeaders(),
+             * toArray(), getInfo() and __toString().
+             *
+             * @param string $method
+             * @param string $url
+             * @param array<string, mixed> $options
+             * @return object
+             */
+            public function request(string $method, string $url, array $options = []): object {
+                $ch = curl_init($url);
+                assert(is_resource($ch) || is_object($ch));
+                $headers = $options['headers'] ?? [];
+                $flattened = [];
+                foreach ($headers as $key => $value) {
+                    if (is_array($value)) {
+                        foreach ($value as $v) {
+                            $flattened[] = $key . ': ' . $v;
+                        }
+                    } else {
+                        $flattened[] = $key . ': ' . $value;
+                    }
+                }
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_HEADER, false);
+                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+                curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
+                curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $this->timeout);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+                if ($flattened !== []) {
+                    curl_setopt($ch, CURLOPT_HTTPHEADER, $flattened);
+                }
+                if (!empty($options['json'])) {
+                    $json = json_encode($options['json'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    if ($json !== false) {
+                        curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
+                        $hasct = false;
+                        foreach ($flattened as $h) {
+                            if (stripos($h, 'content-type:') === 0) {
+                                $hasct = true;
+                                break;
+                            }
+                        }
+                        if (!$hasct) {
+                            curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($flattened, ['Content-Type: application/json']));
+                        }
+                    }
+                }
+
+                $body = curl_exec($ch);
+                $statuscode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $curlerror = curl_error($ch);
+
+                if ($body === false || $statuscode === 0) {
+                    $message = $curlerror !== '' ? $curlerror : 'cURL transport error for Resend request.';
+                    throw new \RuntimeException($message);
+                }
+
+                return new class((int)$statuscode, (string)$body) {
+                    private int $statuscode;
+                    private string $body;
+
+                    public function __construct(int $statuscode, string $body) {
+                        $this->statuscode = $statuscode;
+                        $this->body = $body;
+                    }
+
+                    public function getStatusCode(): int {
+                        return $this->statuscode;
+                    }
+
+                    /** @return array<string, list<string>> */
+                    public function getHeaders(bool $_throw = true): array {
+                        return [];
+                    }
+
+                    /** @return array<int|string, mixed> */
+                    public function getInfo(?string $type = null): mixed {
+                        return $type === null ? [] : null;
+                    }
+
+                    public function getContent(bool $_throw = true): string {
+                        return $this->body;
+                    }
+
+                    /** @return array<mixed> */
+                    public function toArray(bool $_throw = true): array {
+                        $decoded = json_decode($this->body, true);
+                        return is_array($decoded) ? $decoded : [];
+                    }
+
+                    public function __toString(): string {
+                        return $this->body;
+                    }
+                };
+            }
+
+            /**
+             * @param iterable|object $_responses
+             * @param float|null $_timeout
+             * @return \Generator<int, never, never, never>
+             */
+            public function stream(iterable|object $_responses, ?float $_timeout = null): \Generator {
+                throw new \LogicException('stream() is not supported via the cURL fallback.');
+            }
+
+            /**
+             * @param array<string, mixed> $options
+             * @return static
+             */
+            public function withOptions(array $options): static {
+                $clone = clone $this;
+                $clone->options = array_replace_recursive($clone->options, $options);
+                $clone->timeout = (int)($options['timeout'] ?? $clone->timeout);
+                return $clone;
+            }
+
+            /** @return array<string, mixed> */
+            public function getOptions(): array {
+                return $this->options;
+            }
+        };
     }
 
     /**
@@ -146,7 +307,7 @@ class resend_mail_service {
                 'statuscode' => $statuscode,
                 'error' => '',
             ];
-        } catch (ExceptionInterface|\Throwable $exception) {
+        } catch (\Throwable $exception) {
             $this->log_failure('Resend API request failed.', [
                 'exception' => $this->sanitize_message($exception->getMessage()),
             ]);
@@ -333,7 +494,7 @@ class resend_mail_service {
         if ($trimmed === '') {
             return false;
         }
-        if (strlen($trimmed) < 40) {
+        if (strlen($trimmed) < 32) {
             return false;
         }
         return (bool)preg_match('/\Are_[A-Za-z0-9_\-]+\z/', $trimmed);

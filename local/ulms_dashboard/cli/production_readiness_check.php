@@ -106,10 +106,12 @@ if ($transport === 'resend') {
         class_exists(\local_ulms_mail\local\service\resend_mail_service::class),
         'Resend mail service class is autoloadable.'
     );
+    $hassymfonyhttp = class_exists('Symfony\Component\HttpClient\HttpClient');
+    $hascurlext = extension_loaded('curl');
     $recordcheck(
         'mail:http-client',
-        class_exists('Symfony\Component\HttpClient\HttpClient'),
-        'Symfony HTTP client dependency is available.'
+        $hassymfonyhttp || $hascurlext,
+        ($hassymfonyhttp ? 'Symfony HttpClient available' : ($hascurlext ? 'cURL extension available (fallback transport)' : 'No HTTP transport found')) . '.'
     );
     $recordcheck(
         'mail:api-key',
@@ -488,15 +490,18 @@ try {
         if (preg_match('/html_writer::start_div\s*\(\s*[\'"]ulms-page-header/i', $contents)) {
             $inlinepatterns++;
         }
+        $uses_role_portal_wrapper = (strpos($contents, 'local_ulms_dashboard_render_role_portal_page(') !== false);
         if (strpos($contents, 'local_ulms_dashboard_render_page_header(') === false
-            && strpos($contents, 'render_page_header(') === false) {
+            && strpos($contents, 'render_page_header(') === false
+            && !$uses_role_portal_wrapper) {
             $base = basename($file);
             if ($base !== 'user_provisioning_report.php') {
                 $missingrenderpageheader[] = basename($file);
             }
         }
         if (strpos($contents, 'local_ulms_dashboard_start_shell_wrap(') === false
-            && strpos($contents, 'start_shell_wrap(') === false) {
+            && strpos($contents, 'start_shell_wrap(') === false
+            && !$uses_role_portal_wrapper) {
             $base = basename($file);
             if ($base !== 'user_provisioning_report.php') {
                 $missingshellwrap[] = $base;
