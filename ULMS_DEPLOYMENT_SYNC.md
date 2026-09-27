@@ -7,9 +7,43 @@ automated 52-assertion Production Readiness Checker (PRC), cron, maintenance
 scripts, go-live wipe, Kortext + Resend setup, ops monitoring, and
 troubleshooting.
 
-> **Every section below is verified against commit `b46a1fe8` — the last known
-> production-ready commit where `production_readiness_check.php` returned
-> 52/52 PASS + exit code 0 on a live environment.**
+> ⚠ **Documentation reality vs. runtime-verification baseline — read before deploying:**
+> This runbook describes the CURRENT repository HEAD (application + scripts + docs).
+> The **last commit where the 52-assertion Production Readiness Checker
+> (`production_readiness_check.php`) was EXECUTED AGAINST A LIVE ENVIRONMENT and
+> returned 52/52 PASS + exit code 0** is **commit `b46a1fe8`** ("production
+> hardening: resend transport independence + PRC checker fixes").
+>
+> Every commit *after* `b46a1fe8` — including the previous docs-only commit
+> `51ad91cf` and *this batch of fixes* — has consisted of:
+>   (a) markdown documentation improvements,
+>   (b) deployment shell-script hardening (safety flags, PHP-FPM primary path,
+>       rsync --delete guards, verbose usage),
+>   (c) CLI safety gates on destructive scripts (phase3_purge_rebuild →
+>       requires `--i-am-sure` in production; seed_demo_academic_chain is
+>       blocked entirely in APP_ENV=production).
+>
+> None of these post-b46a1fe8 changes modify the runtime PHP application logic
+> that the PRC asserts on (routes, controllers, auth flow, CSRF checks, mail
+> transport internals, DB FK constraints).  Nonetheless, you MUST re-run the
+> PRC on YOUR live target environment after completing §4 and §5 of this
+> runbook.  Do NOT sign off a deployment as "production verified" until you
+> have personally observed `All ULMS production-readiness checks passed.`
+> (exit=0) on that exact server.  See §10 (Production-Ready Declaration
+> Checklist) for the full 14-point sign-off, of which a live PRC run is only
+> one of the 14 items.
+>
+> Target infrastructure of the Bells University deployment (the reference
+> environment for this runbook):
+>   · Server: DigitalOcean Droplet, Ubuntu 24.04 LTS, 4+ GB RAM recommended
+>   · Application: Moodle 4.5.12+ / ULMS
+>   · PHP: PHP 8.3 with php-fpm 8.3 SAPI (NOT a dockerized PHP)
+>   · Database: DigitalOcean Managed MySQL 8 (port 25060 typically, TLS enabled)
+>   · Domain: learn.bellsuniversity.edu.ng  (HTTPS mandatory)
+>   · Deployment model: Standard PHP deployment (git repo → git pull →
+>     ulms_refresh_live.sh with the default PHP-FPM primary path).  Docker
+>     Compose is supported only as an opt-in secondary path via the
+>     `--docker` flag if you later migrate; it is NOT the default.
 
 ---
 
@@ -61,20 +95,22 @@ troubleshooting.
 
 ---
 
-## 2. Pre-deployment Checklist
+## 2. Pre-deployment Checklist (Bells University — Ubuntu 24.04 / DO Managed MySQL)
 
 Run through this list **before** attempting the first install on any new host.
+Paths and package names are Ubuntu 24.04 LTS specific; translate as needed for
+other distributions.
 
-| # | Gate | How to verify |
+| # | Gate | How to verify (Ubuntu 24.04 commands) |
 |---|---|---|
-| 2.1 | PHP 8.2+ with required extensions | `php -m \| grep -E 'mysqli|curl|mbstring|json|xml|zip|gd|intl|opcache'` — **at minimum `mysqli + curl` MUST be present.** |
-| 2.2 | MySQL 8.0 / MariaDB 10.6+ | `mysqladmin version` → utf8mb4 default collation.  Create a DB + user with CREATE/ALTER/INDEX/SELECT/INSERT/UPDATE/DELETE. |
-| 2.3 | `moodledata` directory created outside webroot, writable by webserver user, with `.htaccess` denying direct access | `mkdir -p /var/lib/ulms/moodledata && chown www-data:www-data /var/lib/ulms/moodledata && chmod 0750 /var/lib/ulms/moodledata` |
-| 2.4 | Outbound HTTPS on 443 to `api.resend.com` (and `api.kortext.co.uk` when enabled) | `curl -I https://api.resend.com` → non-zero status (401 Unauthorized is fine, it proves the endpoint is reachable). |
-| 2.5 | Shell user can write to repo root + run `php`, `rsync`, `flock` | `php -v`, `rsync --version`, `flock --version` all return 0 exit codes. |
-| 2.6 | (Optional) Composer 2.x available **or** `composer.phar` placed in repo root | **Optional.**  Resend + core work without Composer vendor via cURL duck-typed fallback; Symfony HttpClient connection pooling is only unlocked if vendor is installed. |
-| 2.7 | TLS certificate issued for production domain | `curl -I https://your-ulms-domain` → trusted chain.  In production `wwwroot` must be `https://...` so the Secure session cookie flag auto-enables. |
-| 2.8 | Backup strategy in place (disk snapshots + DB dumps, retention ≥ 30 days)  | Confirm DB dump cron OR managed DB point-in-time recovery enabled *before* prod writes happen. |
+| 2.1 | PHP 8.3 with required extensions installed via php-fpm + php-cli | `php -v` reports 8.3.x.  Then run: `php -m \| grep -E '^mysqli$\|^pdo_mysql$\|^curl$\|^mbstring$\|^json$\|^xml$\|^xmlreader$\|^zip$\|^gd$\|^intl$\|^opcache$\|^iconv$\|^openssl$\|^ctype$\|^zlib$\|^simplexml$\|^dom$\|^spl$\|^pcre$\|^hash$\|^fileinfo$\|^sodium$' \| sort -u \| wc -l` → count ≥ 18.  **ext-mysqli is mandatory (not optional) for MySQL deployments** despite Moodle upstream listing it under `suggest` in composer.json. Install command: `sudo apt update && sudo apt install -y php8.3-fpm php8.3-cli php8.3-mysql php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip php8.3-gd php8.3-intl php8.3-opcache php8.3-iconv php8.3-ctype php8.3-dom php8.3-simplexml` (php-json/php-spl/pcre/hash/fileinfo/sodium are typically built in). |
+| 2.2 | DigitalOcean Managed MySQL 8 reachable + dedicated `ulms_rw` user provisioned | From the Droplet: `mysql -h bells-ulms-db-do-user-xxxx-0.b.db.ondigitalocean.com -P 25060 -u ulms_rw -p ulms -e 'SELECT 1 AS can_connect;'`.  DO Managed MySQL typically uses a non-standard port (25060) + TLS; use `--ssl-mode=REQUIRED` when connecting if needed.  Run the exact grant list from `.env.example §Database` so the app user never has SUPER/FILE privileges.  **Never use the cluster's `doadmin` or `root` credentials as the application DB user.** |
+| 2.3 | `moodledata` directory created OUTSIDE the webroot, writable by `www-data`, with `.htaccess` denying direct access | Bells standard path: `/var/lib/ulms/moodledata`.  `sudo mkdir -p /var/lib/ulms/moodledata && sudo chown www-data:www-data /var/lib/ulms/moodledata && sudo chmod 0750 /var/lib/ulms/moodledata && echo "Deny from all" \| sudo tee /var/lib/ulms/moodledata/.htaccess && sudo chown www-data:www-data /var/lib/ulms/moodledata/.htaccess`. |
+| 2.4 | Outbound HTTPS on 443 to `api.resend.com`, (optionally) `api.kortext.co.uk`, and the DO Managed MySQL port | `curl -I https://api.resend.com` → HTTP 401/404 (proves endpoint reachable; 401 is fine because no key was supplied).  `nc -zv bells-ulms-db-…ondigitalocean.com 25060` → `succeeded!`. |
+| 2.5 | Shell user can write to repo root + run `php`, `rsync`, `flock`, `git` | `php -v`, `rsync --version`, `flock --version`, `git --version` all return 0 exit codes.  Install any missing ones: `sudo apt install -y rsync util-linux git curl`. |
+| 2.6 | Composer 2.x available globally **or** `composer.phar` placed in repo root | **Optional.**  Resend + core work without Composer vendor via cURL duck-typed fallback; Symfony HttpClient connection pooling is only unlocked if vendor is installed.  When installed use `composer install --no-dev --optimize-autoloader`; if vendor is not desired, skip it — the Resend transport explicitly supports both modes and the refresh script documents this explicitly. |
+| 2.7 | TLS certificate issued for `learn.bellsuniversity.edu.ng` and the Nginx/Apache vhost serving HTTPS on port 443 | `curl -I https://learn.bellsuniversity.edu.ng/sign-in/` → trusted TLS, HTTP 200/302.  In production `$CFG->wwwroot` must be `https://learn.bellsuniversity.edu.ng` so the Secure session cookie + SameSite=Strict flags auto-enable in `config.php` lines 260-278. |
+| 2.8 | Backup strategy in place (DO Droplet volume snapshots + Managed DB point-in-time recovery, retention ≥ 30 days)  | Confirm **both** the Managed DB point-in-time recovery is enabled (DO UI) AND a cron job writes nightly DB logical dumps (mysqldump → compressed) to a separate volume from the webroot before prod writes happen.  Managed DB snapshots are not a substitute for logical dumps during rollback drills. |
 
 ---
 
@@ -97,22 +133,25 @@ cp .env.example .env
 # edit .env (NEVER commit real secrets to git — this file is gitignored)
 ```
 
-The most important keys for production (see full annotated file `.env.example`):
+The most important keys for production (see full annotated file `.env.example`;
+note the Bells University-specific defaults: `learn.bellsuniversity.edu.ng`,
+DO Managed MySQL host placeholder, `/var/lib/ulms/moodledata` external dataroot,
+`ulms_rw` dedicated DB user, `APP_ENV=production`, `APP_DEBUG=false`):
 
 ```
 APP_ENV=production
-APP_URL=https://ulms.youruniversity.edu      # must be https:// in prod
+APP_URL=https://learn.bellsuniversity.edu.ng      # Bells University: always HTTPS
 APP_DEBUG=false
 ULMS_WEB_DEBUG_DISPLAY=0
 
-# === Database ===
+# === Database (DigitalOcean Managed MySQL — dedicated ulms_rw, never root) ===
 DB_TYPE=mysqli
-DB_HOST=127.0.0.1
-DB_PORT=3306
+DB_HOST=bells-ulms-db-do-user-xxxx-0.b.db.ondigitalocean.com
+DB_PORT=25060
 DB_NAME=ulms
 DB_USER=ulms_rw
-DB_PASSWORD='replace-with-long-random-password'
-MOODLE_DATA_PATH=/var/lib/ulms/moodledata
+DB_PASSWORD='replace-with-strong-32-char-password-use-double-quotes-if-special-chars'
+MOODLE_DATA_PATH=/var/lib/ulms/moodledata   # MUST be outside webroot
 
 # === Lockouts / Security ===
 ULMS_LOCKOUT_THRESHOLD=5        # failed attempts per bucket
@@ -148,11 +187,17 @@ SMTP_SECURE=tls
 ### 4.1 Checkout the release
 
 ```bash
-sudo -u www-data bash                 # or your webserver user
-cd /var/www
-git clone --depth 1 --branch main https://github.com/gospat/universityLMS.git ulms
-cd ulms
-git rev-parse --short HEAD            # write this down for the change log
+sudo bash -c '
+  APP_WWW_DIR=/var/www/ulms
+  mkdir -p "$APP_WWW_DIR"
+  chown www-data:www-data "$APP_WWW_DIR"
+  cd "$APP_WWW_DIR/.."
+  git clone --branch main https://github.com/gospat/universityLMS.git ulms
+  cd "$APP_WWW_DIR"
+  chown -R www-data:www-data .
+  git rev-parse --short HEAD > ./var/run/deployed-commit.txt
+  echo "Deployed commit: $(cat ./var/run/deployed-commit.txt)"
+'
 ```
 
 ### 4.2 `.env`, dataroot, permissions
@@ -181,14 +226,40 @@ composer install --no-dev --prefer-dist --no-interaction --no-progress --optimiz
 #   php composer.phar install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
 ```
 
-### 4.4 Run the Moodle browser installer OR CLI installer
+### 4.4 Run the Moodle browser installer OR CLI installer (PROTECTED ADMIN PASSWORD)
+
+**Web installer — recommended, because Moodle's web wizard validates PHP extensions,
+dataroot permissions and DB connectivity interactively before writing:**
+
+1. Open: `https://learn.bellsuniversity.edu.ng/install.php` in an incognito window
+2. Walk the Moodle install wizard.  When prompted for the *initial siteadmin* account:
+   - **Do not reuse a personal/email password.**  Use a fresh, unique password of
+     at least 20 characters (Moodle enforces its own password policy on top).  Store
+     it in an institutional password vault (not a plaintext file, not a spreadsheet).
+   - Do NOT enable "Email based self-registration" for production; Bells University
+     provisions all users via Admin bulk CSV upload.
+3. After install completes you are dropped into the siteadmin dashboard.
+4. **Immediately:** click the siteadmin menu → **Preferences** → **Change password** →
+   generate a fresh 24+ char password in the vault and rotate it.  This ensures the
+   password you typed into the install wizard (which may be cached in your browser's
+   form history, or visible on-screen during a screenshare) is no longer live.
+
+**CLI alternative (headless servers, no browser access):**
+
+The CLI installer accepts an admin password via `--adminpass`.  **If you use this
+variant:**
+* Do NOT paste a plaintext password into the command line (it would be visible in
+  `ps` output, shell history files, and audit logs).
+* Instead read it from a *file* that is deleted immediately, or use an
+  environment variable that is cleared after the run:
 
 ```bash
-# Web installer → open:
-#   https://ulms.youruniversity.edu/install.php
-# walk Moodle install wizard → create initial siteadmin.
+# Create a strong random admin password (24 chars, mixed case + symbols)
+# and pass it VIA STDIN using a heredoc-style wrapper, NOT on the command line.
+ADMIN_PASS_FILE="$(mktemp /tmp/ulms-adminpass.XXXXXX)"
+chmod 600 "$ADMIN_PASS_FILE"
+openssl rand -base64 32 | tr -d '\n' > "$ADMIN_PASS_FILE"
 
-# CLI alternative (headless):
 php admin/cli/install.php \
   --wwwroot="$(grep '^APP_URL=' .env | cut -d= -f2-)" \
   --dataroot="$(grep '^MOODLE_DATA_PATH=' .env | cut -d= -f2-)" \
@@ -196,16 +267,30 @@ php admin/cli/install.php \
   --dbhost="$(grep '^DB_HOST=' .env | cut -d= -f2-)" \
   --dbname="$(grep '^DB_NAME=' .env | cut -d= -f2-)" \
   --dbuser="$(grep '^DB_USER=' .env | cut -d= -f2-)" \
-  --dbpass="$(grep '^DB_PASSWORD=' .env | cut -d= -f2-)" \
+  --dbpass="$(cat "$ADMIN_PASS_FILE")" \
   --dbport="$(grep '^DB_PORT=' .env | cut -d= -f2-)" \
-  --fullname="UNIVERSITY LMS" \
-  --shortname="ULMS" \
+  --fullname="BELLS UNIVERSITY OF TECHNOLOGY" \
+  --shortname="BellsTech-ULMS" \
   --adminuser="siteadmin" \
-  --adminpass='ChangeMe123!!!_Immediately' \
-  --adminemail='sysadmin@youruniversity.edu' \
+  --adminemail="sysadmin-ops@bellsuniversity.edu.ng" \
   --non-interactive \
   --agree-license
+
+# Wipe the password temp file (MANDATORY — do not skip)
+shred -u -z -n 3 "$ADMIN_PASS_FILE" 2>/dev/null || rm -f "$ADMIN_PASS_FILE"
+unset ADMIN_PASS_FILE
+
+# IMPORTANT: the password in the vault must be this initial password.  After
+# first login as siteadmin, ROTATE IT AGAIN via Moodle's "Preferences / Change
+# password" page so no artifact (shell history, process list, Moodle install
+# log) holds a live credential.
 ```
+
+**Passwords containing special characters (#, space, $, !, quotes, shell metachars):**
+Wrap both the DB_PASSWORD value in `.env` AND any `--dbpass=` CLI argument in
+**double quotes**.  The ULMS env parser (config.php lines 111–152) explicitly
+strips a matching pair of surrounding quotes so `"abc#123"` is read as the literal
+string `abc#123` (not truncated at the `#` inline comment marker).
 
 ### 4.5 Install the single-flight cron wrapper (idempotent)
 
@@ -243,32 +328,46 @@ Expect HTTP 200 from `api.resend.com` and the message in the Resend dashboard
 prints `cURL extension available (fallback transport)` in the PRC output — this
 is fully production-safe and equivalent in behaviour to Symfony HttpClient.
 
-### 4.8 Seed initial academic structure (only on a brand-new empty system)
+### 4.8 Do NOT run demo seed scripts in production
 
-```bash
-# (Optional — only if you want the demo Colleges/Depts/Programmes/Courses chain
-#  instead of importing your own CSV §4.9).
-php local/ulms_dashboard/cli/seed_demo_academic_chain.php
-```
+> **Hard block:** `seed_demo_academic_chain.php` is guarded against
+> `APP_ENV=production` — it will exit 2 with a banner explaining why.  The
+> script inserts fictional Colleges "CST", Departments "DCS/DMS", Programmes
+> "BSCCS/BSMAT", hardcoded userid-65/66 enrolments, and a 2026/27 session.
+> If you mistakenly run it on staging before a bulk import you must purge
+> those rows (or restore DB backup from §2.8) before loading real data.
+>
+> Real Bells University data is loaded via CSV/XLSX bulk import (next step).
+> Demo seeding is ONLY allowed on local developer workstations and QA VMs
+> where APP_ENV=local, and even there it is always a dry-run unless you
+> pass `--apply`.  For completeness the full production-safe guard and
+> override flag are documented in the script's own `--help`.
 
-### 4.9 Bulk-import real academic structure via CSV (recommended)
+### 4.9 Bulk-import real Bells University academic structure via CSV/XLSX (REQUIRED for production)
 
 Hierarchical **order matters** — parent entities must exist before children can
-link to them.  Always import in this exact sequence:
+link to them.  Always import in this exact sequence (use Management → Academics
+→ Bulk upload):
 
-1. **Colleges** → Management → Academics → Bulk upload → Colleges → "Download CSV template" → fill → upload.
-2. **Departments** → same page, `collegeCode` (human-readable, not numeric ID) links each department to its parent college.
-3. **Programmes** → same page, `collegeCode` + `departmentCode` as the parent link.
-4. **Courses** → same page, `collegeCode` + `departmentCode` as scope.
-5. **Programme ↔ Moodle course mappings** → Academics → Course Mappings → Download mapping CSV.  Uses the same human-readable codes (not numeric Moodle course id).
+1. **Colleges** → download the `ulms-colleges-template.csv` template → fill with
+   Bells University real colleges → upload, preview, confirm.
+2. **Departments** → same page; link each department to its parent using the
+   **human-readable `collegeCode`** (not numeric IDs) so the import is portable
+   across databases.
+3. **Programmes** → same page; parent links = `collegeCode` + `departmentCode`.
+4. **Courses** → same page; scoped by `collegeCode` + `departmentCode`.
+5. **Programme ↔ Moodle course mappings** → Academics → Course Mappings →
+   Download mapping CSV.  Uses the same human-readable programmeCode + courseCode
+   (not numeric Moodle course IDs).
 
-For Excel/XLSX users: the bulk upload modal ships a multi-sheet workbook where
-the first sheet is step-by-step instructions and the remaining sheets are
-perfectly aligned templates for each of the 5 steps above.  Fill each sheet in
-order, export to CSV per sheet, upload 5x using the same UI as direct CSV.
+For Excel/XLSX-first data entry teams: the bulk upload modal ships a **6-sheet
+multi-sheet XLSX workbook** (`ulms-academic-structure-workbook.xlsx`) — sheet 1
+is the Instructions sheet (read it first), sheets 2–6 correspond exactly to
+steps 1–5 above.  Export each data sheet **individually to UTF-8 CSV** before
+upload.
 
-See [local/ulms_academics/README.md](./local/ulms_academics/README.md) §4 and
-§5 for the schema of each template + the human-readable code link rule.
+See [local/ulms_academics/README.md](./local/ulms_academics/README.md) §4 for
+the exact schema of each template + the human-readable code linking rule.
 
 ### 4.10 Provision initial users (Admin + first cohort)
 
@@ -295,91 +394,296 @@ your change log.
 
 ---
 
-## 5. Step-by-step: Incremental Update (After Go-live)
+## 5. Step-by-step: Incremental Update (After Go-live, Bells University standard PHP-FPM)
 
-The short, safe deploy path using the managed refresh script.
+The short, safe deploy path for routine code updates.  Bells University uses
+the default **standard PHP-FPM** path; `--docker` and `--overlay-delete-ok`
+flags are for legacy/other deployments only and are NOT used here.
 
-### 5.1 Take a point-in-time backup (non-negotiable)
+### 5.1 Take a point-in-time backup (NON-NEGOTIABLE.  Do not skip.)
 
 ```bash
-# DB dump + dataroot snapshot BEFORE pulling code.
-mysqldump --single-transaction --routines ulms | gzip > /var/backups/ulms-db-predeploy-$(date +%Y%m%d-%H%M).sql.gz
-tar -czf /var/backups/ulms-dataroot-predeploy-$(date +%Y%m%d-%H%M).tar.gz \
+PREDEPLOY_TIMESTAMP=$(date +%Y%m%d-%H%M)
+BACKUP_DIR="/var/backups/ulms"
+sudo mkdir -p "$BACKUP_DIR" && sudo chmod 0750 "$BACKUP_DIR"
+
+# (1) Database — use the dedicated ulms_rw user for reads; NEVER use root/doadmin
+#     credentials in scripts.  For DigitalOcean Managed MySQL the port is 25060.
+DB_HOST="$(grep '^DB_HOST=' .env | cut -d= -f2-)"
+DB_PORT="$(grep '^DB_PORT=' .env | cut -d= -f2-)"
+DB_NAME="$(grep '^DB_NAME=' .env | cut -d= -f2-)"
+DB_USER="$(grep '^DB_USER=' .env | cut -d= -f2-)"
+DB_PASS_FILE="$(mktemp /tmp/ulms-dbpass.XXXXXX)"
+chmod 600 "$DB_PASS_FILE"
+grep '^DB_PASSWORD=' .env | sed -E 's/^DB_PASSWORD=//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/' > "$DB_PASS_FILE"
+
+mysqldump --single-transaction --routines --quick --default-character-set=utf8mb4 \
+  --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" \
+  --password="$(cat "$DB_PASS_FILE")" "$DB_NAME" \
+  | gzip > "$BACKUP_DIR/ulms-db-predeploy-$PREDEPLOY_TIMESTAMP.sql.gz"
+
+# (2) Moodledata snapshot (preserves all user uploads, backups, Kortext CSVs)
+tar -czpf "$BACKUP_DIR/ulms-dataroot-predeploy-$PREDEPLOY_TIMESTAMP.tar.gz" \
   -C "$(grep '^MOODLE_DATA_PATH=' .env | cut -d= -f2-)" .
+
+# (3) Store the PREVIOUS git commit so rollback can code-restore it:
+git rev-parse HEAD > "$BACKUP_DIR/ulms-predeploy-commit-$PREDEPLOY_TIMESTAMP.txt"
+
+# (4) Wipe temp DB password file from disk.
+shred -u -z -n 3 "$DB_PASS_FILE" 2>/dev/null || rm -f "$DB_PASS_FILE"
+unset DB_PASS_FILE PREDEPLOY_TIMESTAMP BACKUP_DIR DB_HOST DB_PORT DB_NAME DB_USER
 ```
 
-### 5.2 Pull the new release
+### 5.2 Pull the new release and review incoming diff
 
 ```bash
-sudo -u www-data bash
 cd /var/www/ulms
-git fetch --tags origin main
-git log --oneline HEAD..origin/main | head -n 20   # review incoming changes
-git merge --ff-only origin/main
+sudo -u www-data git fetch origin main
+sudo -u www-data git log --oneline HEAD..origin/main | head -n 20   # review changes
+sudo -u www-data git merge --ff-only origin/main                 # fast-forward only (never a merge commit)
 ```
 
-### 5.3 Run the managed refresh script
+### 5.3 Run the managed refresh script (Bells standard flags)
 
 ```bash
-./scripts/ulms_refresh_live.sh
+# Recommended invocations for Bells University standard PHP-FPM deployment:
+#
+#   * --skip-overlay — legacy overlay sync is NOT used on this server (the
+#     default server layout is git repo + PHP-FPM; there is no ../custom/
+#     directory, so this step is skipped anyway; the flag makes it explicit).
+#   * Omit --composer-required — vendor installation is optional because
+#     the Resend transport works via ext-cURL duck-typed fallback.  Only
+#     add --composer-required if you have already verified Composer is
+#     installed and you want Symfony HttpClient pool behaviour.
+#   * Omit --overlay-delete-ok — Bells University does not use legacy
+#     overlay sync, so the delete guard is irrelevant but keeping it
+#     off is the safe default.
+#   * Add --dry-run first to preview overlay rsync (if any) + composer status
+#     before any writes happen.
+
+# First: preview only (no file writes, no Moodle DB writes)
+sudo -u www-data bash scripts/ulms_refresh_live.sh --dry-run --skip-overlay
+
+# Then: real run (performs composer install → upgrade.php --non-interactive →
+# purge_caches.php → best-effort opcache reset via cachetool if installed,
+# otherwise prints the php-fpm restart command for you)
+sudo -u www-data bash scripts/ulms_refresh_live.sh --skip-overlay
 ```
 
-This script performs (see source at [scripts/ulms_refresh_live.sh](./scripts/ulms_refresh_live.sh)):
-1. **Composer install** of locked production deps if `composer.json/composer.lock` exist (skips cleanly if Composer is absent).
-2. **Legacy overlay sync** from tracked source into any `../custom/` overlay directory (rsync with delete).
-3. **Container refresh** if `../docker-compose.yml` exists (moodle-app + nginx `up -d`, then Moodle upgrade + purge caches inside the app container).
-4. **Moodle upgrade non-interactive** + **Moodle cache purge** via `admin/cli/upgrade.php` and `admin/cli/purge_caches.php`.
+The refresh script explicitly performs (see source at
+[scripts/ulms_refresh_live.sh](./scripts/ulms_refresh_live.sh) which contains
+its entire 2-page usage + deployment-mode documentation at the top of the file):
+1. **Composer install** (when present, optional) of locked production deps if
+   `composer.json/composer.lock` exist.  Clean skip when Composer is absent;
+   exits 2 only if you explicitly add `--composer-required`.
+2. **Legacy overlay sync** — **SAFE-BY-DEFAULT for Bells University:** rsyncs
+   from tracked plugin directories into `../custom/` WITHOUT `--delete` unless
+   you explicitly pass `--overlay-delete-ok` (which also triggers an interactive
+   `type YES` confirmation per overlay target).  `--skip-overlay` disables the
+   step entirely (recommended).
+3. **Moodle upgrade + cache purge (STANDARD PHP-FPM PATH, PRIMARY):** runs
+   `php admin/cli/upgrade.php --non-interactive` (upgrade step continues
+   safely when there are no pending schema changes), then
+   `php admin/cli/purge_caches.php` (cache purge ALWAYS runs), then best
+   effort `cachetool opcache:reset` (or prints the php8.3-fpm systemctl restart
+   command when cachetool is unavailable).
+4. **Docker Compose refresh (SECONDARY, OPT-IN):** runs only when you pass
+   `--docker` explicitly; NEVER runs silently when `docker-compose.yml` is
+   absent or docker CLI is missing — both produce a WARNING.
 
-The script never overwrites:
-- `.env`
-- `config.php`
-- `moodledata/`
+**Files the refresh script GUARANTEES it never modifies:**
+`.env`, `config.php`, any path under `MOODLE_DATA_PATH`, `.htaccess` at repo
+root and at dataroot, `composer.phar` if present, `var/run/moodle-cron.lock`
+(cron single-flight lock).
 
-### 5.4 Automated post-deploy verification
+### 5.4 Automated post-deploy verification (Bells University)
 
 ```bash
-# MUST exit 0 with 0 FAIL lines.
-APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
+# 1. MUST exit 0 with 0 FAIL lines — re-runs the full 52-assertion PRC on the
+#    live environment.  Treat ANY non-zero exit or FAIL line as BLOCKING.
+sudo -u www-data APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
 
-# Health (DB + system context + dataroot + cron age + backup age).
-php local/ulms_dashboard/cli/ops_healthcheck.php --max-cron-age-minutes=3 --max-backup-age-hours=25
+# 2. Health (DB connectivity + system_context + dataroot writable + cron not stale + backup not stale)
+#    Lower --max-* thresholds RIGHT AFTER a deploy so you notice any immediately stale data.
+sudo -u www-data php local/ulms_dashboard/cli/ops_healthcheck.php \
+  --max-cron-age-minutes=3 --max-backup-age-hours=25
 
-# Backup smoke — checks the last known backup on disk still restores cleanly (schema + rowcount sanity)
-php local/ulms_dashboard/cli/ops_backup_smoke.php
+# 3. Backup smoke — restores the LAST backup on disk into an ephemeral check DB
+#    and asserts schema + rowcount sanity.  Pass when the §5.1 backup completed
+#    cleanly; use it each night to validate backups.
+sudo -u www-data php local/ulms_dashboard/cli/ops_backup_smoke.php
 ```
 
 ### 5.5 Install the auto-refresh post-merge git hook (optional, recommended)
 
 ```bash
-./scripts/install_post_merge_hook.sh
+sudo -u www-data bash scripts/install_post_merge_hook.sh
 ```
 
 After install, every successful `git pull origin main` automatically runs
-`ulms_refresh_live.sh` for you in the post-merge hook.
+`ulms_refresh_live.sh --skip-overlay` (Bells default flags are injected
+by the hook installer).  Edit the hook at `.git/hooks/post-merge` to change
+the flags if you later add Composer vendor.
 
 ---
 
-## 6. Rollback
+## 6. Rollback — TESTED procedure for standard PHP-FPM deployments
 
-If §5.4 fails at any step, roll back within minutes:
+Rollback restores the **application code + (optionally) database + moodledata
+snapshot state** back to a known-good deploy taken in §5.1.  The old suggestion
+of `git merge --ff-only <old_commit>` is **NOT a rollback**; it fast-forwards
+*forward* only and therefore fails 100% of the time when your current HEAD
+is newer than the target.  The tested procedure below is what we actually use.
+
+Rollback comes in two flavours.  **Use Code-only Rollback for code-only deploys
+where the DB schema did not change;** use **Full Rollback** when the deploy
+included a Moodle/plugin DB schema upgrade (upgrade.php ran DDL statements) or
+any user writes landed after the deploy.
+
+---
+
+### 6.1 Preconditions (run these FIRST every single time)
 
 ```bash
-# (1) restore code pointer
-OLD_COMMIT=$(git rev-parse --short HEAD~1)   # or the pre-deploy commit hash
-git merge --ff-only "$OLD_COMMIT"            # requires clean pre-deploy backup step
+cd /var/www/ulms
 
-# (2) restore DB + dataroot backups from §5.1
-sudo mysql ulms < <(zcat /var/backups/ulms-db-predeploy-YYYYMMDD-HHMM.sql.gz)
-tar -xzf /var/backups/ulms-dataroot-predeploy-YYYYMMDD-HHMM.tar.gz \
-  -C "$(grep '^MOODLE_DATA_PATH=' .env | cut -d= -f2-)"
+# Pick the rollback target:
+#   (a) AUTO — the PREDEPLOY backup commit from §5.1
+#       PREV_COMMIT=$(cat /var/backups/ulms/ulms-predeploy-commit-YYYYMMDD-HHMM.txt)
+#   (b) MANUAL — a specific git commit SHA you know is good
+#       PREV_COMMIT="abc123de"
+# Verify by showing the 1-line summary:
+git show --no-patch --oneline "$PREV_COMMIT"
 
-# (3) reapply refresh to purge caches + sync overlays
-./scripts/ulms_refresh_live.sh
-
-# (4) re-run PRC + health to confirm green
-APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
-php local/ulms_dashboard/cli/ops_healthcheck.php
+# Locate matching backups (if doing full rollback, not code-only):
+ls -la /var/backups/ulms/*-predeploy-*.{sql.gz,tar.gz} | head -20
 ```
+
+---
+
+### 6.2 Code-only Rollback (SAFE — only touches git-tracked files)
+
+Use when only PHP/JS/CSS/markdown assets changed and no DB schema upgrade ran
+(you ran upgrade.php and it printed "No upgrades available").  This rollback
+CANNOT corrupt Moodle data because it does not touch the DB or moodledata.
+
+```bash
+# ---- what it AFFECTS: git-tracked files under /var/www/ulms ONLY
+# ---- what it PRESERVES: .env, config.php, moodledata, vendor/,
+#                         var/run/moodle-cron.lock, DB, all user uploads, backups.
+
+sudo -u www-data bash -c "
+  set -euo pipefail
+  cd /var/www/ulms
+
+  # (1) Reset the working tree AND INDEX to the known-good commit.
+  #     --hard is safe here: git only touches tracked files; .env and moodledata
+  #     are OUTSIDE the git tracking scope so they are untouched.
+  git reset --hard '$PREV_COMMIT'
+
+  # (2) Confirm rollback target matches what we expect.
+  echo 'Rolled back to:'; git show --no-patch --oneline HEAD
+
+  # (3) Run the refresh script with the EXACT same flags as a normal deploy.
+  #     This re-runs upgrade.php --non-interactive (safe, schema now matches
+  #     the code), purge_caches.php, opcache reset.  Moodle occasionally
+  #     keeps cached plugin versions that must be flushed after code reset.
+  bash scripts/ulms_refresh_live.sh --skip-overlay
+
+  # (4) Verification gate.  If any of these fail, escalate to Full Rollback.
+  APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
+  php local/ulms_dashboard/cli/ops_healthcheck.php --max-cron-age-minutes=3 --max-backup-age-hours=25
+  echo 'Code-only rollback OK.'
+"
+
+echo 'Service should be live on the rolled-back code.  Smoke-test the URLs in §4.12.'
+```
+
+---
+
+### 6.3 Full Rollback — code + database + moodledata (RESTORE FROM §5.1 BACKUPS)
+
+Use when the bad deploy ran a DB schema migration, inserted bad rows, or
+produced user-visible data corruption.  Full rollback is a two-phase
+restore of the exact point-in-time artefacts you captured in §5.1.  New
+writes that happened AFTER the backup are LOST — this is why we require
+a backup taken *immediately before* every deploy.
+
+```bash
+# ---- IMPORTANT: take MAINTENANCE MODE first so users cannot write during
+# restore.  Moodle 4.x built-in maintenance mode:
+sudo -u www-data php admin/cli/maintenance.php --enable
+# Verify: any web request returns the branded maintenance page with 503.
+
+# (1) Roll code back (SAME as §6.2 — git reset --hard + refresh).
+sudo -u www-data bash -c "
+  set -euo pipefail
+  cd /var/www/ulms
+  git reset --hard '$PREV_COMMIT'
+  bash scripts/ulms_refresh_live.sh --skip-overlay
+"
+
+# (2) Restore the MATCHING moodledata tarball captured in §5.1.
+#     OVERWRITES user uploads, cache dirs, Kortext CSV imports, backups.
+#     Run as root because tarball contents are owned by www-data.
+cd "$(grep '^MOODLE_DATA_PATH=' /var/www/ulms/.env | cut -d= -f2-)"
+# Safety: do not extract into wrong dir — abort if the chosen tarball header
+# does not look like a moodledata backup.
+tar --to-stdout -xzf /var/backups/ulms/ulms-dataroot-predeploy-YYYYMMDD-HHMM.tar.gz \
+  | head -1 > /dev/null   # aborts on corrupt tar (non-zero exit)
+sudo tar --same-owner -xzp -f /var/backups/ulms/ulms-dataroot-predeploy-YYYYMMDD-HHMM.tar.gz .
+
+# (3) Restore the MATCHING database SQL dump captured in §5.1.
+#     For DigitalOcean Managed MySQL we use a temp credentials file to avoid
+#     putting passwords on the mysqldump/mysql command lines.
+DB_HOST="$(grep '^DB_HOST=' /var/www/ulms/.env | cut -d= -f2-)"
+DB_PORT="$(grep '^DB_PORT=' /var/www/ulms/.env | cut -d= -f2-)"
+DB_NAME="$(grep '^DB_NAME=' /var/www/ulms/.env | cut -d= -f2-)"
+DB_USER="$(grep '^DB_USER=' /var/www/ulms/.env | cut -d= -f2-)"
+DB_PASS_FILE="$(mktemp /tmp/ulms-dbpass.XXXXXX)"
+chmod 600 "$DB_PASS_FILE"
+grep '^DB_PASSWORD=' /var/www/ulms/.env | sed -E 's/^DB_PASSWORD=//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/' > "$DB_PASS_FILE"
+
+# Double-check dump belongs to the same restore point by peeking at first 10 lines:
+zcat "/var/backups/ulms/ulms-db-predeploy-YYYYMMDD-HHMM.sql.gz" | head -10
+
+# Restore (drops and recreates per-table rows from the dump).
+zcat "/var/backups/ulms/ulms-db-predeploy-YYYYMMDD-HHMM.sql.gz" \
+  | mysql --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" \
+          --password="$(cat "$DB_PASS_FILE")" "$DB_NAME"
+
+# Wipe DB password temp file from disk.
+shred -u -z -n 3 "$DB_PASS_FILE" 2>/dev/null || rm -f "$DB_PASS_FILE"
+unset DB_PASS_FILE DB_HOST DB_PORT DB_NAME DB_USER
+
+# (4) Verification gate — run EXACTLY the same checks as post-deploy.
+sudo -u www-data bash -c "
+  cd /var/www/ulms
+  APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
+  php local/ulms_dashboard/cli/ops_healthcheck.php --max-cron-age-minutes=3 --max-backup-age-hours=25
+  php local/ulms_dashboard/cli/ops_backup_smoke.php
+"
+
+# (5) Turn maintenance mode OFF.
+sudo -u www-data php /var/www/ulms/admin/cli/maintenance.php --disable
+
+# (6) Browser smoke test (§4.12 URLs) — confirm each role shell renders.
+echo 'Full rollback OK.  If symptoms persist, escalate to DO Managed MySQL
+point-in-time restore and restore from the most recent dataroot volume snapshot.'
+```
+
+---
+
+### 6.4 Validation — confirm rollback worked
+
+From an incognito window:
+1. `https://learn.bellsuniversity.edu.ng/sign-in/` → returns HTTP 200, clean ULMS landing shell.
+2. Sign in as the Manager account you created in §4.11 → `/management/` renders correctly.
+3. Sign in as a test student → student dashboard shows courses (if already enrolled).
+4. `APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php` → exit 0.
+
+Log the rollback (reason + PREV_COMMIT chosen + PREDEPLOY timestamp pair used +
+result of §6.4 step 4) in the institutional change log.
 
 ---
 

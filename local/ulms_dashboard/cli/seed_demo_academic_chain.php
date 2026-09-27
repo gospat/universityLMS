@@ -6,15 +6,59 @@ require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
 require_once($CFG->dirroot . '/course/lib.php');
 
-global $DB;
-
-$rawopts = getopt('', ['apply', 'help', 'verbose', 'force-enrol', 'force-mappings']);
+// ═══════════════════════════════════════════════════════════════════════════
+// PRODUCTION SAFETY GATE
+// ═══════════════════════════════════════════════════════════════════════════
+// Demo seeding MUST NEVER run on production.  Production deployments use
+// real university data imported via CSV/XLSX bulk upload workflow (see
+// local/ulms_academics/README.md §4.3).  Block unconditionally when
+// APP_ENV=production unless the explicit --force-unsafe-in-production flag
+// is supplied by an operator who genuinely wants demo records (for staging
+// validation before a real bulk import that will replace them).
+$rawopts = getopt('', ['apply', 'help', 'verbose', 'force-enrol', 'force-mappings', 'force-unsafe-in-production']);
 $help = isset($rawopts['help']);
 $apply = isset($rawopts['apply']);
 $dryrun = !$apply;
 $verbose = isset($rawopts['verbose']);
 $forceenrol = isset($rawopts['force-enrol']);
 $forcemappings = isset($rawopts['force-mappings']);
+$force_unsafe = isset($rawopts['force-unsafe-in-production']);
+
+$appenv = strtolower((string)ulms_env('APP_ENV', 'local'));
+$production_env = in_array($appenv, ['prod', 'production', 'live'], true);
+if ($production_env && !$force_unsafe) {
+    $ansi_red = "\033[31m";
+    $ansi_reset = "\033[0m";
+    $banner = <<<BANNER
+{$ansi_red}═══════════════════════════════════════════════════════════════════════
+  REFUSED: seed_demo_academic_chain.php blocked in APP_ENV=production
+═══════════════════════════════════════════════════════════════════════{$ansi_reset}
+
+  This script inserts DEMO, FICTIONAL records intended for developer
+  workstations and QA staging only.  It will insert:
+    · College "CST - College of Science and Technology"
+    · Departments "DCS" (Computer Science), "DMS" (Mathematical Sciences)
+    · Programmes "BSCCS", "BSMAT"
+    · Session "2026/27", Semesters FIRST + SECOND
+    · Moodle Courses ULMS-CS101, ULMS-CS201, ULMS-MA101, ULMS-MA201
+    · Enrolments for hardcoded user IDs 65 (lecturer) + 66 (student)
+
+  PRODUCTION ENVIRONMENTS MUST USE REAL UNIVERSITY DATA.
+  Import via the CSV/XLSX bulk upload workflow instead:
+    Management → Academics → Bulk upload
+  Or follow the step-by-step instructions in:
+    local/ulms_academics/README.md §4 (CSV) + §4.3 (XLSX workbook)
+
+  If you are absolutely certain you want to seed demo records on a
+  production-like system (e.g. to validate the workflow before wiping
+  them with phase3_purge_rebuild.php --i-am-sure followed by a real
+  CSV bulk import), re-run with:
+    php seed_demo_academic_chain.php --apply --force-unsafe-in-production
+
+BANNER;
+    cli_writeln($banner);
+    exit(2);
+}
 
 if ($help) {
     cli_writeln('ULMS Seed Demo Academic Chain CLI');
@@ -36,13 +80,17 @@ if ($help) {
     cli_writeln('  php seed_demo_academic_chain.php [--apply] [--verbose]');
     cli_writeln('');
     cli_writeln('Options:');
-    cli_writeln('  --apply          Write records. Defaults to dry-run report only.');
-    cli_writeln('  --verbose        Print per-record outcomes.');
-    cli_writeln('  --force-enrol    Re-apply enrolments even if users are already enrolled.');
-    cli_writeln('  --force-mappings Re-evaluate 4-col unique mappings even if rows already exist.');
-    cli_writeln('  --help           Show this help.');
+    cli_writeln('  --apply                      Write records. Defaults to dry-run report only.');
+    cli_writeln('  --verbose                    Print per-record outcomes.');
+    cli_writeln('  --force-enrol                Re-apply enrolments even if users are already enrolled.');
+    cli_writeln('  --force-mappings             Re-evaluate 4-col unique mappings even if rows already exist.');
+    cli_writeln('  --force-unsafe-in-production Allow seeding when APP_ENV=production (not recommended).');
+    cli_writeln('                               Use only for staging validation before real CSV import.');
+    cli_writeln('  --help                       Show this help.');
     exit(0);
 }
+
+global $DB;
 
 /** @var local_ulms_academics\local\service\academic_structure_service $structservice */
 $structservice = new \local_ulms_academics\local\service\academic_structure_service();

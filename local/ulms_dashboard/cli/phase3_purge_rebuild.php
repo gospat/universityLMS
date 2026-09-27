@@ -5,9 +5,96 @@ require __DIR__.'/../../../config.php';
 require_once $CFG->libdir.'/clilib.php';
 require_once $CFG->libdir.'/adminlib.php';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PRODUCTION SAFETY GATE
+// ═══════════════════════════════════════════════════════════════════════════
+// This script is a DESTRUCTIVE maintenance utility.  It deletes the
+// CONTENTS of 8 moodledata directories (sessions, cache, sitedata, lang,
+// etc.) and then calls purge_all_caches().  It does NOT write to the
+// Moodle database table rows except via the standard Moodle upgrade_core()
+// and purge_all_caches() helpers.  See the comment block above the $dirs
+// list below for an exact per-directory accounting.
+//
+// Running in APP_ENV=production is BLOCKED by default.  To authorise, pass
+// the explicit --i-am-sure flag.  This prevents accidental invocation from
+// deployment automation or copy/paste during routine updates.
+$rawopts = getopt('', ['i-am-sure', 'help']);
+if (isset($rawopts['help'])) {
+    cli_writeln('ULMS phase3_purge_rebuild — pristine-state utility (DESTRUCTIVE).');
+    cli_writeln('');
+    cli_writeln('USE CASE:');
+    cli_writeln('  * Immediately BEFORE first go-live (after staging/QA, before real users).');
+    cli_writeln('  * Planned maintenance windows where a cache + session wipe is explicitly desired.');
+    cli_writeln('');
+    cli_writeln('WHAT IT DOES:');
+    cli_writeln('  moodledata CONTENTS DELETED (dirs preserved, index.html + .htaccess kept):');
+    cli_writeln('    cache, localcache, temp, sessions, sitedata, lang, styles_debug, styles_mashup');
+    cli_writeln('  database (safe Moodle core helpers only, NO row drops of user/course data):');
+    cli_writeln('    · purge_all_caches() — MUC caches cleared');
+    cli_writeln('    · upgrade_core()   — DB schema upgrade only if pending');
+    cli_writeln('  other (no DB user data touched):');
+    cli_writeln('    · SCSS rebuild for ulms_university + boost themes');
+    cli_writeln('    · 8-URL HTTP smoke list (read only)');
+    cli_writeln('');
+    cli_writeln('WHAT IT DOES NOT DO:');
+    cli_writeln('  · Does NOT DELETE rows from mdl_user, mdl_course, mdl_enrol or any');
+    cli_writeln('    academic / financial ULMS table.  Student, lecturer and admin');
+    cli_writeln('    records in the database are LEFT INTACT.');
+    cli_writeln('  · Does NOT delete any files inside the webroot / git repository.');
+    cli_writeln('  · Does NOT touch .env, config.php, or moodledata/.htaccess or /index.html');
+    cli_writeln('  · Does NOT introduce demo data.  This is NOT a seeder.  Seeding is done');
+    cli_writeln('    via seed_demo_academic_chain.php (local/dev only, requires --apply and');
+    cli_writeln('    refuses APP_ENV=production).');
+    cli_writeln('');
+    cli_writeln('Usage:');
+    cli_writeln('  php phase3_purge_rebuild.php --i-am-sure');
+    cli_writeln('');
+    cli_writeln('When APP_ENV=production the --i-am-sure flag is MANDATORY.  In local /');
+    cli_writeln('dev environments the flag is optional but you still see this prompt via --help.');
+    exit(0);
+}
+
+$appenv = strtolower((string)ulms_env('APP_ENV', 'local'));
+$production_env = in_array($appenv, ['prod', 'production', 'live'], true);
+if ($production_env && !isset($rawopts['i-am-sure'])) {
+    $ansi_red = "\033[31m";
+    $ansi_reset = "\033[0m";
+    $banner = <<<BANNER
+{$ansi_red}═══════════════════════════════════════════════════════════════════════
+  REFUSED: phase3_purge_rebuild.php blocked in APP_ENV=production
+═══════════════════════════════════════════════════════════════════════{$ansi_reset}
+
+  This script is DESTRUCTIVE — it deletes the CONTENTS of 8 moodledata
+  directories and purges all sessions (everyone logged out).
+
+  Allowed scenarios:
+    · Immediately before FIRST go-live (after QA completed, before real users)
+    · Pre-approved maintenance window with operator confirmation
+
+  To authorise execution on a production system, re-run with:
+    APP_ENV=production php local/ulms_dashboard/cli/phase3_purge_rebuild.php --i-am-sure
+
+  If you are trying to perform a routine Moodle cache clear (the normal
+  deploy-time action), run this INSTEAD:
+    php admin/cli/purge_caches.php
+
+  If you are trying to apply pending Moodle DB schema upgrades after a
+  code-only deploy, run:
+    php admin/cli/upgrade.php --non-interactive
+
+BANNER;
+    cli_writeln($banner);
+    exit(2);
+}
+
 global $CFG;
 raise_memory_limit(MEMORY_HUGE);
 set_time_limit(0);
+
+if ($production_env) {
+    cli_writeln('[PRODUCTION GATE PASSED] explicit --i-am-sure flag supplied.');
+    cli_writeln('[INFO] Starting moodledata cache/session purge + theme rebuild.');
+}
 
 function ulms_recursive_rm_contents($dir, $keeplist = []) {
     if (!is_dir($dir)) {

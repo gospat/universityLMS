@@ -179,8 +179,25 @@ $CFG->dbtype    = ulms_env('DB_TYPE', 'mysqli');
 $CFG->dblibrary = 'native';
 $CFG->dbhost    = ulms_env('DB_HOST', '127.0.0.1');
 $CFG->dbname    = ulms_env('DB_NAME', 'ulms');
-$CFG->dbuser    = ulms_env('DB_USER', 'root');
+// PRODUCTION SAFETY: NEVER use the MySQL root account as the application
+// DB user.  Always create a dedicated least-privilege account (by convention
+// `ulms_rw`) with only the Moodle-required grants on a dedicated database:
+//   CREATE DATABASE ulms CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+//   CREATE USER 'ulms_rw'@'%' IDENTIFIED BY '…';
+//   GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,CREATE TEMPORARY TABLES,LOCK TABLES,CREATE VIEW,SHOW VIEW,TRIGGER,EXECUTE ON ulms.* TO 'ulms_rw'@'%';
+//   FLUSH PRIVILEGES;
+// The default `ulms_rw` value here is deliberately safe — any .env that
+// still references `root` will trigger a PRC-level warning so the override
+// is visible during deployment verification.
+$CFG->dbuser    = ulms_env('DB_USER', 'ulms_rw');
 $CFG->dbpass    = ulms_env('DB_PASSWORD', '');
+// Password value handling: if your password contains special characters
+// (`#`, `$`, space, `!`, quotes, shell metacharacters) wrap the entire
+// value in DOUBLE QUOTES in the .env file so the simple parser treats it
+// literally.  Example:
+//   DB_PASSWORD="Ab#9z!'pR x$$q*M9"
+// NEVER leave passwords unquoted when they contain ` # ` because the parser
+// treats whitespace-then-# as an inline-comment marker.
 $CFG->prefix    = 'mdl_';
 $CFG->dboptions = [
     'dbpersist'           => false,

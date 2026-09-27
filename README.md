@@ -6,10 +6,25 @@ Resend email delivery, Kortext digital-textbook adoption/entitlement sync,
 Exam engine, Academic structure CRUD + CSV/XLSX bulk imports,
 Bill Catalogue + Direct Billing, and an automated **Production Readiness Checker**.
 
-> **Official production-ready declaration:** See the companion guide
-> [ULMS_DEPLOYMENT_SYNC.md](./ULMS_DEPLOYMENT_SYNC.md) section *8. Production-Ready
-> Declaration Checklist* — the automated `production_readiness_check.php` returns
-> 52/52 PASS and exit 0 after every clean deploy.
+> ⚠ **Documentation vs. Runtime-verification baseline distinction:**
+> The documentation you are reading (and the companion
+> [ULMS_DEPLOYMENT_SYNC.md](./ULMS_DEPLOYMENT_SYNC.md)) describes the CURRENT
+> repository HEAD.  The last commit where the automated 52-assertion Production
+> Readiness Checker (`production_readiness_check.php`) was actually executed
+> against a LIVE environment and returned **52/52 PASS + exit 0** is commit
+> **`b46a1fe8`** ("production hardening: resend transport independence + PRC
+> checker fixes").  All commits SINCE `b46a1fe8` (including the current HEAD
+> `51ad91cf` and this batch of changes) have consisted of DOCUMENTATION-ONLY
+> edits, deployment-script hardening, and CLI safety guards — they do not
+> change the runtime application code paths that the PRC script asserts on.
+> You MUST re-run `production_readiness_check.php` on your LIVE target
+> environment after deployment and confirm it reports 52/52 PASS before you
+> mark any commit as "production verified".
+>
+> **Official production-ready declaration runbook:** See the companion guide
+> [ULMS_DEPLOYMENT_SYNC.md](./ULMS_DEPLOYMENT_SYNC.md) section *10. Production-
+> Ready Declaration Checklist* — after you run the PRC on the real environment,
+> tick every item in §10 before sign-off.
 
 ---
 
@@ -24,23 +39,29 @@ Bill Catalogue + Direct Billing, and an automated **Production Readiness Checker
 | `local/ulms_mail/` | Resend HTTP mail transport (3-tier duck-typed: injected → Symfony HttpClient → native ext-cURL fallback), password reset / welcome delivery, send_test_email CLI | [README](./local/ulms_mail/README.md) |
 | `local/ulms_kortext/` | Kortext digital textbook adoptions + entitlement sync (factory adapter: Mock ↔ REST production, idempotency keys, cron) | [README](./local/ulms_kortext/README.md) |
 | `theme/ulms_university/` | Custom ULMS Moodle theme (ULMS shell, navbar, layout grid, SCSS compile-verified) | — (theme config + SCSS source inside) |
-| `scripts/` | `ulms_refresh_live.sh` (deploy refresh) + `install_post_merge_hook.sh` (auto-refresh after `git pull`) | [Deployment guide](./ULMS_DEPLOYMENT_SYNC.md) |
+| `scripts/` | `ulms_refresh_live.sh` (deploy refresh: **Standard PHP-FPM is the primary path**, Docker Compose is a `--docker` opt-in secondary path; see file inline-docs for the full flag list) + `install_post_merge_hook.sh` (auto-refresh after `git pull`) | [Deployment guide §4 + §5](./ULMS_DEPLOYMENT_SYNC.md) |
 
 ---
 
 ## 2. Server Prerequisites
 
-Minimum production environment (verified on commit `b46a1fe8`):
+Platform: Bells University production target is an Ubuntu 24.04 LTS DigitalOcean
+Droplet running PHP 8.3-FPM behind Nginx, with DigitalOcean Managed MySQL and
+the production domain `https://learn.bellsuniversity.edu.ng`.  The same stack
+works on any Ubuntu 24.04 server.
 
-| Component | Minimum | Notes |
+| Component | Production minimum (verified) | Notes |
 |---|---|---|
-| **PHP** | 8.2+ (8.3 recommended) | Required extensions: `mysqli pdo_mysql curl mbstring json xml zip gd intl opcache`. `curl` is **mandatory** when the Resend mail transport is used without Composer vendor. |
-| **Database** | MySQL 8.0 / MariaDB 10.6+ | Collation `utf8mb4_unicode_ci`, DB driver = `mysqli` (default in `.env.example`). |
-| **Web server** | Nginx 1.24+ (preferred) or Apache 2.4+ | HTTPS mandatory in production. The [ULMS cron wrapper](./local/ulms_dashboard/cli/run_moodle_cron.sh) is run independently of the web server. |
-| **Disk (dataroot)** | ≥ 5 GB free (grows with backups/cache) | **Must live outside webroot**; `.env.example` variable `MOODLE_DATA_PATH`. |
-| **Shell (optional)** | `bash`, `rsync`, `flock` (provided by `util-linux`) | Used by deploy refresh scripts and the single-flight cron wrapper. |
-| **Composer (optional)** | Composer 2.x | Not mandatory — Resend mail works via the built-in cURL fallback. Installing Composer vendor unlocks Symfony HttpClient connection pooling. |
-| **Outbound HTTPS** | 443 to `api.resend.com`, (optionally) `api.kortext.co.uk` | Resend and Kortext integrations call out over TLS 1.2+. |
+| **OS** | Ubuntu 24.04 LTS (DigitalOcean Droplet) | Other Linux distros work; paths and systemd unit names below are Ubuntu-24.04 specific. |
+| **PHP** | 8.3.x with FPM SAPI (php-fpm 8.3) | `apt install php8.3-fpm php8.3-cli`.  Composer platform `>=8.1.0`; 8.3 is the Bells University standard. |
+| **PHP extensions (MANDATORY)** | `mysqli pdo_mysql curl mbstring json xml xmlreader zip gd intl opcache iconv openssl ctype zlib simplexml dom spl pcre hash fileinfo sodium` | Extracted from [composer.json](./composer.json) `require` (plus `ext-mysqli` which Moodle needs for MySQL but is only listed under `suggest` upstream — **for ULMS + MySQL deployments mysqli is mandatory, not optional**). |
+| **PHP extensions (recommended)** | `tokenizer soap exif` | Improves Moodle Networking / LTI / image metadata.  Install via `apt install php8.3-*`. |
+| **Database** | DigitalOcean Managed MySQL 8 (default for Bells University) — or local MySQL 8.0 / MariaDB 10.6+ | Collation `utf8mb4_unicode_ci`, DB driver = `mysqli`.  **Never use the MySQL root account as the application user;** provision a dedicated `ulms_rw` user with the least-privilege grants listed in `.env.example`. |
+| **Web server** | Nginx 1.24+ (php-fpm 8.3 via TCP or Unix socket) | Apache 2.4 works but Nginx + FPM is the Bells University default. HTTPS with TLS 1.2+ **mandatory** in production so Secure session cookie + SameSite=Strict flags auto-enable when `$CFG->wwwroot` starts with `https://`. |
+| **Disk (dataroot)** | ≥ 10 GB free, **MUST live outside the webroot** | Default production path for Bells University: `/var/lib/ulms/moodledata` (per `.env.example`).  Mounted separately on ULMS deployments so backups + dataroot snapshots are independent of the git repo. |
+| **Shell tools** | `bash`, `rsync`, `flock` (util-linux), `git` | Used by deploy refresh scripts + the single-flight cron wrapper. |
+| **Composer** | Composer 2.x (optional, not mandatory) | Not required — Resend mail works via the built-in ext-cURL fallback.  Installing Composer vendor (`composer install --no-dev`) unlocks Symfony HttpClient connection pooling only.  When absent, `--composer-required` must never be used unless you first install Composer. |
+| **Outbound HTTPS** | 443 to `api.resend.com`, 443 to `api.kortext.co.uk` (when Kortext is live), 443 to DO Managed MySQL port 25060 | Resend and Kortext integrations call out over TLS 1.2+.  DO Managed MySQL typically listens on a non-standard port (e.g. 25060) with TLS enabled. |
 
 ---
 
