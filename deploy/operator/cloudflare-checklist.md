@@ -1,4 +1,26 @@
+<!-- ============================================================
+  DEPLOYMENT REFERENCE EXAMPLE — Bells University of Technology
+  ------------------------------------------------------------
+  This document is the PRODUCTION operator checklist for the Bells
+  University deployment (zone = learn.bellsuniversity.edu.ng).
+
+  FOR NEW INSTITUTIONS: copy this file and replace every occurrence
+  of `learn.bellsuniversity.edu.ng` with YOUR domain, the Droplet
+  IP `165.232.37.213` with YOUR origin IP, and the origin CA cert
+  paths with your institution's paths.  All section logic (SSL/TLS
+  mode rules, WAF rulesets, HTTP header rewrites) remains identical
+  — only the specific hostname and origin endpoints change.
+============================================================ -->
+
 # Cloudflare Operator Checklist (run BEFORE enabling the site)
+
+> 🛈 This is the **Bells University of Technology reference** version of
+> the Cloudflare operator checklist.  For deployments at OTHER institutions
+> replace `learn.bellsuniversity.edu.ng` and `165.232.37.213` with your
+> own domain and origin server IP before using this checklist.  The section
+> logic (Full(strict) rule, proxy behaviour, WAF, HSTS timeline) is
+> institution-agnostic and can be reused unchanged.
+
 #
 # All of these settings are verified in the Cloudflare Dashboard:
 #   1. Log in → learn.bellsuniversity.edu.ng zone → SSL/TLS → Overview

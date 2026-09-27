@@ -45,6 +45,21 @@ troubleshooting.
 >     Compose is supported only as an opt-in secondary path via the
 >     `--docker` flag if you later migrate; it is NOT the default.
 
+> ### 🏫 Multi-University portability notice
+> **Sections §1 through §15** are the **Bells University of Technology**
+> specific PRODUCTION runbook — domain names (`learn.bellsuniversity.edu.ng`),
+> Droplet IPs (`165.232.37.213`), origin cert paths, DB host prefixes, and
+> deployment directory paths (`/var/www/universityLMS`,
+> `/var/lib/ulms/moodledata`) throughout these sections are intentionally
+> the real Bells values so the Bells operator has a drop-in reference.
+> Operators deploying Covenant University or ANY OTHER institution should
+> treat §1–§15 as *institutional pattern examples* and instead follow
+> **§16 Generic Multi-University 12-Step Setup** at the END of this document.
+> That section references the portable `deploy/nginx/TEMPLATE.site.conf` and
+> `deploy/php-fpm/TEMPLATE.pool.conf` files plus the INSTITUTION_* env block
+> (`.env.example`) — zero Bells strings will ever be rendered on public
+> pages if you start with §16 and edit only `.env` + template tokens.
+
 ---
 
 ## 1. Architecture Overview
@@ -1463,4 +1478,196 @@ Only mark PASSED after the check has actually been run.  **Do not mark "LMS is l
 | GL-19 | `ulms_refresh_live.sh` AND `phase3_purge_rebuild.php` NOT run during deploy | | | ▢ |
 
 Go-live requires GL-01 through GL-19 all PASS on the Production Server column.  Any GL-NOT-VERIFIED → remain at "deployment complete, not yet live" until operator returns evidence for each outstanding row.
+
+---
+
+## 16. Generic Multi-University 12-Step Setup (Covenant University, or any other institution)
+
+This section is the institution-agnostic portable deployment guide. The shared ULMS
+codebase has been explicitly engineered so deployments for different universities never
+require **zero edits to the shared PHP source tree** — all customisation is
+**exclusively** through `.env` settings` + per-institution webserver
+configs generated from TEMPLATE files`.
+
+### Architecture of a multi-university deployment
+
+```
+           ┌─────────────────────────────────────────────────────────┐
+           │          universityLMS.git (ONE shared codebase — MAIN)              │
+           │  Same git repo; identical source for every university      │
+           │  config.php + local/* — NO Bells strings hardcoded │
+           └───────────────┬───────────────────────────────────────────┘
+                           │ git clone (N times for N institutions)
+                           ▼
+    ┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+    │ Bells Clone (.env)  │     │ Covenant Clone    │     │ Future Univ. Clone  │
+    │ · APP_URL = bells │     │ · APP_URL = cov.  │     │ · APP_URL = ...  │
+    │ · INSTITUTION_*   │     │ · INSTITUTION_*   │     │ · INSTITUTION_*   │
+    │ · DB_HOST + .env     │     │ · DB_HOST + .env   │     │ · DB_HOST + .env   │
+    │ · Nginx from Tier2  │     │ · Nginx from Tier1    │     │ · Nginx from Tier1 │
+    │   (BELLS ref file  │     │   (TEMPLATE .conf) │     │   (TEMPLATE .conf)│
+    └──────────────────┘     └──────────────────┘     └────────────────────┘
+```
+
+---
+
+### Step 16.1 — Clone & env configuration (§16.1 to §16.12)
+
+**16.1 **Clone the portable source tree (separate directory per university).
+```bash
+# Covenant University example:
+git clone https://github.com/gospat/universityLMS.git /var/www/covenantLMS
+cd /var/www/covenantLMS
+sudo chown -R root:root /var/www/covenantLMS
+sudo chmod -R g-w /var/www/covenantLMS
+```
+
+16.2 **Copy `.env` with the INSTITUTION_* block**. All branding and infrastructure settings**.
+```bash
+sudo cp .env.example /var/www/.env-covenant
+sudo ln -sf /var/www/.env-covenant /var/www/covenantLMS/.env
+# — now EDIT /var/www/.env-covenant — set ALL of:
+#   APP_ENV=production
+#   APP_URL=https://lms.covenantuniversity.edu.ng
+#   INSTITUTION_NAME="Covenant University"
+#   INSTITUTION_SHORT_CODE="CU"
+#   INSTITUTION_FOOTER="© Covenant University — All rights reserved. ULMS Platform."
+#   INSTITUTION_SUPPORT_EMAIL=lms-support@covenantuniversity.edu.ng
+#   INSTITUTION_SUPPORT_NAME="Covenant University LMS Support"
+#   INSTITUTION_NO_REPLY_EMAIL=no-reply@lms.covenantuniversity.edu.ng
+#   INSTITUTION_SENDER_NAME="Covenant University LMS"
+#   DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD   (Covenant's Managed MySQL)
+#   DB_SSL_MODE=verify-full    (required for non-local DBaaS)
+#   MOODLE_DATA_PATH="/var/lib/covenant/moodledata
+#   ULMS_MAIL_TRANSPORT=resend
+#   RESEND_API_KEY=… (or SMTP_* if using in-house SMTP)
+# — save file; chmod 0640 and chown root:www-data so only root + PHP-FPM pool can read.
+```
+
+16.3 **Provision DB + dedicated least-privilege `ulms_rw` user (separate DB per university)**. Run this against Covenant MySQL:
+```sql
+CREATE DATABASE covenant_ulms CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'covenant_rw'@'%' IDENTIFIED BY '…strong-32char-password…';
+GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,
+      CREATE TEMPORARY TABLES,LOCK TABLES,CREATE VIEW,SHOW VIEW,
+      TRIGGER,EXECUTE ON covenant_ulms.* TO 'covenant_rw'@'%';
+FLUSH PRIVILEGES;
+```
+> Convention: use `<school_rw username (e.g. `bells_rw`, `covenant_rw` or generic
+> `ulms_rw`) — NEVER the exact username is up to operator convention;the institutionally) — NEVER NEVER use `root` app user.
+
+16.4 **Provision moodledata directory per institution (separate, outside webroot, not shared)**.
+```bash
+sudo mkdir -p /var/lib/covenant/moodledata/sessions
+sudo chown -R www-data:www-data /var/lib/covenant/moodledata
+sudo chmod -R u=rwX,g=rX,o= /var/lib/covenant/moodledata   # 0750/0640 effective
+echo "Deny from all" | sudo tee /var/lib/covenant/moodledata/.htaccess >/dev/null
+```
+
+16.5 **DB SSL gate (DB_SSL_MODE=verify-full gate** (DB) Mandatory pre-deploy non-zero-destructive check):
+```bash
+php scripts/ulms_test_db_ssl.php /var/www/.env-covenant
+# → exit 0, Ssl_version TLS 1.2/1.3, non-empty cipher, flags=0x40000800 (verify-full).
+# If fails → fix DB_HOST CA chain matching → DB_HOST must be exact DNS (not IP) before proceeding.
+```
+
+16.6 **DB State Probe (mandatory non-destructive EMPTY/MATCH/UPGRADE decision):
+```bash
+php scripts/ulms_db_state_probe.php /var/www/.env-covenant
+# → STATE=EMPTY expected = install new Moodle instance → proceed 16.7.
+# → STATE=MATCH means DB schema already matches code → safe continue 16.7 skip install.
+# → STATE=UPGRADE means older codebase installed → run UPGRADE path (backup first).
+```
+
+16.7 **Generate Nginx + PHP-FPM configs from portable TEMPLATE (NOT the Bells reference files)**.
+```bash
+export LMS_DOMAIN="lms.covenantuniversity.edu.ng"
+export WEBROOT="/var/www/covenantLMS"
+export PHP_FPM_SOCKET="/run/php/php8.3-fpm.sock"
+export LOG_PATH="/var/log/nginx"
+# Nginx site
+sed -e "s|%%REPLACE_LMS_DOMAIN%%|${LMS_DOMAIN}|g" \
+    -e "s|%%REPLACE_WEBROOT%%|${WEBROOT}|g" \
+    -e "s|%%REPLACE_PHP_FPM_SOCKET%%|${PHP_FPM_SOCKET}|g" \
+    -e "s|%%REPLACE_LOG_PATH%%|${LOG_PATH}|g" \
+    deploy/nginx/TEMPLATE.site.conf > /tmp/${LMS_DOMAIN}.conf
+sudo install -o root -g root -m 0644 /tmp/${LMS_DOMAIN}.conf \
+     /etc/nginx/sites-available/${LMS_DOMAIN}.conf
+sudo ln -sf /etc/nginx/sites-available/${LMS_DOMAIN}.conf \
+            /etc/nginx/sites-enabled/${LMS_DOMAIN}.conf
+# PHP-FPM pool (optional skip if sharing the default [www] pool is OK for your infra)
+export POOL_NAME="covenant"
+sed -e "s|%%REPLACE_POOL_NAME%%|${POOL_NAME}|g" \
+    -e "s|%%REPLACE_SOCKET_PATH%%|/run/php/php8.3-fpm-${POOL_NAME}.sock|g" \
+    -e "s|%%REPLACE_WEBROOT%%|${WEBROOT}|g" \
+    deploy/php-fpm/TEMPLATE.pool.conf > /tmp/ulms-${POOL_NAME}.conf
+sudo install -o root -g root -m 0644 /tmp/ulms-${POOL_NAME}.conf \
+     /etc/php/8.3/fpm/pool.d/ulms-${POOL_NAME}.conf
+# Validate config syntax
+sudo nginx -t
+sudo php-fpm8.3 -t
+sudo systemctl reload nginx
+sudo systemctl restart php8.3-fpm
+```
+> 👉 **Rule: Never copy `deploy/nginx/learn.bellsuniversity.edu.ng.conf verbatim for Covenant / any other institution — always start from Tier1 templates.
+
+16.8 **Run the Moodle install (new INSTALL_NEW decision in probe)**. Browse `https://lms.covenantuniversity.edu.ng/install.php` or use the Moodle CLI installer:
+```bash
+sudo -u www-data php admin/cli/install.php \
+  --wwwroot=https://lms.covenantuniversity.edu.ng \
+  --dataroot=/var/lib/covenant/moodledata \
+  --dbhost=... --dbname=covenant_ulms --dbuser=covenant_rw --dbpass=... --dbtype=mysqli \
+  --fullname="Covenant University LMS" --shortname="CU LMS" \
+  --adminuser=siteadmin --adminpass=... --adminemail=ops@covenantuniversity.edu.ng \
+  --non-interactive --agree-license
+```
+
+16.9**. Cron install:**
+```bash
+sudo php local/ulms_dashboard/cli/install_cron.php --install
+sudo php local/ulms_dashboard/cli/install_cron.php --status
+# → Installed · Active · Lock OK (single-flight lockpath = /tmp/ulms-cron.lock · Last run age …
+```
+
+16.10 **Zero-leaks smoke test — verify Covenant branding.**
+```bash
+# (a) Public login page — no Bells strings in HTML
+curl -s https://lms.covenantuniversity.edu.ng/login/index.php | grep -iE 'bells|bellsuniversity' | wc -l
+# → Expected: 0
+# (b) 404 page (branded handler)
+curl -sk https://127.0.0.1/local/ulms_auth/clean_route_entry.php/nonexistent | grep -iE 'bells|bellsuniversity' | wc -l
+# → Expected: 0
+# (c) Exercising rate limit handler → 429 page:
+#     hit /login/index.php 6 times from a new IP; capture the 429 HTML → grep same check
+# → Expected: 0 matches Covenant branding rendered, zero Bells strings
+# (d) Fatal error handler page:
+APP_ENV=production php -r '
+  require "config.php";
+  \local_ulms_auth\local\error\ulms_safe_error_handler::emit_http_response(500, "test");
+' 2>&1 | grep -iE 'bells|bellsuniversity|learn\.bellsuniversity'
+# → Expected: empty (CU branding only)
+```
+
+16.11 **Production readiness checker:**
+```bash
+APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
+# → MUST exit 0 with 52/52 assertions PASS (0 FAIL, 0 WARN, 0 BLOCKED).
+APP_ENV=production php local/ulms_dashboard/cli/ops_healthcheck.php
+```
+
+16.12 **Live-decl Covenant-specific equivalent of §15 GL checklist:**
+| ID | Check (Covenant) | Covenant operator verified |
+|---|---|---|
+| CU-01 | `php -l config.php` PASS on the deploy commit | ▢ |
+| CU-02 | `ulms_test_db_ssl.php` exit 0 | ▢ |
+| CU-03 | `nginx -t` + `php-fpm8.3 -t` PASS | ▢ |
+| CU-04 | curl -I https://lms.covenantuniversity.edu.ng/.env → 403; /config.php → 403 | ▢ |
+| CU-05 | Login page HTTP 200 → zero Bells strings in HTML source | ▢ |
+| CU-06 | Super admin login → dashboard renders with CU branding, zero Bells strings in any page source | ▢ |
+| CU-07 | Cron active + email smoke test delivered (Resend/SMTP with Covenant sender) | ▢ |
+| CU-08 | Session cookies: Secure + HttpOnly + SameSite Strict on HTTPS | ▢ |
+| CU-09 | Moodledata 0750 www-data:www-data; source root-owned, not writable by www-data | ▢ |
+| CU-10 | Backups configured on (§12 pattern adapted for Covenant paths) | ▢ |
+
+After CU-01 → CU-10 all verified → Covenant deployment LIVE (independent of Bells, zero shared-code changes, fully portable to N universities).
 

@@ -18,13 +18,13 @@
  *   (A) .env parse + DB_SSL_MODE whitelist validation.
  *   (B) Show the exact bitmask of connection flags that will be used.
  *   (C) If the .env DB_HOST / DB_USER / DB_PASSWORD values are populated
- *       (i.e. real Bells credentials), actually connect with the
+ *       (i.e. real institution credentials), actually connect with the
  *       real_connect() call Moodle uses, run the MySQL 8.4-safe
  *       SHOW SESSION STATUS WHERE Variable_name IN ('Ssl_version',
  *       'Ssl_cipher','Ssl_server_not_after','Ssl_sessions_reused') query,
  *       and print current_user() + TLS info.
  *   (D) If the DB values are still placeholders, print a "simulation only"
- *       message and how to run the real test on the target DO Droplet.
+ *       message and how to run the real test on the target DBaaS Droplet.
  *
  * No writes to the database.  No Moodle installer or DB schema operations.
  * No credentials are printed to stdout.
@@ -161,6 +161,7 @@ echo "      Final flags = $flags (0x" . dechex($flags) . ")\n\n";
 // -------------------------------------------------------------------------
 $placeholders = [
     '127.0.0.1',
+    'do-user-xxxx-0.b.db.ondigitalocean.com',
     'bells-ulms-db-do-user-xxxx-0.b.db.ondigitalocean.com',
     'replace-with-strong-password-min-32-chars-special-chars-ok-if-quoted',
     '',
@@ -172,21 +173,28 @@ $isPlaceholder = in_array($dbHost, $placeholders, true)
 
 if ($isPlaceholder) {
     echo "[3/4] REAL CONNECTION SKIPPED (placeholder DB_HOST / DB_PASSWORD in env)\n\n";
-    echo "[4/4] How to run against Bells DO Managed MySQL:\n";
-    echo "      1. On the target DO Ubuntu 24.04 Droplet, install the prereqs:\n";
+    echo "[4/4] How to run against Managed MySQL (DO / AWS / GCP / Azure DBaaS reference):\n";
+    echo "      1. On the target Ubuntu 24.04 server, install the prereqs:\n";
     echo "           sudo apt-get install -y ca-certificates php8.3-cli php8.3-mysql mysql-client\n";
     echo "           sudo update-ca-certificates --fresh\n";
-    echo "      2. Populate /var/www/ulms/.env with real DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD/DB_SSL_MODE.\n";
-    echo "      3. Run:  sudo -u www-data php /var/www/ulms/scripts/ulms_test_db_ssl.php\n";
+    echo "      2. Populate your repo-root .env with real DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD/DB_SSL_MODE.\n";
+    echo "      3. Run:  sudo -u www-data php /path/to/repo/scripts/ulms_test_db_ssl.php\n";
     echo "                 (this script, zero writes, runs the exact real_connect() Moodle will run).\n";
-    echo "      4. Pre-deploy CLI gate — run the §2.2 command from the runbook:\n";
-    echo "           mysql -h <real-DO-hostname> -P 25060 -u ulms_rw -p ulms --ssl-mode=VERIFY_IDENTITY -e \"\n";
+    echo "      4. Pre-deploy CLI gate — run the authoritative mysql VERIFY_IDENTITY test:\n";
+    echo "           mysql -h <real-managed-mysql-hostname> -P <port> -u ulms_rw -p ulms --ssl-mode=VERIFY_IDENTITY -e \"\n";
     echo "             SHOW SESSION STATUS WHERE Variable_name IN ('Ssl_version','Ssl_cipher','Ssl_server_not_after','Ssl_sessions_reused');\n";
     echo "             SELECT current_user() AS db_user, CURRENT_TIMESTAMP AS server_time;\n";
     echo "           \"\n";
     echo "         Expected: Ssl_version = TLSv1.2 or TLSv1.3; Ssl_cipher non-empty.\n\n";
     echo "Expected result on successful live run:\n";
     echo "  - connection OK (no exception / no 0A000086 cert verify errors)\n";
+    echo "\n";
+    echo "# ---------- Bells University reference values (copy/adapt for Bells deploy) ----------\n";
+    echo "# DB_HOST example on Bells DO Managed MySQL:\n";
+    echo "#   bells-ulms-db-do-user-xxxx-0.b.db.ondigitalocean.com\n";
+    echo "# Install path / command on Bells droplet:\n";
+    echo "#   sudo -u www-data php /var/www/universityLMS/scripts/ulms_test_db_ssl.php\n";
+    echo "# --------------------------------------------------------------------------------------\n";
     echo "  - Ssl_session_status reporting TLS 1.2/1.3 + non-empty cipher\n";
     echo "  - current_user() returns ulms_rw@'some-nat-ip' or @'%'\n\n";
     exit(0);

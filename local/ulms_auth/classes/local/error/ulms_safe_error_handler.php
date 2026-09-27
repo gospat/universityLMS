@@ -374,10 +374,70 @@ final class ulms_safe_error_handler {
         exit(1);
     }
 
-    private static function render_branded_page_and_exit(int $httpcode, string $errorid, ?\Throwable $ex = null): void {
+    /**
+     * Resolve institution branding values with extreme safety: use config.php
+     * cascade helpers when they are available (normal flow), otherwise fall
+     * back to neutral compile-time defaults so the error handler continues to
+     * function even if triggered before Moodle/config.php bootstraps.
+     *
+     * @return array{name:string,short:string,footer:string}
+     */
+    private static function resolve_branding(): array {
+        $generic_name = 'Your University';
+        if (function_exists('ulms_institution_cascade')) {
+            $name = ulms_institution_cascade('NAME', [
+                'ULMS_DEFAULT_SUPPORT_NAME',
+                'SMTP_SUPPORT_NAME',
+                'RESEND_FROM_NAME',
+            ], $generic_name);
+        } else {
+            $name = (string)(($_ENV['INSTITUTION_NAME'] ?? getenv('INSTITUTION_NAME')) ?: $generic_name);
+        }
+        if (function_exists('ulms_env')) {
+            $short_override = (string)ulms_env('INSTITUTION_SHORT_CODE', '');
+            $footer_override = (string)ulms_env('INSTITUTION_FOOTER', '');
+        } else {
+            $short_override = (string)(($_ENV['INSTITUTION_SHORT_CODE'] ?? getenv('INSTITUTION_SHORT_CODE')) ?: '');
+            $footer_override = (string)(($_ENV['INSTITUTION_FOOTER'] ?? getenv('INSTITUTION_FOOTER')) ?: '');
+        }
+        if ($short_override !== '') {
+            $short = $short_override;
+        } elseif (function_exists('ulms_institution_short_code')) {
+            $short = ulms_institution_short_code($name);
+        } else {
+            $words = preg_split('/\s+/', trim($name), -1, PREG_SPLIT_NO_EMPTY);
+            $s = '';
+            foreach ((array)$words as $w) {
+                $c = mb_substr($w, 0, 1);
+                if (preg_match('/[A-Za-z0-9]/', $c)) {
+                    $s .= strtoupper($c);
+                }
+                if (mb_strlen($s) >= 4) {
+                    break;
+                }
+            }
+            $short = $s !== '' ? $s : 'ULMS';
+        }
+        if ($footer_override !== '') {
+            $footer = $footer_override;
+        } else {
+            $footer = '© ' . $name . ' — All rights reserved. ULMS Platform.';
+        }
+        return [
+            'name'   => $name,
+            'short'  => $short,
+            'footer' => $footer,
+        ];
+    }
+
+    private static function render_branded_page_and_exit(int $httpcode, string $errorid, ?\Throwable $ex): void {
         while (ob_get_level() > 0) {
             @ob_end_clean();
         }
+        $branding = self::resolve_branding();
+        $brand_name_html = htmlspecialchars($branding['name'], ENT_QUOTES, 'UTF-8');
+        $brand_short_html = htmlspecialchars($branding['short'], ENT_QUOTES, 'UTF-8');
+        $brand_footer_html = htmlspecialchars($branding['footer'], ENT_QUOTES, 'UTF-8');
         @header_remove('Content-Length');
         @http_response_code($httpcode);
         @header('Content-Type: text/html; charset=utf-8');
@@ -490,9 +550,9 @@ HTML;
 <div class="wrap">
   <header class="hd">
     <div class="hd-in">
-      <div class="logo" aria-hidden="true">BT</div>
+      <div class="logo" aria-hidden="true">{$brand_short_html}</div>
       <div class="brand">
-        BELLS TECH UNIVERSITY
+        {$brand_name_html}
         <small>Learning Management System</small>
       </div>
     </div>
@@ -514,7 +574,7 @@ HTML;
       $devstack
     </section>
   </main>
-  <footer class="ft">© BELLS TECH UNIVERSITY — All rights reserved. ULMS Platform.</footer>
+  <footer class="ft">{$brand_footer_html}</footer>
 </div>
 </body>
 </html>

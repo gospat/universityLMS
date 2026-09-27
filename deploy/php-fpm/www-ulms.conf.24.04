@@ -1,3 +1,16 @@
+; ============================================================
+; DEPLOYMENT REFERENCE EXAMPLE — Bells University of Technology
+; ------------------------------------------------------------
+; This file is the PRODUCTION reference for the Bells University
+; deployment PHP-FPM 8.3 pool (/run/php/php8.3-fpm.sock, pool
+; name [www]).  DO NOT reuse it verbatim for other institutions
+; without reviewing socket path, session save_path, pm sizing and
+; opcache settings for the target hardware.
+;
+; FOR NEW INSTITUTIONS: copy deploy/php-fpm/TEMPLATE.pool.conf
+; instead and run the one-liner sed command printed at the top
+; of that file to replace all %%REPLACE_%% tokens in one go.
+; ============================================================
 ; Bells University ULMS — PHP-FPM 8.3 pool hardening reference (Ubuntu 24.04 LTS)
 ;
 ; INSTALL ON DROPLET:

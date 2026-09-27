@@ -217,6 +217,61 @@ class login_rate_limit {
     }
 
     /**
+     * Resolve institution branding values with graceful fallbacks for very early
+     * boot (before config.php helpers are available).  Mirrors the same cascade
+     * used by ulms_safe_error_handler.
+     *
+     * @return array{name:string,short:string,footer:string}
+     */
+    private static function resolve_branding(): array {
+        $generic_name = 'Your University';
+        if (function_exists('ulms_institution_cascade')) {
+            $name = ulms_institution_cascade('NAME', [
+                'ULMS_DEFAULT_SUPPORT_NAME',
+                'SMTP_SUPPORT_NAME',
+                'RESEND_FROM_NAME',
+            ], $generic_name);
+        } else {
+            $name = (string)(($_ENV['INSTITUTION_NAME'] ?? getenv('INSTITUTION_NAME')) ?: $generic_name);
+        }
+        if (function_exists('ulms_env')) {
+            $short_override = (string)ulms_env('INSTITUTION_SHORT_CODE', '');
+            $footer_override = (string)ulms_env('INSTITUTION_FOOTER', '');
+        } else {
+            $short_override = (string)(($_ENV['INSTITUTION_SHORT_CODE'] ?? getenv('INSTITUTION_SHORT_CODE')) ?: '');
+            $footer_override = (string)(($_ENV['INSTITUTION_FOOTER'] ?? getenv('INSTITUTION_FOOTER')) ?: '');
+        }
+        if ($short_override !== '') {
+            $short = $short_override;
+        } elseif (function_exists('ulms_institution_short_code')) {
+            $short = ulms_institution_short_code($name);
+        } else {
+            $words = preg_split('/\s+/', trim($name), -1, PREG_SPLIT_NO_EMPTY);
+            $s = '';
+            foreach ((array)$words as $w) {
+                $c = mb_substr($w, 0, 1);
+                if (preg_match('/[A-Za-z0-9]/', $c)) {
+                    $s .= strtoupper($c);
+                }
+                if (mb_strlen($s) >= 4) {
+                    break;
+                }
+            }
+            $short = $s !== '' ? $s : 'ULMS';
+        }
+        if ($footer_override !== '') {
+            $footer = $footer_override;
+        } else {
+            $footer = '© ' . $name . ' — All rights reserved. ULMS Platform.';
+        }
+        return [
+            'name'   => $name,
+            'short'  => $short,
+            'footer' => $footer,
+        ];
+    }
+
+    /**
      * Emits ULMS-branded HTTP 429 Too Many Requests page with Retry-After header
      * then terminates. Logs scrubbed server-side entry with ref ID.
      *
@@ -229,6 +284,10 @@ class login_rate_limit {
         while (ob_get_level() > 0) {
             @ob_end_clean();
         }
+        $branding = self::resolve_branding();
+        $brand_name_html = htmlspecialchars($branding['name'], ENT_QUOTES, 'UTF-8');
+        $brand_short_html = htmlspecialchars($branding['short'], ENT_QUOTES, 'UTF-8');
+        $brand_footer_html = htmlspecialchars($branding['footer'], ENT_QUOTES, 'UTF-8');
         $ref = substr(bin2hex(random_bytes(5)), 0, 8);
         @error_log('[ULMS-LOGIN-RL-429-' . $ref . '] rate_limit_hit bucket=' . $bucket . ' retry_after=' . $retryafter . ' identifier_sha=' . sha1($identifier) . ' ip_sha=' . sha1($ip));
         @http_response_code(429);
@@ -243,7 +302,7 @@ class login_rate_limit {
         echo <<<HTML
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Too many attempts — ULMS</title>
 <style>*{box-sizing:border-box}body{margin:0;padding:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;background:#f8fafc}.wrap{min-height:100vh;display:flex;flex-direction:column}.hd{background:$navy;color:#fff;padding:16px 24px}.hd-in{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px}.logo{width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff}.brand{font-weight:700;font-size:16px}.brand small{display:block;font-weight:400;font-size:11px;opacity:.75;letter-spacing:.1em;text-transform:uppercase;margin-top:2px}.mn{flex:1;display:flex;align-items:center;justify-content:center;padding:48px 24px}.card{max-width:640px;width:100%;background:#fff;border:1px solid $border;border-radius:12px;padding:40px 32px;text-align:center}.emo{font-size:44px;line-height:1;margin-bottom:16px}.code{display:inline-block;font-family:ui-monospace,monospace;font-size:12px;letter-spacing:.12em;background:$navy;color:#fff;padding:6px 14px;border-radius:999px;font-weight:700;margin-bottom:16px;text-transform:uppercase}h1{font-size:28px;margin:0 0 12px;line-height:1.2;font-weight:700}p.sub{margin:0 0 24px;color:$muted;font-size:15px;line-height:1.6}.ref{background:#f1f5f9;border:1px solid $border;border-radius:8px;padding:16px;margin:20px 0 28px;display:inline-block;text-align:left}.ref .lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:$muted;font-weight:600;margin-bottom:6px}.ref .val{font-family:ui-monospace,monospace;font-size:18px;font-weight:700;color:$navydark;letter-spacing:.08em}.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none;background:$navy;color:#fff;border:1px solid $navy}.btn:hover{background:$navydark}.ft{padding:24px;text-align:center;color:$muted;font-size:12px;border-top:1px solid $border;background:#fff}</style></head>
-<body><div class="wrap"><header class="hd"><div class="hd-in"><div class="logo" aria-hidden="true">BT</div><div class="brand">BELLS TECH UNIVERSITY<small>Learning Management System</small></div></div></header><main class="mn"><section class="card" role="alert" aria-live="assertive"><div class="emo" aria-hidden="true">⏳</div><div class="code">HTTP 429</div><h1>Too many sign-in attempts</h1><p class="sub">We detected an unusual number of sign-in attempts from your location. Please wait a short while and try again.</p><div class="ref"><div class="lbl">Support Reference</div><div class="val">$ref</div></div><a class="btn" href="/">Return to dashboard</a></section></main><footer class="ft">© BELLS TECH UNIVERSITY — All rights reserved. ULMS Platform.</footer></div></body></html>
+<body><div class="wrap"><header class="hd"><div class="hd-in"><div class="logo" aria-hidden="true">{$brand_short_html}</div><div class="brand">{$brand_name_html}<small>Learning Management System</small></div></div></header><main class="mn"><section class="card" role="alert" aria-live="assertive"><div class="emo" aria-hidden="true">⏳</div><div class="code">HTTP 429</div><h1>Too many sign-in attempts</h1><p class="sub">We detected an unusual number of sign-in attempts from your location. Please wait a short while and try again.</p><div class="ref"><div class="lbl">Support Reference</div><div class="val">{$ref}</div></div><a class="btn" href="/">Return to dashboard</a></section></main><footer class="ft">{$brand_footer_html}</footer></div></body></html>
 HTML;
         exit(1);
     }

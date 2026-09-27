@@ -45,23 +45,26 @@ Bill Catalogue + Direct Billing, and an automated **Production Readiness Checker
 
 ## 2. Server Prerequisites
 
-Platform: Bells University production target is an Ubuntu 24.04 LTS DigitalOcean
-Droplet running PHP 8.3-FPM behind Nginx, with DigitalOcean Managed MySQL and
-the production domain `https://learn.bellsuniversity.edu.ng`.  The same stack
-works on any Ubuntu 24.04 server.
+ULMS runs on any Ubuntu 24.04 LTS server (or compatible Linux) with PHP 8.3-FPM
+and a supported Moodle 4.5 database.  The **Bells University of Technology** is
+the first reference deployment (DigitalOcean Droplet + DO Managed MySQL, public
+domain `https://learn.bellsuniversity.edu.ng`).  The codebase is domain- and
+institution-independent — to deploy a new university, only the INSTITUTION_*
+block in `.env` and the web-server templates need to be customised (see §9
+below).
 
 | Component | Production minimum (verified) | Notes |
 |---|---|---|
-| **OS** | Ubuntu 24.04 LTS (DigitalOcean Droplet) | Other Linux distros work; paths and systemd unit names below are Ubuntu-24.04 specific. |
-| **PHP** | 8.3.x with FPM SAPI (php-fpm 8.3) | `apt install php8.3-fpm php8.3-cli`.  Composer platform `>=8.1.0`; 8.3 is the Bells University standard. |
+| **OS** | Ubuntu 24.04 LTS | Other Linux distros work; paths and systemd unit names below are Ubuntu-24.04 specific.  Bells University reference runs on DigitalOcean. |
+| **PHP** | 8.3.x with FPM SAPI (php-fpm 8.3) | `apt install php8.3-fpm php8.3-cli`.  Composer platform `>=8.1.0`; 8.3 is the supported standard. |
 | **PHP extensions (MANDATORY)** | `mysqli pdo_mysql curl mbstring json xml xmlreader zip gd intl opcache iconv openssl ctype zlib simplexml dom spl pcre hash fileinfo sodium` | Extracted from [composer.json](./composer.json) `require` (plus `ext-mysqli` which Moodle needs for MySQL but is only listed under `suggest` upstream — **for ULMS + MySQL deployments mysqli is mandatory, not optional**). |
 | **PHP extensions (recommended)** | `tokenizer soap exif` | Improves Moodle Networking / LTI / image metadata.  Install via `apt install php8.3-*`. |
-| **Database** | DigitalOcean Managed MySQL 8 (default for Bells University) — or local MySQL 8.0 / MariaDB 10.6+ | Collation `utf8mb4_unicode_ci`, DB driver = `mysqli`.  **Never use the MySQL root account as the application user;** provision a dedicated `ulms_rw` user with the least-privilege grants listed in `.env.example`. |
-| **Web server** | Nginx 1.24+ (php-fpm 8.3 via TCP or Unix socket) | Apache 2.4 works but Nginx + FPM is the Bells University default. HTTPS with TLS 1.2+ **mandatory** in production so Secure session cookie + SameSite=Strict flags auto-enable when `$CFG->wwwroot` starts with `https://`. |
-| **Disk (dataroot)** | ≥ 10 GB free, **MUST live outside the webroot** | Default production path for Bells University: `/var/lib/ulms/moodledata` (per `.env.example`).  Mounted separately on ULMS deployments so backups + dataroot snapshots are independent of the git repo. |
+| **Database** | MySQL 8.0 / MariaDB 10.6+ or any Managed DBaaS (DigitalOcean, AWS RDS, GCP Cloud SQL, Azure DB for MySQL) | Collation `utf8mb4_unicode_ci`, DB driver = `mysqli`.  **Never use the MySQL root account as the application user;** provision a dedicated `ulms_rw` user with the least-privilege grants listed in `.env.example`.  Bells University reference uses DigitalOcean Managed MySQL on port 25060 with `DB_SSL_MODE=verify-full`. |
+| **Web server** | Nginx 1.24+ (php-fpm 8.3 via TCP or Unix socket) | Apache 2.4 works but Nginx + FPM is the recommended default (see `deploy/nginx/TEMPLATE.site.conf`).  HTTPS with TLS 1.2+ **mandatory** in production so Secure session cookie + SameSite=Strict flags auto-enable when `$CFG->wwwroot` starts with `https://`. |
+| **Disk (dataroot)** | ≥ 10 GB free, **MUST live outside the webroot** | Default production pattern: `/var/lib/<institution>/moodledata`.  Mount separately so backups + dataroot snapshots are independent of the git repo.  Bells University reference uses `/var/lib/ulms/moodledata`. |
 | **Shell tools** | `bash`, `rsync`, `flock` (util-linux), `git` | Used by deploy refresh scripts + the single-flight cron wrapper. |
 | **Composer** | Composer 2.x (optional, not mandatory) | Not required — Resend mail works via the built-in ext-cURL fallback.  Installing Composer vendor (`composer install --no-dev`) unlocks Symfony HttpClient connection pooling only.  When absent, `--composer-required` must never be used unless you first install Composer. |
-| **Outbound HTTPS** | 443 to `api.resend.com`, 443 to `api.kortext.co.uk` (when Kortext is live), 443 to DO Managed MySQL port 25060 | Resend and Kortext integrations call out over TLS 1.2+.  DO Managed MySQL typically listens on a non-standard port (e.g. 25060) with TLS enabled. |
+| **Outbound HTTPS** | 443 to `api.resend.com`, 443 to `api.korttext.co.uk` (when Kortext is live), DBaaS port (e.g. 25060 for DO) | Resend and Kortext integrations call out over TLS 1.2+.  Most Managed MySQL platforms listen on a non-standard port with TLS enabled (set `DB_SSL_MODE=verify-full`). |
 
 ---
 
@@ -200,3 +203,82 @@ php local/ulms_dashboard/cli/install_cron.php --status
 # (3) DB connect + dataroot writable + last cron age OK?
 php local/ulms_dashboard/cli/ops_healthcheck.php
 ```
+
+---
+
+## 9. New University 7-Step Setup Guide (Covenant University or any other institution)
+
+The shared ULMS codebase has **zero hardcoded personal MacBook paths** and
+**zero hardcoded Bells University domain references** in application code.
+To deploy a completely separate institution you only edit the `.env` file
+and the per-institution webserver templates — **no PHP source edits required**.
+
+### 7 steps to an independent university LMS (zero source-code changes):
+
+```bash
+# Step 1 — Clone the portable repository (same codebase for every university)
+git clone https://github.com/gospat/universityLMS.git covenantLMS
+cd covenantLMS
+
+# Step 2 — Copy the portable example env and fill in the INSTITUTION_* block
+cp .env.example .env
+#
+# MANDATORY edits in the new .env (search for INSTITUTION_, APP_URL, DB_, MOODLE_DATA_PATH):
+#   INSTITUTION_NAME="Covenant University"
+#   INSTITUTION_SHORT_CODE="CU"
+#   INSTITUTION_SUPPORT_EMAIL=lms-support@covenantuniversity.edu.ng
+#   INSTITUTION_SUPPORT_NAME="Covenant University LMS Support"
+#   INSTITUTION_NO_REPLY_EMAIL=no-reply@lms.covenantuniversity.edu.ng
+#   INSTITUTION_SENDER_NAME="Covenant University LMS"
+#   APP_URL=https://lms.covenantuniversity.edu.ng
+#   DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD   (your institution DB)
+#   DB_SSL_MODE=verify-full          (if using a network-attached DBaaS)
+#   MOODLE_DATA_PATH=/var/lib/covenant/moodledata
+#   RESEND_FROM_EMAIL= / RESEND_API_KEY=  (or set ULMS_MAIL_TRANSPORT=moodle for SMTP)
+
+# Step 3 — Provision the Moodle data directory (outside webroot, owner www-data)
+sudo mkdir -p /var/lib/covenant/moodledata/sessions
+sudo chown -R www-data:www-data /var/lib/covenant/moodledata
+sudo chmod 0750 /var/lib/covenant/moodledata
+echo "Deny from all" | sudo tee /var/lib/covenant/moodledata/.htaccess >/dev/null
+
+# Step 4 — Generate the per-institution Nginx + PHP-FPM configs from the portable TEMPLATE
+#          (all tokens substituted in one command — no Bells strings leaked)
+export LMS_DOMAIN="lms.covenantuniversity.edu.ng"
+export WEBROOT="/var/www/covenantLMS"
+export PHP_FPM_SOCKET="/run/php/php8.3-fpm.sock"
+export LOG_PATH="/var/log/nginx"
+sed -e "s|%%REPLACE_LMS_DOMAIN%%|${LMS_DOMAIN}|g" \
+    -e "s|%%REPLACE_WEBROOT%%|${WEBROOT}|g" \
+    -e "s|%%REPLACE_PHP_FPM_SOCKET%%|${PHP_FPM_SOCKET}|g" \
+    -e "s|%%REPLACE_LOG_PATH%%|${LOG_PATH}|g" \
+    deploy/nginx/TEMPLATE.site.conf > /tmp/${LMS_DOMAIN}.conf
+sudo install -o root -g root -m 0644 /tmp/${LMS_DOMAIN}.conf \
+     /etc/nginx/sites-available/${LMS_DOMAIN}.conf
+sudo ln -sf /etc/nginx/sites-available/${LMS_DOMAIN}.conf \
+            /etc/nginx/sites-enabled/${LMS_DOMAIN}.conf
+# (repeat same pattern for deploy/php-fpm/TEMPLATE.pool.conf if custom pool desired)
+
+# Step 5 — Non-destructive DB State Probe + DB SSL gate BEFORE running install
+php scripts/ulms_db_state_probe.php     # → STATE=EMPTY expected for a new install
+php scripts/ulms_test_db_ssl.php        # → exit 0, TLS 1.2/1.3, non-empty cipher
+
+# Step 6 — Run the Moodle installer (web-based install.php via browser or CLI)
+#          Set APP_ENV=local during install then flip to production afterwards;
+#          pick Moodle source = repository root, dataroot = path from Step 3,
+#          DB credentials = .env values you already wrote.
+
+# Step 7 — Post-install smoke tests (should return ZERO references to "Bells"
+#          or "bellsuniversity" or "learn.bellsuniversity" in any page):
+APP_ENV=production php local/ulms_dashboard/cli/production_readiness_check.php
+APP_ENV=production php local/ulms_dashboard/cli/ops_healthcheck.php
+# Browse the login page + force a 404 + force a 429 rate-limit then view source:
+#   curl -s https://lms.covenantuniversity.edu.ng/local/ulms_auth/clean_route_entry.php/this-does-not-exist \
+#     | grep -iE 'bells|bellsuniversity|learn\.bellsuniversity'
+#   → Expected: empty output (zero matches, no Bells leakage).
+```
+
+After completing step 7 your institution has a fully independent LMS served
+by **100 % identical shared source code** to Bells University — all branding,
+domain and infrastructure differences live only in `.env` + the per-institution
+Nginx/PHP-FPM config files you generated from the templates.

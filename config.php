@@ -171,6 +171,65 @@ function ulms_env(string $key, $default = null) {
     return $default;
 }
 
+/**
+ * Institution-branded value cascade: INSTITUTION_* override -> legacy env -> generic placeholder.
+ *
+ * Guarantees backwards-compatible behaviour for existing Bells deployments that
+ * only define the legacy ULMS_DEFAULT_* / SMTP_* / RESEND_* names, while allowing
+ * new institutions to set the single INSTITUTION_* block without touching legacy vars.
+ *
+ * Priority (highest -> lowest):
+ *   1. $_ENV / getenv("INSTITUTION_{$key}")          (new portable override)
+ *   2. first non-empty entry from $legacy_keys list  (Bells-compat names)
+ *   3. $generic_placeholder                          (neutral fallback)
+ *
+ * @param string $key           INSTITUTION_ suffix to check, e.g. 'NAME' -> INSTITUTION_NAME
+ * @param array  $legacy_keys   Ordered list of legacy env variable names to try (first non-empty wins)
+ * @param string $generic_placeholder Final compile-time fallback when neither source is set
+ * @param string $institution_key_prefix Prefix used for the override key (default 'INSTITUTION_')
+ * @return string
+ */
+function ulms_institution_cascade(string $key, array $legacy_keys, string $generic_placeholder, string $institution_key_prefix = 'INSTITUTION_'): string {
+    $override = (string)ulms_env($institution_key_prefix . $key, '');
+    if ($override !== '') {
+        return $override;
+    }
+    foreach ($legacy_keys as $legacy) {
+        $candidate = (string)ulms_env($legacy, '');
+        if ($candidate !== '') {
+            return $candidate;
+        }
+    }
+    return $generic_placeholder;
+}
+
+/**
+ * Short-code fallback: first letter of each whitespace-separated word of the
+ * institution name (up to 4 letters), else 'ULMS'.  Used for the mini logo in
+ * ULMS-auth branded error / 429 / 404 pages.  NEVER hardcodes 'BT'.
+ *
+ * @param string $institution_name
+ * @return string
+ */
+function ulms_institution_short_code(string $institution_name): string {
+    $name = trim($institution_name);
+    if ($name === '') {
+        return 'ULMS';
+    }
+    $words = preg_split('/\s+/', $name, -1, PREG_SPLIT_NO_EMPTY);
+    $code = '';
+    foreach ($words as $w) {
+        $ch = mb_substr($w, 0, 1);
+        if (preg_match('/[A-Za-z0-9]/', $ch)) {
+            $code .= strtoupper($ch);
+        }
+        if (mb_strlen($code) >= 4) {
+            break;
+        }
+    }
+    return $code !== '' ? $code : 'ULMS';
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // 1. DATABASE SETUP — populated from ULMS root .env
 ///////////////////////////////////////////////////////////////////////////
@@ -248,9 +307,9 @@ if ($db_ssl_mode !== '') {
 // 2. WEB SITE LOCATION
 ///////////////////////////////////////////////////////////////////////////
 
-$CFG->wwwroot   = rtrim((string)ulms_env('WWWROOT', (string)ulms_env('APP_URL', 'https://learn.bellsuniversity.edu.ng')), '/');
+$CFG->wwwroot   = rtrim((string)ulms_env('WWWROOT', (string)ulms_env('APP_URL', 'https://lms.youruniversity.edu.ng')), '/');
 if ($CFG->wwwroot === '' || strpos($CFG->wwwroot, 'http') !== 0) {
-    $CFG->wwwroot = 'https://learn.bellsuniversity.edu.ng';
+    $CFG->wwwroot = 'https://lms.youruniversity.edu.ng';
 }
 $appenv_local = in_array(strtolower((string)ulms_env('APP_ENV', 'production')), ['local', 'dev', 'development', 'testing'], true);
 if ($appenv_local) {

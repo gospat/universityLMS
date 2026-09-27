@@ -96,11 +96,59 @@ function local_ulms_auth_boot_public_route(string $relativefile, array $params =
                     'Missing controller file: ' . $relativefile . ' requested from ' . ($_SERVER['REQUEST_URI'] ?? '?')
                 );
             } catch (\Throwable $e) {
-                @http_response_code(404);
-                @header('Content-Type: text/html; charset=utf-8');
-                echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>404 Not Found — ULMS</title><style>body{margin:0;background:#f8fafc;font-family:system-ui}.c{max-width:520px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:32px;text-align:center}.h{background:#0f4c81;color:#fff;padding:14px 20px;margin:-32px -32px 24px;border-radius:12px 12px 0 0;font-weight:700}h1{margin:0 0 8px;font-size:22px;color:#0f172a}p{color:#64748b;margin:0 0 16px;font-size:14px}.b{display:inline-block;padding:10px 16px;background:#0f4c81;color:#fff;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px}</style></head><body><div class="c"><div class="h">BELLS TECH UNIVERSITY</div><h1>Page not found</h1><p>The page you requested is not available. Return to the dashboard or try again later.</p><a class="b" href="/">Return to dashboard</a></div></body></html>';
-                exit(1);
+            @http_response_code(404);
+            @header('Content-Type: text/html; charset=utf-8');
+            $_ulms_c404_name = 'Your University';
+            $_ulms_c404_short = 'ULMS';
+            $_ulms_c404_footer = '';
+            if (function_exists('ulms_institution_cascade')) {
+                $_ulms_c404_name = ulms_institution_cascade('NAME', [
+                    'ULMS_DEFAULT_SUPPORT_NAME',
+                    'SMTP_SUPPORT_NAME',
+                    'RESEND_FROM_NAME',
+                ], $_ulms_c404_name);
+            } else {
+                $_override = (string)(($_ENV['INSTITUTION_NAME'] ?? getenv('INSTITUTION_NAME')) ?: '');
+                if ($_override !== '') {
+                    $_ulms_c404_name = $_override;
+                }
             }
+            if (function_exists('ulms_env')) {
+                $_short = (string)ulms_env('INSTITUTION_SHORT_CODE', '');
+                $_footer = (string)ulms_env('INSTITUTION_FOOTER', '');
+            } else {
+                $_short = (string)(($_ENV['INSTITUTION_SHORT_CODE'] ?? getenv('INSTITUTION_SHORT_CODE')) ?: '');
+                $_footer = (string)(($_ENV['INSTITUTION_FOOTER'] ?? getenv('INSTITUTION_FOOTER')) ?: '');
+            }
+            if ($_short !== '') {
+                $_ulms_c404_short = $_short;
+            } elseif (function_exists('ulms_institution_short_code')) {
+                $_ulms_c404_short = ulms_institution_short_code($_ulms_c404_name);
+            } else {
+                $_words = preg_split('/\s+/', trim($_ulms_c404_name), -1, PREG_SPLIT_NO_EMPTY);
+                $_s = '';
+                foreach ((array)$_words as $_w) {
+                    $_c = mb_substr($_w, 0, 1);
+                    if (preg_match('/[A-Za-z0-9]/', $_c)) {
+                        $_s .= strtoupper($_c);
+                    }
+                    if (mb_strlen($_s) >= 4) {
+                        break;
+                    }
+                }
+                $_ulms_c404_short = $_s !== '' ? $_s : 'ULMS';
+            }
+            if ($_footer !== '') {
+                $_ulms_c404_footer = $_footer;
+            } else {
+                $_ulms_c404_footer = '© ' . $_ulms_c404_name . ' — All rights reserved. ULMS Platform.';
+            }
+            $_ulms_c404_name_html = htmlspecialchars($_ulms_c404_name, ENT_QUOTES, 'UTF-8');
+            $_ulms_c404_footer_html = htmlspecialchars($_ulms_c404_footer, ENT_QUOTES, 'UTF-8');
+            echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>404 Not Found — ULMS</title><style>body{margin:0;background:#f8fafc;font-family:system-ui}.c{max-width:520px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:32px;text-align:center}.h{background:#0f4c81;color:#fff;padding:14px 20px;margin:-32px -32px 24px;border-radius:12px 12px 0 0;font-weight:700}h1{margin:0 0 8px;font-size:22px;color:#0f172a}p{color:#64748b;margin:0 0 16px;font-size:14px}.b{display:inline-block;padding:10px 16px;background:#0f4c81;color:#fff;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px}.ft{padding:18px 0 0;margin-top:24px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px}</style></head><body><div class="c"><div class="h">' . $_ulms_c404_name_html . '</div><h1>Page not found</h1><p>The page you requested is not available. Return to the dashboard or try again later.</p><a class="b" href="/">Return to dashboard</a><div class="ft">' . $_ulms_c404_footer_html . '</div></div></body></html>';
+            unset($_ulms_c404_name, $_ulms_c404_short, $_ulms_c404_footer, $_override, $_short, $_footer, $_words, $_s, $_w, $_c, $_ulms_c404_name_html, $_ulms_c404_footer_html);
+            exit(1);
+        }
         }
         return;
     }

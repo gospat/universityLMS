@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 #
+# ============================================================
+# DEPLOYMENT REFERENCE EXAMPLE — Bells University of Technology
+# ------------------------------------------------------------
+# This script is the PRODUCTION reference for the Bells
+# University deployment refresh workflow.  For deployments at
+# OTHER institutions see ULMS_DEPLOYMENT_SYNC.md §16 Generic
+# Multi-University Setup instead — it walks you through the
+# same atomic deploy primitives (parallel dirs + swap) without
+# any Bells-specific path assumptions.
+#
+# WARNING: This script contains DESTRUCTIVE operations (rsync
+# with --delete, purge_caches.php).  Only run it AFTER reading
+# the runbook safety disclaimers AND with the explicit
+# --overlay-delete-ok / --i-am-sure flags when applicable.
+# ============================================================
+#
 # ULMS live deployment refresh script.
 #
 # DEPLOYMENT MODELS SUPPORTED (autodetected):
