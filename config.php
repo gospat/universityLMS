@@ -199,6 +199,30 @@ $CFG->dbpass    = ulms_env('DB_PASSWORD', '');
 // NEVER leave passwords unquoted when they contain ` # ` because the parser
 // treats whitespace-then-# as an inline-comment marker.
 $CFG->prefix    = 'mdl_';
+$db_ssl_mode    = (string)ulms_env('DB_SSL_MODE', '');
+if ($db_ssl_mode !== '') {
+    // Whitelist must match exactly the set supported by Moodle 4.5 native MySQLi
+    // driver, see lib/dml/mysqli_native_moodle_database.php $sslmodes.  We mirror
+    // that whitelist here so bad values fail fast and loudly at config boot
+    // instead of surfacing as cryptic dml_connection_exception errors during
+    // the DB driver's real_connect() call.
+    $DB_SSL_MODES_ALLOWED = ['require', 'verify-full'];
+    $db_ssl_mode = strtolower(trim($db_ssl_mode));
+    if (!in_array($db_ssl_mode, $DB_SSL_MODES_ALLOWED, true)) {
+        $allowed = implode(', ', $DB_SSL_MODES_ALLOWED);
+        $err  = "[ULMS-CONFIG] Invalid DB_SSL_MODE value: '$db_ssl_mode'. ";
+        $err .= "Allowed values: $allowed.  ";
+        $err .= "Set DB_SSL_MODE=verify-full for DigitalOcean Managed MySQL TLS.";
+        error_log($err);
+        if (PHP_SAPI === 'cli') {
+            fwrite(STDERR, str_replace(['[', ']'], ['', ''], $err) . PHP_EOL);
+            exit(2);
+        }
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+        die($err . PHP_EOL);
+    }
+}
 $CFG->dboptions = [
     'dbpersist'           => false,
     'dbsocket'            => false,
@@ -213,6 +237,12 @@ $CFG->dboptions = [
     'logall'              => false,
     'logslow'             => 0,
 ];
+if ($db_ssl_mode !== '') {
+    // Only set ->dboptions['ssl'] when explicitly configured.  An absent key
+    // means "use plain TCP / whatever the driver defaults to" so local/dev
+    // environments without TLS don't regress.
+    $CFG->dboptions['ssl'] = $db_ssl_mode;
+}
 
 ///////////////////////////////////////////////////////////////////////////
 // 2. WEB SITE LOCATION
