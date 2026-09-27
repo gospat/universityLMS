@@ -104,7 +104,15 @@ other distributions.
 | # | Gate | How to verify (Ubuntu 24.04 commands) |
 |---|---|---|
 | 2.1 | PHP 8.3 with required extensions installed via php-fpm + php-cli | `php -v` reports 8.3.x.  Then run: `php -m \| grep -E '^mysqli$\|^pdo_mysql$\|^curl$\|^mbstring$\|^json$\|^xml$\|^xmlreader$\|^zip$\|^gd$\|^intl$\|^opcache$\|^iconv$\|^openssl$\|^ctype$\|^zlib$\|^simplexml$\|^dom$\|^spl$\|^pcre$\|^hash$\|^fileinfo$\|^sodium$' \| sort -u \| wc -l` → count ≥ 18.  **ext-mysqli is mandatory (not optional) for MySQL deployments** despite Moodle upstream listing it under `suggest` in composer.json. Install command: `sudo apt update && sudo apt install -y php8.3-fpm php8.3-cli php8.3-mysql php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip php8.3-gd php8.3-intl php8.3-opcache php8.3-iconv php8.3-ctype php8.3-dom php8.3-simplexml ca-certificates`. (php-json/php-spl/pcre/hash/fileinfo/sodium are typically built in).  `ca-certificates` is **MANDATORY**: `DB_SSL_MODE=verify-full` needs `/etc/ssl/certs/ca-certificates.crt` to validate the Managed MySQL certificate chain (see §3.1 DB_SSL_MODE + §11.9).
-| 2.2 | DigitalOcean Managed MySQL 8 reachable over TLS (verify-full) + dedicated `ulms_rw` user provisioned | From the Droplet, confirm full TLS **with hostname verification**: `mysql -h bells-ulms-db-do-user-xxxx-0.b.db.ondigitalocean.com -P 25060 -u ulms_rw -p ulms --ssl-mode=VERIFY_IDENTITY -e 'SELECT 1 AS can_connect_verify_full, current_user() AS db_user, @@ssl_version AS tls_version, @@ssl_cipher AS tls_cipher, CURRENT_TIMESTAMP AS server_time;'`.  DO Managed MySQL uses non-standard port 25060 and issues certs signed by a public CA; `--ssl-mode=VERIFY_IDENTITY` proves the Droplet trusts the CA chain AND the exact wildcard hostname matches (this is exactly what Moodle's `DB_SSL_MODE=verify-full` does).  If this CLI test fails, Moodle WILL fail to connect — fix the CA bundle / firewall before going further.  Run the exact grant list from `.env.example §Database` so the app user never has SUPER/FILE privileges.  **Never use the cluster's `doadmin` or `root` credentials as the application DB user.** |
+| 2.2 | DigitalOcean Managed MySQL 8 reachable over TLS (verify-full) + dedicated `ulms_rw` user provisioned | From the Droplet, confirm full TLS **with identity verification** using a diagnostic that works across MySQL 5.7 → 8.0 → 8.4+ (DO NOT use `@@ssl_version` / `@@ssl_cipher` — those are deprecated and removed in MySQL 8.4; use the SESSION STATUS `Ssl_*` variables which are the portable, non-deprecated API).  Run:
+```
+mysql \
+  -h bells-ulms-db-do-user-xxxx-0.b.db.ondigitalocean.com \
+  -P 25060 -u ulms_rw -p ulms --ssl-mode=VERIFY_IDENTITY \
+  -e "SHOW SESSION STATUS WHERE Variable_name IN ('Ssl_version','Ssl_cipher','Ssl_server_not_after','Ssl_sessions_reused');
+      SELECT current_user() AS db_user, CURRENT_TIMESTAMP AS server_time;"
+```
+Expected output: `Ssl_version` = `TLSv1.2` or `TLSv1.3` (TLSv1.0/1.1 were removed in 8.0.28), `Ssl_cipher` non-empty, `Ssl_server_not_after` far in the future, and NO `ERROR 2026 (HY000): SSL connection error` / cert-mismatch output.  The `--ssl-mode=VERIFY_IDENTITY` CLI flag proves the Droplet trusts the CA chain AND the exact wildcard hostname on the cert matches DB_HOST — this diagnostic is the ground truth for whether PHP Moodle `DB_SSL_MODE=verify-full` will succeed.  If this CLI test fails, Moodle WILL fail to connect — fix the CA bundle / firewall / DB_HOST hostname before going further.  Run the exact grant list from `.env.example §Database` so the app user never has SUPER/FILE privileges.  **Never use the cluster's `doadmin` or `root` credentials as the application DB user.** |
 | 2.3 | `moodledata` directory created OUTSIDE the webroot, writable by `www-data`, with `.htaccess` denying direct access | Bells standard path: `/var/lib/ulms/moodledata`.  `sudo mkdir -p /var/lib/ulms/moodledata && sudo chown www-data:www-data /var/lib/ulms/moodledata && sudo chmod 0750 /var/lib/ulms/moodledata && echo "Deny from all" \| sudo tee /var/lib/ulms/moodledata/.htaccess && sudo chown www-data:www-data /var/lib/ulms/moodledata/.htaccess`. |
 | 2.4 | Outbound HTTPS on 443 to `api.resend.com`, (optionally) `api.kortext.co.uk`, and the DO Managed MySQL port | `curl -I https://api.resend.com` → HTTP 401/404 (proves endpoint reachable; 401 is fine because no key was supplied).  `nc -zv bells-ulms-db-…ondigitalocean.com 25060` → `succeeded!`. |
 | 2.5 | Shell user can write to repo root + run `php`, `rsync`, `flock`, `git` | `php -v`, `rsync --version`, `flock --version`, `git --version` all return 0 exit codes.  Install any missing ones: `sudo apt install -y rsync util-linux git curl`. |
@@ -154,15 +162,27 @@ DB_PASSWORD='replace-with-strong-32-char-password-use-double-quotes-if-special-c
 # DB_SSL_MODE: Moodle MySQLi driver supported values = require | verify-full.
 #   * verify-full = MANDATORY for DigitalOcean Managed MySQL and ANY DBaaS.
 #       Sets PHP MYSQLI_CLIENT_SSL | MYSQLI_CLIENT_SSL_VERIFY_SERVER_CERT.
-#       Enforces TLS encryption + certificate chain validation against the
-#       OS trust store (/etc/ssl/certs/ca-certificates.crt) PLUS hostname
-#       verification (CN/SAN must match DB_HOST exactly).  A valid
-#       ca-certificates bundle must be installed on the Droplet (see §2.1
-#       install command which includes ca-certificates).
+#       Enables TLS encryption + certificate chain validation against the
+#       OS trust store (/etc/ssl/certs/ca-certificates.crt).  The PHP
+#       constant MYSQLI_CLIENT_SSL_VERIFY_SERVER_CERT historically performs
+#       **certificate chain validation** in mysqlnd (so an untrusted /
+#       expired / self-signed cert fails with 0A000086
+#       "certificate verify failed").  Hostname/CN/SAN-vs-DB_HOST matching
+#       is provided implicitly by the underlying OpenSSL/mysqlnd handshake
+#       when chain validation is on; to get an independently-verified
+#       strong guarantee that BOTH checks pass, always use the §2.2 gate
+#       command `mysql --ssl-mode=VERIFY_IDENTITY` before install.php —
+#       that mode asserts both checks explicitly.
+#       A valid ca-certificates bundle MUST be installed on the Droplet
+#       (see §2.1 apt install command which includes ca-certificates).
 #   * require = encrypts the wire only.  No CA / hostname verification.
 #       Use ONLY inside a private VLAN/peering network with pre-existing
 #       operator trust.  DO NOT use with public-network DBaaS endpoints.
 #   * leave blank / omit = plain TCP (only for 127.0.0.1 dev containers).
+# For Bells/DO Managed MySQL: DB_HOST must be the exact hostname DO
+# provides in the "Connection details" panel (wildcard cert CN/SAN of
+# *.b.db.ondigitalocean.com) — DO NOT put a numeric IPv4 in DB_HOST
+# (wildcard certs do NOT match numeric IPs).
 DB_SSL_MODE=verify-full
 MOODLE_DATA_PATH=/var/lib/ulms/moodledata   # MUST be outside webroot
 
@@ -213,11 +233,11 @@ sudo bash -c '
 '
 ```
 
-### 4.2 `.env`, dataroot, permissions
+### 4.2 `.env`, dataroot, permissions + DB_TLS_PROOF (mandatory)
 
 ```bash
 cp .env.example .env
-$EDITOR .env                          # fill per §3.1 — minimally APP_ENV/APP_URL/DB_*/MOODLE_DATA_PATH/MAIL_*
+$EDITOR .env                          # fill per §3.1 — minimally APP_ENV/APP_URL/DB_*/MOODLE_DATA_PATH/MAIL_*/DB_SSL_MODE=verify-full
 chown www-data:www-data .env
 chmod 0640 .env                       # readable only by webserver user
 
@@ -227,7 +247,25 @@ chown www-data:www-data /var/lib/ulms/moodledata
 chmod 0750 /var/lib/ulms/moodledata
 echo "Deny from all" > /var/lib/ulms/moodledata/.htaccess
 chown www-data:www-data /var/lib/ulms/moodledata/.htaccess
+
+# —— DB TLS PRE-FLIGHT (MANDATORY BEFORE install.php) ——
+# Do NOT skip this block.  It runs the EXACT same real_connect() call
+# Moodle's native MySQLi driver will use, with DB_SSL_MODE=verify-full
+# flags, and fails FAST with a structured exit code + errno/error message
+# if CA chain/host/network/auth is wrong.  Zero writes to DB, zero
+# moodle boot, uses only ext-mysqli + standard .env parser.
+sudo -u www-data php scripts/ulms_test_db_ssl.php
+# Expected exit code 0, output includes:
+#   [1/4] DB_SSL_MODE validation PASS
+#   [2/4] Final flags = 0x40000800 (SSL | SSL_VERIFY_SERVER_CERT)
+#   [3/4] real_connect() succeeded
+#   [4/4] Ssl_version = TLSv1.2 or TLSv1.3, Ssl_cipher non-empty.
+# If this command exits non-zero, fix the issue (see §11.9 matrix) BEFORE
+# proceeding to install.php.
 ```
+
+Also run the MySQL CLI identity-verification gate from §2.2 — both diagnostics
+must pass.
 
 ### 4.3 (Optional) Install Composer vendor
 
@@ -874,31 +912,72 @@ Tick every item before signing off a new instance as production-ready.
   with no studylevel: edit their profile (or re-run bulk import with explicit
   studylevel column).
 
-### 11.9 DB connection fails with TLS handshake / certificate / hostname verification errors (DB_SSL_MODE=verify-full)
+### 11.9 DB connection fails with TLS handshake / certificate verification errors (DB_SSL_MODE=verify-full)
 
 Moodle 4.5 native MySQLi driver maps `$CFG->dboptions['ssl'] = 'verify-full'`
 (which ULMS sets automatically when you set `DB_SSL_MODE=verify-full` in `.env`)
 to PHP flags `MYSQLI_CLIENT_SSL | MYSQLI_CLIENT_SSL_VERIFY_SERVER_CERT`
-in `lib/dml/mysqli_native_moodle_database.php` lines 558–566.  That flag
-combination means **two** distinct checks must BOTH pass before the driver
-will emit any SQL at login:
+in `lib/dml/mysqli_native_moodle_database.php` lines 558–566.  The PHP
+constant `MYSQLI_CLIENT_SSL_VERIFY_SERVER_CERT` historically performs
+**certificate chain validation** in the underlying mysqlnd driver: the leaf
+server certificate → any intermediates → a trusted root CA MUST all chain
+correctly against the OS-wide trust bundle
+(`/etc/ssl/certs/ca-certificates.crt` on Ubuntu 24.04).  Chain validation
+also implicitly covers basic leaf validity (notBefore, notAfter, not-revoked
+if CRL/OCSP stapling is enabled).  Hostname/CN/SAN-vs-`DB_HOST` matching
+is applied by the OpenSSL/mysqlnd handshake when chain verification is on;
+to get a **strong, independently verified guarantee** that BOTH checks
+pass and you are connected to the intended DO hostname, ALWAYS run the
+§2.2 `mysql --ssl-mode=VERIFY_IDENTITY` diagnostic BEFORE going into the
+Moodle install wizard.  That CLI mode asserts both chain + identity checks
+explicitly and is the authoritative diagnostic.
 
-1. The server certificate chain must chain to a trusted CA in the OS bundle.
-   On Ubuntu 24.04 this is `/etc/ssl/certs/ca-certificates.crt` (provided
-   by the `ca-certificates` package).
-2. The server host in the certificate CN / Subject Alternative Name must
-   **exactly** match the hostname you placed in `DB_HOST=` in `.env`.
+> **Post-connect portable TLS check (MySQL 5.7 → 8.0 → 8.4):** When you have
+> a working CLI connection, run:
+> ```
+> SHOW SESSION STATUS WHERE Variable_name IN
+>   ('Ssl_version','Ssl_cipher','Ssl_server_not_after','Ssl_sessions_reused');
+> ```
+> Do **NOT** use `SELECT @@ssl_version, @@ssl_cipher` — those were deprecated
+> and removed in MySQL 8.4.  `Ssl_version` must be `TLSv1.2` or `TLSv1.3`;
+> `Ssl_cipher` must be non-empty; `Ssl_server_not_after` is the notAfter of
+> the server cert.  If these are empty while the connection succeeded, the
+> client negotiated the session in plaintext (or TLS fell back to NULL) and
+> you must debug why `--ssl-mode=REQUIRED`/`VERIFY_IDENTITY` wasn't honoured.
 
 Typical failure modes:
 
 | Symptom in Moodle / error text | Root cause | Fix |
 |---|---|---|
 | `mysqli::real_connect(): SSL operation failed with code 1. OpenSSL Error messages: error:0A000086:SSL routines::certificate verify failed` | OS CA bundle empty or outdated (most common). `ca-certificates` package is not installed, or `update-ca-certificates` has never been run after the OS was bootstrapped. | Run §2.1 install command which includes `ca-certificates`, then: `sudo apt-get install -y --reinstall ca-certificates && sudo update-ca-certificates --fresh`.  Confirm with `ls -l /etc/ssl/certs/ca-certificates.crt` that the bundle is ≥ 150 KB.  Do NOT copy/paste a single CA PEM onto the system: verify the whole bundle works using §2.2 `mysql --ssl-mode=VERIFY_IDENTITY ...` command. |
-| `Peer certificate CN=`*.b.db.ondigitalocean.com' did not match expected CN=`164.92.xx.xx'` | You put a numeric IPv4 address in `DB_HOST=` instead of the **hostname** that the Managed MySQL wildcard cert is issued for.  `MYSQLI_CLIENT_SSL_VERIFY_SERVER_CERT does hostname-vs-IP the same way browsers do — an IP is NOT covered by a wildcard DNS name. | Fix `.env` `DB_HOST=` to the exact DO-managed DNS hostname, e.g. `bells-ulms-db-do-user-1234-0.b.db.ondigitalocean.com` — the same hostname shown in the DO Managed MySQL "Connection details" panel.  Do **not** use private VPC IPs directly unless you attach a matching CN/SAN to them (DO DBaaS uses wildcards). |
-| `dml_connection_exception (HY000/2003): Can't connect to MySQL server on '…ondigitalocean.com:25060' (113 "No route to host") | Firewall egress blocked, Droplet VPC not peered, or DO trusted sources whitelist missing the Droplet. | Verify outbound 25060/TCP is reachable with `nc -zv …ondigitalocean.com 25060`; verify DO Managed MySQL → Settings → Trusted sources includes the Droplet's public IP / VPC; re-run §2.2 CLI test until it returns TLS 1.3/1.2 cipher info.  This is NOT an SSL error — treat as network first. |
-| Same as above, but `nc` works; the §2.2 CLI test passes with `--ssl-mode=REQUIRED` but fails `VERIFY_IDENTITY` | Hostname typo in DB_HOST (e.g. missing `-0-` vs `-1-` or regional mismatch). | Copy-paste the hostname exactly from DO UI, do not hand-type it.  `nslookup <hostname>` and `openssl s_client -connect <hostname>:25060 -servername <hostname>` → check the returned CN/SANs and make them match. |
-| Errors only happen **after** a DB maintenance window; worked previously | DO rotated the server cert; a stale local CA bundle; or DB_HOST was changed during maintenance (unlikely but possible). | Re-run all §2.2 VERIFY_IDENTITY CLI test — if it fails, diagnose there is your diagnostic ground-truth and update .env or reinstall ca-certificates.  Never "downgrade to `require` as a workaround unless there is a documented, time-bound emergency and you have a temporary internal plan to re-enable verify-full within hours.|
+| `Peer certificate CN='*.b.db.ondigitalocean.com' did not match expected CN='164.92.xx.xx'` (or `IP address mismatch`) | You put a numeric IPv4 address in `DB_HOST=` instead of the **hostname** that the Managed MySQL wildcard cert is issued for.  Wildcard cert CN/SAN patterns match DNS names, not numeric IP addresses, in PHP mysqlnd / OpenSSL. | Fix `.env` `DB_HOST=` to the exact DO-managed DNS hostname, e.g. `bells-ulms-db-do-user-1234-0.b.db.ondigitalocean.com` — the same hostname shown in the DO Managed MySQL "Connection details" panel.  Do **not** use private VPC IPs directly unless you attach a matching CN/SAN to them (DO DBaaS issues wildcard DNS-name certs). |
+| `dml_connection_exception (HY000/2003): Can't connect to MySQL server on '…ondigitalocean.com:25060' (113 "No route to host")` | Firewall egress blocked, Droplet VPC not peered, or DO trusted sources whitelist missing the Droplet. | Verify outbound 25060/TCP is reachable with `nc -zv …ondigitalocean.com 25060`; verify DO Managed MySQL → Settings → Trusted sources includes the Droplet's public IP / VPC; re-run §2.2 CLI test until it returns non-empty `Ssl_version` / `Ssl_cipher`.  This is NOT an SSL error — treat as network first. |
+| Same as above, but `nc` works; the §2.2 CLI test passes with `--ssl-mode=REQUIRED` but fails `VERIFY_IDENTITY` | Hostname typo in DB_HOST (e.g. missing `-0-` vs `-1-` or regional mismatch) OR the DO server cert was rotated and the new intermediate is not in the (stale) CA bundle. | Copy-paste the hostname exactly from DO UI (do not hand-type).  `nslookup <hostname>` and `openssl s_client -connect <hostname>:25060 -starttls mysql -servername <hostname>` → check the returned CN/SANs + issuer chain and make them match.  Re-run `sudo update-ca-certificates --fresh`. |
+| Errors only happen **after** a DB maintenance window; worked previously | DO rotated the server cert; a stale local CA bundle; or DB_HOST was changed during maintenance (unlikely but possible). | Re-run the full §2.2 VERIFY_IDENTITY CLI test — if it fails, diagnose there first (your diagnostic ground-truth) and only then update .env or reinstall ca-certificates.  Never "downgrade to `require`" as a workaround unless there is a documented, time-bound emergency and you have a temporary internal plan to re-enable verify-full within hours. |
 
-> **CRITICAL LIMITATION:** installing a CA PEM file into PHP/anywhere does NOT by itself guarantee hostname verification.** The PHP MySQLi driver (unlike some PostgreSQL libpq) does NOT support specifying a custom `mysqli_options(MYSQLI_OPT_SSL_VERIFY_SERVER_CERT path. It ALWAYS validates certificates using the OS-wide trust bundle ONLY — there is currently no Moodle config option to point at a single custom ca.pem file; use the OS ca-certificates mechanism and make sure DB_HOST exactly matches the DO hostname on the certificate CN/SANs.  If DigitalOcean ever provides a private CA-only bundle, append it to a file under /usr/local/share/ca-certificates/ and run update-ca-certificates (NOT hand-edit /etc/ssl/certs/ca-certificates.crt) to trust it system-wide; then re-run §2.2 VERIFY_IDENTITY diagnostic first, not Moodle.
+> **CRITICAL LIMITATION — please read before debugging:** PHP MySQLi's
+> `MYSQLI_CLIENT_SSL_VERIFY_SERVER_CERT` flag (unlike PostgreSQL's libpq
+> `sslmode=verify-full`) does **not** expose a per-connection CA file or
+> per-connection hostname override setting.  There is no PHP API in
+> `mysqli_options()` to point MySQLi at a single `.pem` file for the trust
+> chain (it would require `mysqli_ssl_set(..., ca, ...)` to be called
+> BEFORE `real_connect()` — Moodle's native driver currently does NOT
+> call `mysqli_ssl_set()` at all when only `dboptions['ssl']` is set).
+> Validation therefore always uses the OS-wide trust bundle only.
+> Trust any private / custom CA by appending its PEM to a file under
+> `/usr/local/share/ca-certificates/` and running `update-ca-certificates`
+> (NEVER hand-edit `/etc/ssl/certs/ca-certificates.crt` directly).
+> For DigitalOcean Managed MySQL this is not needed because the server
+> cert chains to a widely-trusted public CA already included in the
+> `ca-certificates` package.
+>
+> Because of this driver limitation, `DB_HOST` **must** be the exact DNS
+> hostname from DO's connection panel (not an IP, not a short alias in
+> `/etc/hosts`) so that OpenSSL's default hostname matching can confirm
+> the wildcard CN/SAN.
 
-> **DO NOT** drop from `verify-full` → `require` "to make it work"` as a long-term fix on a public-network DBaaS connection; that disables both the CA check AND hostname matching, leaving the connection exposed to MITM attacks.  If you must use it temporarily, write a P1 ticket to return to verify-full with a deadline, plus log it in ULMS audit.
+> **DO NOT** drop from `verify-full` → `require` as a long-term fix on a
+> public-network DBaaS connection; that disables certificate chain
+> validation entirely, leaving the connection exposed to MITM attacks.
+> If you must use it temporarily, write a P1 ticket to return to
+> `verify-full` with a deadline and log it in ULMS audit.
