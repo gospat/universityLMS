@@ -58,3 +58,6 @@ config.php.old
 
 _tmp_verify_service.php
 _tr8_joincheck_t11.php
+
+!theme/boost/scss/bootstrap/vendor/
+!theme/boost/scss/bootstrap/vendor/**
