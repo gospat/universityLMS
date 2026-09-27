@@ -25,14 +25,11 @@ moodledata-*/
 sitedata/
 filedir/
 localcache/
-repository/
 trashdir/
-backup/
 temp/
 tmp/
 logs/
 *.log
-cache/
 /screenshots/
 *.screenshot.png
 

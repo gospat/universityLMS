@@ -1,0 +1,108 @@
+; Bells University ULMS — PHP-FPM 8.3 pool hardening reference (Ubuntu 24.04 LTS)
+;
+; INSTALL ON DROPLET:
+;   sudo cp deploy/php-fpm/www-ulms.conf.24.04 \
+;        /etc/php/8.3/fpm/pool.d/www-ulms.conf
+;   # Remove the default www pool if it conflicts (it shares the same name
+;   # with any existing www.conf; the default /etc/php/8.3/fpm/pool.d/www.conf
+;   # can be left in place but this file will REDECLARE the [www] pool which
+;   # is a fatal — so rename the existing pool instead:
+;   sudo mv /etc/php/8.3/fpm/pool.d/www.conf /etc/php/8.3/fpm/pool.d/www.conf.orig
+;   sudo php-fpm8.3 -t
+;   sudo systemctl restart php8.3-fpm
+;
+; This is the POOL configuration file (the SAPI-level php-fpm.conf already
+; loads /etc/php/8.3/fpm/pool.d/*.conf).  Values here are per-pool overrides
+; and override the defaults in /etc/php/8.3/fpm/pool.d/www.conf.orig.
+
+[www]
+user = www-data
+group = www-data
+
+listen = /run/php/php8.3-fpm.sock
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+listen.acl_users =
+listen.allowed_clients =
+
+pm = dynamic
+pm.max_children = 40
+pm.start_servers = 8
+pm.min_spare_servers = 4
+pm.max_spare_servers = 16
+pm.process_idle_timeout = 30s
+pm.max_requests = 500
+pm.status_path = /fpm-status
+
+; Moodle 4.5 minimums + generous headroom for LMS use (backup/restore,
+; Scorm upload, quiz bulk operations, Korttext LTI launch contexts).
+php_admin_value[memory_limit]        = 512M
+php_admin_value[upload_max_filesize] = 2G
+php_admin_value[post_max_size]       = 2G
+php_admin_value[max_input_time]      = 600
+php_admin_value[max_execution_time]  = 600
+php_admin_value[realpath_cache_size] = 4096K
+php_admin_value[realpath_cache_ttl]  = 600
+php_admin_value[default_socket_timeout] = 60
+php_admin_value[opcache.enable]            = 1
+php_admin_value[opcache.enable_cli]        = 0
+php_admin_value[opcache.memory_consumption] = 256
+php_admin_value[opcache.interned_strings_buffer] = 32
+php_admin_value[opcache.max_accelerated_files] = 100000
+php_admin_value[opcache.revalidate_freq]   = 60
+php_admin_value[opcache.validate_timestamps] = 1
+php_admin_value[opcache.save_comments]      = 1
+php_admin_value[opcache.fast_shutdown]      = 1
+
+; Production PHP error behaviour — web response never shows errors (they
+; are logged via syslog to journald and /var/log/php8.3-fpm.log only).
+php_flag[display_errors]         = off
+php_flag[display_startup_errors] = off
+php_flag[html_errors]            = off
+php_flag[log_errors]             = on
+php_admin_value[error_reporting] = E_ALL & ~E_DEPRECATED & ~E_STRICT
+php_admin_value[error_log]       = syslog
+php_admin_value[syslog.ident]    = ulms-phpfpm
+php_admin_flag[log_errors_max_len] = 0
+
+; Session security — Moodle itself sets these too but harden at the SAPI
+; layer so even a compromised bootstrap cannot relax them.
+php_flag[session.use_strict_mode]     = on
+php_flag[session.use_only_cookies]    = on
+php_flag[session.cookie_httponly]     = on
+php_flag[session.cookie_secure]       = on
+php_value[session.cookie_samesite]    = "Strict"
+php_value[session.save_handler]       = files
+php_value[session.save_path]          = /var/lib/moodledata/sessions
+php_admin_value[session.gc_probability] = 1
+php_admin_value[session.gc_divisor]   = 1000
+php_admin_value[session.gc_maxlifetime] = 14400
+
+; open_basedir — deliberately COMMENTED OUT by default.  Moodle performs a
+; large set of include operations across cache/classes/* + theme compiled
+; assets in dataroot; open_basedir adds measurable overhead and breaks the
+; less-common plugins.  If you want to add it later, set it to at least:
+;   php_admin_value[open_basedir] = "/var/www/universityLMS:/var/lib/moodledata:/tmp:/usr/share/php"
+; and verify admin/index.php environment check reports no warnings.
+
+; Least-privilege pool hardening (do NOT blindly disable functions Moodle
+; actually uses).  Moodle 4.5 uses proc_open/popen for things like zip
+; archives, git branch detection, and some CLI subsystems — do NOT add
+; proc_open, popen, shell_exec, passthru, exec, or system to this list
+; unless you have replaced those subsystems with pure-PHP alternatives.
+php_admin_value[disable_functions] = highlight_file,show_source,dl
+
+; The pool chroot is intentionally NOT used — Moodle uses the real paths
+; /var/www/universityLMS and /var/lib/moodledata for dataroot and chroot
+; would break the relative __DIR__ references inside config.php.
+; Using the www-data user with read-only code + 0750 dataroot perms gives
+; the required privilege separation without chroot complexity.
+
+request_terminate_timeout = 900s
+request_slowlog_timeout   = 30s
+slowlog = /var/log/php8.3-fpm.slow.log
+rlimit_files = 16384
+security.limit_extensions = .php
+catch_workers_output = yes
+decorate_workers_output = no

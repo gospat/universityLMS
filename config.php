@@ -248,8 +248,11 @@ if ($db_ssl_mode !== '') {
 // 2. WEB SITE LOCATION
 ///////////////////////////////////////////////////////////////////////////
 
-$CFG->wwwroot   = rtrim((string)ulms_env('APP_URL', 'http://127.0.0.1:8000'), '/');
-$appenv_local = in_array(strtolower((string)ulms_env('APP_ENV', 'local')), ['local', 'dev', 'development', 'testing'], true);
+$CFG->wwwroot   = rtrim((string)ulms_env('WWWROOT', (string)ulms_env('APP_URL', 'https://learn.bellsuniversity.edu.ng')), '/');
+if ($CFG->wwwroot === '' || strpos($CFG->wwwroot, 'http') !== 0) {
+    $CFG->wwwroot = 'https://learn.bellsuniversity.edu.ng';
+}
+$appenv_local = in_array(strtolower((string)ulms_env('APP_ENV', 'production')), ['local', 'dev', 'development', 'testing'], true);
 if ($appenv_local) {
     if (strpos($CFG->wwwroot, 'https://') === 0) {
         $CFG->wwwroot = preg_replace('#^https://#', 'http://', $CFG->wwwroot);
@@ -257,16 +260,44 @@ if ($appenv_local) {
     $CFG->sslproxy = false;
     $CFG->sslproxy_ssloffload = false;
     unset($_SERVER['HTTPS'], $_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTP_X_FORWARDED_SSL'], $_SERVER['HTTP_FRONT_END_HTTPS']);
+} else {
+    $app_env_prod = in_array(strtolower((string)ulms_env('APP_ENV', 'production')), ['production', 'staging', 'prod'], true);
+    $behind_proxy = in_array(strtolower((string)ulms_env('TRUSTED_PROXY', 'cloudflare')), ['cloudflare', '1', 'true', 'yes', 'on', 'nginx'], true);
+    if ($app_env_prod && $behind_proxy) {
+        $CFG->sslproxy = true;
+        $CFG->sslproxy_ssloffload = true;
+        $CFG->reverseproxy = true;
+        $trusted_raw = (string)ulms_env('TRUSTED_PROXY_IPS', '173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32');
+        if ($trusted_raw !== '') {
+            $trusted = array_values(array_filter(array_map('trim', explode(',', $trusted_raw))));
+            if (!empty($trusted)) {
+                $CFG->trustedproxy = $trusted;
+            }
+        }
+        if (isset($_SERVER['HTTP_CF_CONNECTING_IP']) && filter_var($_SERVER['HTTP_CF_CONNECTING_IP'], FILTER_VALIDATE_IP) !== false) {
+            $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_CF_CONNECTING_IP'];
+        } elseif (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && is_string($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $first = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0];
+            $first = trim($first);
+            if (filter_var($first, FILTER_VALIDATE_IP) !== false) {
+                $_SERVER['REMOTE_ADDR'] = $first;
+            }
+        }
+    } else {
+        $CFG->sslproxy = false;
+        $CFG->reverseproxy = false;
+    }
 }
-$CFG->dataroot  = (string)ulms_env('MOODLE_DATA_PATH', dirname(__DIR__) . '/moodledata-local');
+$CFG->dataroot  = (string)ulms_env('MOODLE_DATA_PATH', $appenv_local ? (dirname(__DIR__) . '/moodledata-local') : '/var/lib/moodledata');
 if ($appenv_local) {
     $candidate_outside = '/tmp/ulms-moodledata-outside';
     if (is_dir($candidate_outside) && is_writable($candidate_outside) && file_exists($candidate_outside . '/.htaccess')) {
         $CFG->dataroot = $candidate_outside;
     }
 }
-$CFG->directorypermissions = 0750;
+$CFG->directorypermissions = 02770;
 $CFG->filepermissions = 0640;
+$CFG->umaskpermissions = 0027;
 
 ///////////////////////////////////////////////////////////////////////////
 // 3. PHP / ERRORS + ULMS LOG FILE

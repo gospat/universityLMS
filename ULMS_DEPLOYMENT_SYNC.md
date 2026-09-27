@@ -981,3 +981,486 @@ Typical failure modes:
 > validation entirely, leaving the connection exposed to MITM attacks.
 > If you must use it temporarily, write a P1 ticket to return to
 > `verify-full` with a deadline and log it in ULMS audit.
+
+## 12. Backups & Disaster Recovery (Bells University)
+
+Goal: recover to any point in the last 30 days within 60 minutes for code + DB + moodledata, RPO ≤ 1 day, RTO ≤ 60 min.
+
+### 12.1 What to back up & where
+
+| Backup scope | Source on Droplet | Primary backup method | Secondary backup method | Retention |
+|---|---|---|---|---|
+| Managed MySQL `ulms` DB | DigitalOcean Managed DB server, port 25060 | DO Managed DB **Point-in-Time Recovery** (PITR) + daily full snapshots (verify in DO Console → Managed MySQL → Backups) | Nightly `mysqldump` from the Droplet → gzip -9 → GPG symmetric → encrypted push to DO Spaces (S3-compatible, private bucket `bells-ulms-backups`, enable versioning) | PITR: 7 days minimum, set to 30 days if billing allows.  DO snapshots: 30 days.  mysqldump on Spaces: 90 days with 1st-of-month kept 1 year. |
+| `/var/lib/moodledata` | `/var/lib/moodledata/*` (filedir, cache, sessions, temp, backup, repository, scormdirs, localcache) | Nightly `rsnapshot` or `rdiff-backup` (incremental) from the Droplet to a 2nd DO volume mounted at `/var/backups/ulms/` with noatime, plus daily tarball → DO Spaces encrypted | Real-time rsync to a second region bucket (cold storage) for disaster recovery — schedule via cron at 02:00 local Nigeria time (lowest LMS traffic) | On-volume incremental: 30 days.  Cold bucket: 1 year. |
+| Moodle code + custom ULMS changes | `/var/www/universityLMS` (git) | Every deploy is a commit on `main` with a tag: `deploy/live-YYYYMMDD-HHMM-<short-hash>` → this alone is a full backup of code.  The tag must point to the exact code actually swapped into place in §13. | On every deploy `git bundle create /var/backups/ulms/ulms-code-<tag>.bundle --all` → GPG → Spaces.  | Tags kept forever in git (immutable).  Bundles on Spaces: 2 years. |
+| Nginx + PHP-FPM pool config | `/etc/nginx/sites-available/learn.bellsuniversity.edu.ng.conf`, `/etc/nginx/nginx.conf`, `/etc/php/8.3/fpm/pool.d/www-ulms.conf`, `/etc/php/8.3/fpm/php.ini` overrides | `etckeeper` commit on each deploy + `dpkg -l` manifest. | `tar cf etc-configs.tar /etc/nginx /etc/php/8.3` → GPG → bundled with the code bundle from the deploy tag. | 2 years on Spaces. |
+| Production environment file | `/var/www/.env` (DB password, Resend key, Kortext OAuth, SMTP, etc.) | 1Password / Bitwarden secure note (primary), NEVER git. | Encrypted `age -r <ops-pubkey>` copy bundled with the deploy bundle stored in a separate "secrets vault" bucket (NOT the same as the code/dump bucket, different IAM keys). | Indefinite; rotate keys any time an operator leaves the university. |
+
+### 12.2 Operator actions — FIRST, before anything else
+
+1. **Verify DO Managed DB backups are actually enabled.**
+   DigitalOcean Console → Managed MySQL → `bells-ulms-db` → Backups → Point-in-time recovery: ON, schedule window set, daily snapshots: ON.  Capture a screenshot showing this ON state — keep it with the deploy audit log.  If it is OFF, **enable NOW** before any destructive step (§14 install/upgrade decision).
+2. `apt-get install -y etckeeper rdiff-backup gnupg2 s3cmd` (s3cmd is for Spaces upload).
+3. Create `/usr/local/sbin/ulms-nightly-backup.sh` using the reference in §12.4.  Installed mode 0700 root:root.
+4. Install nightly cron as root:
+   ```
+   # m  h dom mon dow user  command
+   13 2  *   *   *   root  /usr/local/sbin/ulms-nightly-backup.sh >> /var/log/ulms-backup.log 2>&1
+   ```
+5. Restore-test the backup ONCE within 24h of go-live (§12.5).  If restore-test fails, backups do not exist — treat this as BLOCKING go-live.
+
+### 12.3 GPG encryption keys
+
+Use **two** independent recipients for every backup GPG so that one person's lost key does not cause data loss:
+```bash
+# Ops primary: Bells IT manager
+# Ops secondary: University external auditor / disaster-recovery contract
+gpg2 --batch --passphrase-file /root/.ulms-backup-passphrase.txt \
+     --symmetric --cipher-algo AES256 --compress-algo 1 dump.sql.gz
+# store /root/.ulms-backup-passphrase.txt as chmod 0400 root:root, same secret
+# recorded in 1Password.
+```
+**Age** (alternative to GPG for `.env` and tiny secrets) is also acceptable — use 2 recipients (`-r ops1 -r ops2`) to avoid single-key loss.
+
+### 12.4 Reference nightly backup script
+
+Save as `/usr/local/sbin/ulms-nightly-backup.sh` mode 0700 root:root.  Review each line BEFORE using:
+```bash
+#!/bin/bash
+set -euo pipefail
+umask 0027
+STAMP="$(date +%Y%m%d-%H%M)"
+OUTDIR="/var/backups/ulms/$STAMP"
+mkdir -p "$OUTDIR"
+chown root:root "$OUTDIR"
+chmod 0700 "$OUTDIR"
+PASSFILE="/root/.ulms-backup-passphrase.txt"
+
+# ------------------------------------------------------------------
+# (A) MySQL dump — DO NOT put the password on the command line.
+# Pull DB_PASSWORD from /var/www/.env using a tiny awk snippet,
+# write a TEMPORARY mysql --defaults-extra-file, delete immediately.
+# ------------------------------------------------------------------
+TMPMYSQL="$(mktemp)"
+chmod 0600 "$TMPMYSQL"
+awk -F= '
+/^DB_HOST=/     {h=substr($0,index($0,"=")+1); gsub(/"/,"",h)}
+/^DB_PORT=/     {p=substr($0,index($0,"=")+1); gsub(/"/,"",p)}
+/^DB_NAME=/     {n=substr($0,index($0,"=")+1); gsub(/"/,"",n)}
+/^DB_USER=/     {u=substr($0,index($0,"=")+1); gsub(/"/,"",u)}
+/^DB_PASSWORD=/ {w=substr($0,index($0,"=")+1); gsub(/"/,"",w)}
+END {
+  printf("[client]\nhost=%s\nport=%s\nuser=%s\npassword=%s\nssl-mode=VERIFY_IDENTITY\n", h,p,u,w)
+}' /var/www/.env >"$TMPMYSQL"
+
+mysqldump --defaults-extra-file="$TMPMYSQL" \
+  --single-transaction --quick --routines --triggers --events \
+  --column-statistics=0 --set-gtid-purged=OFF \
+  ulms | gzip -9 > "$OUTDIR/ulms-db-$STAMP.sql.gz"
+rm -f "$TMPMYSQL"
+
+gpg --batch --pinentry-mode loopback --passphrase-file "$PASSFILE" \
+    --symmetric --cipher-algo AES256 --compress-algo 1 \
+    "$OUTDIR/ulms-db-$STAMP.sql.gz"
+shred -u "$OUTDIR/ulms-db-$STAMP.sql.gz"
+
+# ------------------------------------------------------------------
+# (B) Moodledata incremental + tarball of changed files only
+# ------------------------------------------------------------------
+rdiff-backup --force /var/lib/moodledata /var/backups/ulms/moodledata-rdiff
+rdiff-backup --force --remove-older-than 30D /var/backups/ulms/moodledata-rdiff
+
+tar --one-file-system --exclude=/var/lib/moodledata/cache \
+    --exclude=/var/lib/moodledata/localcache --exclude=/var/lib/moodledata/temp \
+    --exclude=/var/lib/moodledata/sessions --exclude=/var/lib/moodledata/trashdir \
+    -I 'gzip -9' -cf - /var/lib/moodledata > "$OUTDIR/ulms-moodledata-$STAMP.tar.gz" 2>/dev/null || true
+gpg --batch --pinentry-mode loopback --passphrase-file "$PASSFILE" \
+    --symmetric --cipher-algo AES256 --compress-algo 1 \
+    "$OUTDIR/ulms-moodledata-$STAMP.tar.gz"
+shred -u "$OUTDIR/ulms-moodledata-$STAMP.tar.gz"
+
+# ------------------------------------------------------------------
+# (C) Code bundle + etc configs (nginx, PHP-FPM)
+# ------------------------------------------------------------------
+cd /var/www/universityLMS
+TAG="deploy/live-${STAMP}-$(git rev-parse --short HEAD)"
+git tag "$TAG" HEAD || true
+git bundle create "$OUTDIR/ulms-code-$STAMP.bundle" --tags --branches --remotes
+tar -I 'gzip -9' -cf "$OUTDIR/ulms-etc-$STAMP.tar.gz" \
+  /etc/nginx/sites-available/learn.bellsuniversity.edu.ng.conf \
+  /etc/nginx/nginx.conf \
+  /etc/php/8.3/fpm/pool.d/www-ulms.conf \
+  /etc/php/8.3/fpm/php.ini \
+  /etc/php/8.3/cli/php.ini \
+  2>/dev/null || true
+
+# ------------------------------------------------------------------
+# (D) Push encrypted outputs to DO Spaces bucket bells-ulms-backups.
+#     ~/.s3cfg must be owned root, mode 0600, and contain the Spaces
+#     access key for the private backup bucket (different region
+#     recommended for disaster).  If s3cmd is not set up yet, the
+#     local copies remain on /var/backups/ulms so nothing is lost.
+# ------------------------------------------------------------------
+if [ -r /root/.s3cfg ]; then
+  s3cmd --ssl -c /root/.s3cfg sync --delete-removed --preserve \
+    "$OUTDIR/ulms-*.gpg" "$OUTDIR/ulms-*.bundle" "$OUTDIR/ulms-etc-*.tar.gz" \
+    "s3://bells-ulms-backups/nightly/$STAMP/" || true
+fi
+
+# Cleanup local unencrypted dumps if they still exist.
+find "$OUTDIR" -type f -name '*.gz' -o -name '*.sql' | xargs -r shred -u
+
+etckeeper commit -m "backup $STAMP" || true
+echo "[ok ulms-backup] $STAMP finished, files in $OUTDIR, synced to s3://bells-ulms-backups"
+```
+
+### 12.5 Restore test (MANDATORY within 24h of first go-live)
+
+Do NOT skip this.  Unverified backups = no backups.
+
+```bash
+# 1. Pick a recent encrypted dump:
+B=/var/backups/ulms/YYYYMMDD-HHMM/ulms-db-YYYYMMDD-HHMM.sql.gz.gpg
+# 2. Decrypt (temporary).
+gpg --batch --pinentry-mode loopback --passphrase-file /root/.ulms-backup-passphrase.txt \
+    --decrypt -o /tmp/restore-check.sql.gz "$B"
+# 3. Create a TEMPORARY scratch DB `ulms_restorecheck_YYYYMMDD` on the same
+#    Managed MySQL instance (different name, no writes to live DB).
+# 4. Import and do two sanity checks:
+zcat /tmp/restore-check.sql.gz | mysql --defaults-extra-file=/tmp/mysql-extra.cnf ulms_restorecheck_YYYYMMDD
+TMPUSERS=$(mysql --defaults-extra-file=/tmp/mysql-extra.cnf -N -B ulms_restorecheck_YYYYMMDD -e "SELECT COUNT(*) FROM mdl_user WHERE deleted=0 AND username<>'guest'")
+TMPCOURSES=$(mysql --defaults-extra-file=/tmp/mysql-extra.cnf -N -B ulms_restorecheck_YYYYMMDD -e "SELECT COUNT(*) FROM mdl_course WHERE id>1")
+# Expect: TMPUSERS matches what you observed before the dump +/- 5; TMPCOURSES >= 0.
+# 5. DROP the scratch DB immediately:
+mysql --defaults-extra-file=/tmp/mysql-extra.cnf -e "DROP DATABASE ulms_restorecheck_YYYYMMDD"
+shred -u /tmp/restore-check.sql.gz /tmp/mysql-extra.cnf
+```
+Moodledata restore check = extract 1 random student submission file from the encrypted tarball and confirm it SHA-sums to the same value as the live file in `/var/lib/moodledata/filedir`.
+
+### 12.6 Deploy rollback (short version; see §13.5 for the full atomic swap + rollback procedure)
+
+If the §13.4 post-deploy smoke test FAILS at any step, roll back with:
+```bash
+PREV_CODE=/var/www/universityLMS.prev
+PREV_TAG=$(cat /var/backups/ulms/ulms-prev-deploy-tag.txt)
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/maintenance.php --enable
+cd /var/www
+# atomic revert the symlink (both .live.tmp then mv pattern below):
+sudo mv universityLMS universityLMS.failed-deploy
+sudo mv universityLMS.prev universityLMS
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/purge_caches.php
+sudo nginx -t && sudo systemctl reload nginx php8.3-fpm
+# If deploy failed AFTER a DB upgrade and schema changes are already applied,
+# run the full §6.3 full rollback including MATCHING moodledata + DB restore
+# using the backup captured in §13.1 PRE_DEPLOY_BACKUP.
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/maintenance.php --disable
+```
+
+## 13. Production Deployment — Atomic Swap Procedure (Bells University standard)
+
+**DO NOT TRUST scripts/ulms_refresh_live.sh or local/ulms_dashboard/cli/phase3_purge_rebuild.php as generic deploy helpers.**  Both are reviewed and declared UNSAFE for routine deploy (phase3_purge_rebuild.php wipes moodledata, sessions, cache, demo data — it destroys production data).  Use ONLY this atomic swap procedure below.
+
+### 13.0 Pre-requisites (confirm all before running anything)
+
+- A. `.gitignore` no longer strips cache/backup/repository → deploy commit ≥ the commit containing this section.
+- B. Deploy commit hash is known, `git fetch origin main; git log --oneline origin/main | head -1` returns it.
+- C. Nginx config file §13.6 reference is in place and `nginx -t` passes on the current site.
+- D. PHP-FPM 8.3 service is healthy: `systemctl status php8.3-fpm --no-pager` returns active (running).
+- E. §12 backups (§12.2 step 1) confirmed running + §12.5 restore-tested successfully.  If either check is outstanding → stop and resolve before deploy.
+- F. `trustedproxy` / Cloudflare checklist from `deploy/operator/cloudflare-checklist.md` completed; SSL/TLS mode = Full (strict).
+
+### 13.1 PRE_DEPLOY_BACKUP (non-negotiable, 4 parts)
+
+```bash
+cd /var/www
+STAMP="$(date +%Y%m%d-%H%M)"
+COMMIT_NEW="$(git ls-remote origin main | awk '{print $1}')"
+COMMIT_CURRENT="$(cd universityLMS && git rev-parse HEAD)"
+
+# (1) DB — encrypted dump before touching anything — re-use §12.4 helper.
+sudo /usr/local/sbin/ulms-nightly-backup.sh
+# (2) Moodledata LATEST snapshot (fast hardlink snapshot).
+sudo rsync -aHAX --delete --numeric-ids /var/lib/moodledata/ \
+  /var/backups/ulms/moodledata-predeploy-$STAMP/ 2>&1 | tail -5
+# (3) Tag current code in the PRE_DEPLOY state so rollback is 1 command.
+sudo bash -c "cd universityLMS && git tag deploy/pre-$STAMP-$COMMIT_CURRENT HEAD"
+# (4) Save the tag / commit for rollback.
+echo "$COMMIT_CURRENT" | sudo tee /var/backups/ulms/ulms-predeploy-commit-$STAMP.txt
+echo "deploy/pre-$STAMP-$COMMIT_CURRENT" | sudo tee /var/backups/ulms/ulms-predeploy-tag.txt
+# (5) Save current deploy commit as previous.
+sudo cp -a /var/www/universityLMS /var/www/universityLMS.prev
+```
+
+### 13.2 Clone and prepare new release in a parallel directory
+
+Do NOT touch `/var/www/universityLMS` in-place until §13.3 atomic swap.
+
+```bash
+NEWSRC="/var/www/universityLMS.rev.$COMMIT_NEW"
+sudo rm -rf "$NEWSRC"
+sudo git clone --branch main --depth 1 --single-branch \
+  https://github.com/gospat/universityLMS.git "$NEWSRC"
+sudo bash -c "cd $NEWSRC && git reset --hard $COMMIT_NEW" 2>/dev/null || true
+# Copy .env from LIVE — NEVER overwrite, NEVER edit, NEVER place under the new dir via any deploy helper.
+sudo cp -a /var/www/.env "$NEWSRC/.env"
+sudo chown root:root -R "$NEWSRC"
+sudo chmod -R a-w "$NEWSRC"
+sudo chmod -R u+w "$NEWSRC"
+sudo find "$NEWSRC" -type d -exec chmod 0755 {} \;
+sudo find "$NEWSRC" -type f -exec chmod 0644 {} \;
+# Ensure config.php and .env are root-owned, NOT writable by www-data:
+sudo chown root:root "$NEWSRC/config.php" "$NEWSRC/.env"
+sudo chmod 0640 "$NEWSRC/config.php" "$NEWSRC/.env"
+sudo chmod go-rwx "$NEWSRC/.env"
+# Ensure moodledata stays READ ONLY for code — www-data writes go only to dataroot.
+```
+
+### 13.3 Run gates BEFORE swap
+
+Run both of these.  If either exits non-zero → roll back the NEWSRC dir and do NOT swap:
+```bash
+# (A) TLS + DB connectivity + SSL verify-full gate (§4.2 DB_TLS_PROOF gate)
+sudo -u www-data php8.3 "$NEWSRC/scripts/ulms_test_db_ssl.php"
+
+# (B) Install vs Upgrade decision — 100% reads.  Capture output to a file for audit:
+sudo -u www-data php8.3 "$NEWSRC/scripts/ulms_db_state_probe.php" /var/www/.env \
+  2>&1 | sudo tee /var/backups/ulms/ulms-db-state-$COMMIT_NEW.txt
+# inspect captured: STATE=EMPTY, INSTALLED_MATCH, INSTALLED_UPGRADE_REQUIRED, or DOWNGRADE_UNSAFE
+#   - DOWNGRADE_UNSAFE → ABORT deploy — DB newer than code.
+#   - INSTALLED_UPGRADE_REQUIRED → continue only if §13.1 backup is verified.
+#   - EMPTY → CLI install (§13.4.1).
+#   - INSTALLED_MATCH → no install or upgrade needed.
+
+# (C) Syntax + sanity
+sudo php8.3 -l "$NEWSRC/config.php"
+sudo php8.3 -l "$NEWSRC/scripts/ulms_test_db_ssl.php"
+sudo php8.3 -l "$NEWSRC/scripts/ulms_db_state_probe.php"
+# (D) vendor (optional, only if you need Symfony HttpClient for Resend)
+# cd "$NEWSRC" && sudo composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+```
+
+### 13.4 Atomic swap, upgrade/install, cache purge, maintenance mode
+
+```bash
+# (1) Maintenance ON — prevents writes during schema change.
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/maintenance.php --enable
+
+# (2) Upgrade only if STATE=INSTALLED_UPGRADE_REQUIRED:
+STATE=$(grep -E '^STATE=' /var/backups/ulms/ulms-db-state-$COMMIT_NEW.txt | tail -1 | cut -d= -f2)
+if [ "$STATE" = "INSTALLED_UPGRADE_REQUIRED" ]; then
+  sudo -u www-data php8.3 "$NEWSRC/admin/cli/upgrade.php" --non-interactive --keep-maintenance-mode
+fi
+# (2b) FIRST INSTALL ONLY if STATE=EMPTY and this is the very first deploy:
+if [ "$STATE" = "EMPTY" ]; then
+  # Read the site admin password from 1Password into a TMP file, DO NOT put it on CLI.
+  TMPPW=$(mktemp -u /tmp/.ulms-admin-pw.XXXXXX)
+  # op read op://Private/ULMS/siteadmin-password > "$TMPPW"  # <-- ops to run; placeholder here.
+  sudo chown www-data:www-data "$TMPPW"
+  sudo -u www-data bash -c "
+    php8.3 $NEWSRC/admin/cli/install_database.php \
+      --lang=en \
+      --wwwroot='https://learn.bellsuniversity.edu.ng' \
+      --dataroot='/var/lib/moodledata' \
+      --dbhost=\"\$(awk -F= '/^DB_HOST=/     {gsub(/\"/, \"\", \$2); print \$2}' /var/www/.env)\" \
+      --dbport=\"\$(awk -F= '/^DB_PORT=/     {gsub(/\"/, \"\", \$2); print \$2}' /var/www/.env)\" \
+      --dbname=\"\$(awk -F= '/^DB_NAME=/     {gsub(/\"/, \"\", \$2); print \$2}' /var/www/.env)\" \
+      --dbuser=\"\$(awk -F= '/^DB_USER=/     {gsub(/\"/, \"\", \$2); print \$2}' /var/www/.env)\" \
+      --dbpass=\"\$(awk -F= '/^DB_PASSWORD=/ {gsub(/\"/, \"\", \$2); print \$2}' /var/www/.env)\" \
+      --prefix=mdl_ \
+      --fullname='Bells University of Technology LMS' \
+      --shortname='BELLS-ULMS' \
+      --adminpassfile='$TMPPW' \
+      --adminemail='lms-admin@bellsuniversity.edu.ng' \
+      --non-interactive \
+      --agree-license
+    "
+  sudo shred -u "$TMPPW"
+  sudo -u www-data php8.3 "$NEWSRC/admin/cli/maintenance.php" --disable  # temp disable to verify, re-enabled below
+  sudo -u www-data php8.3 "$NEWSRC/admin/cli/maintenance.php" --enable
+fi
+
+# (3) Cache purge on NEW code tree.
+sudo -u www-data php8.3 "$NEWSRC/admin/cli/purge_caches.php"
+
+# (4) Nginx / PHP-FPM pre-validate + update reference site config if it changed:
+sudo cp -f "$NEWSRC/deploy/nginx/learn.bellsuniversity.edu.ng.conf" \
+          /etc/nginx/sites-available/learn.bellsuniversity.edu.ng.conf
+sudo ln -sf /etc/nginx/sites-available/learn.bellsuniversity.edu.ng.conf \
+            /etc/nginx/sites-enabled/learn.bellsuniversity.edu.ng.conf
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo cp -f "$NEWSRC/deploy/php-fpm/www-ulms.conf.24.04" \
+          /etc/php/8.3/fpm/pool.d/www-ulms.conf
+# REMOVE the default www pool (pool name redeclaration is fatal).
+sudo mv -f /etc/php/8.3/fpm/pool.d/www.conf /etc/php/8.3/fpm/pool.d/www.conf.orig 2>/dev/null || true
+sudo nginx -t
+sudo php-fpm8.3 -t
+sudo systemctl restart php8.3-fpm
+sudo systemctl reload nginx
+
+# (5) Atomic swap: place NEW code at /var/www/universityLMS.live.tmp then RENAME.
+#     This is 1 syscall rename() — no window where the dir is missing.
+cd /var/www
+sudo mv universityLMS universityLMS.failed.$STAMP
+sudo mv "$NEWSRC" universityLMS
+sudo chown -R root:root /var/www/universityLMS
+sudo find /var/www/universityLMS -type d -exec chmod 0755 {} \;
+sudo find /var/www/universityLMS -type f -exec chmod 0644 {} \;
+sudo chown root:root /var/www/universityLMS/config.php /var/www/universityLMS/.env
+sudo chmod 0640 /var/www/universityLMS/config.php /var/www/universityLMS/.env
+sudo chmod go-rwx /var/www/universityLMS/.env
+
+# (6) Post-swap cache purge + opcache reset + verify.
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/purge_caches.php
+# opcache reset via cachetool (if installed):
+# sudo cachetool.phar opcache:reset --fcgi=/run/php/php8.3-fpm.sock 2>/dev/null || sudo systemctl reload php8.3-fpm
+sudo systemctl reload php8.3-fpm
+
+# (7) Maintenance OFF after post swap checks pass §13.4.1:
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/maintenance.php --disable
+```
+
+#### 13.4.1 Post-swap smoke test — BLOCKING
+
+Run ALL locally on the Droplet before going into §14 go-live checks.
+
+```bash
+# (a) HTTP 200 for login with correct host header
+curl -fsS -o /dev/null -w "HTTP_STATUS=%{http_code}\n" \
+  -H 'Host: learn.bellsuniversity.edu.ng' \
+  --resolve learn.bellsuniversity.edu.ng:443:127.0.0.1 \
+  https://learn.bellsuniversity.edu.ng/login/index.php
+# Expect HTTP_STATUS=200 (or 303 → login page).
+
+# (b) HTTP to HTTPS redirect returns 301:
+curl -fsS -o /dev/null -w "HTTP_STATUS=%{http_code} REDIRECT=%{redirect_url}\n" \
+  -H 'Host: learn.bellsuniversity.edu.ng' \
+  --resolve learn.bellsuniversity.edu.ng:80:127.0.0.1 \
+  http://learn.bellsuniversity.edu.ng/
+# Expect 301 → https://learn.bellsuniversity.edu.ng/
+
+# (c) Sensitive files MUST return 403:
+for p in /.env /.git/config /config.php /README.md /INSTALL.txt /.env.example; do
+  printf "  %-30s -> " "$p"
+  curl -sS -o /dev/null -w "%{http_code}\n" \
+    -H 'Host: learn.bellsuniversity.edu.ng' \
+    --resolve learn.bellsuniversity.edu.ng:80:127.0.0.1 \
+    "http://learn.bellsuniversity.edu.ng$p"
+done
+# Expect: all 403 (NOT 200, NOT 404).
+
+# (d) PHP-FPM health:
+curl -fsS -u status:status -H "Host: 127.0.0.1" http://127.0.0.1/fpm-status || echo "fpm-status endpoint not mounted — expected"
+sudo systemctl status php8.3-fpm --no-pager | head -5
+
+# (e) Moodle bootstrap via CLI:
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/purge_caches.php
+# Expect exit 0, no PHP warnings or missing class cache fatal.
+
+# (f) Cron one-shot verification:
+sudo -u www-data /usr/bin/flock -n /var/lib/moodledata/tmp/.cron.lock \
+  /usr/bin/php8.3 /var/www/universityLMS/admin/cli/cron.php | tail -5
+# Expect no FATAL errors, output mentions scheduled tasks run.
+
+# (g) Moodle CLI health checks:
+sudo -u www-data php8.3 /var/www/universityLMS/local/ulms_dashboard/cli/ops_healthcheck.php
+sudo -u www-data php8.3 /var/www/universityLMS/local/ulms_dashboard/cli/production_readiness_check.php 2>&1 | tail -15
+# Expect 0 FAIL lines, exit 0.
+
+# (h) DB_TLS_PROOF re-verify on the NEW code:
+sudo -u www-data php8.3 /var/www/universityLMS/scripts/ulms_test_db_ssl.php
+```
+
+### 13.5 Rollback (if any step in §13.4.1 fails)
+
+```bash
+sudo -u www-data php8.3 /var/www/universityLMS/admin/cli/maintenance.php --enable
+cd /var/www
+sudo mv universityLMS universityLMS.failed-after-swap.$STAMP
+sudo mv universityLMS.prev universityLMS
+sudo chown -R root:root universityLMS
+sudo find universityLMS -type d -exec chmod 0755 {} \;
+sudo find universityLMS -type f -exec chmod 0644 {} \;
+sudo chown root:root universityLMS/config.php universityLMS/.env
+sudo chmod 0640 universityLMS/config.php universityLMS/.env
+sudo chmod go-rwx universityLMS/.env
+sudo -u www-data php8.3 universityLMS/admin/cli/purge_caches.php
+sudo systemctl reload php8.3-fpm nginx
+# If DB upgrade already happened in §13.4(2), FULL rollback per §6.3.
+# Otherwise only the code swap above is sufficient and DB is still consistent.
+sudo -u www-data php8.3 universityLMS/admin/cli/maintenance.php --disable
+```
+
+## 14. Cron, Scheduled Tasks & Email
+
+### 14.1 Moodle cron — production canonical entry
+
+```bash
+# Install exactly this crontab for user www-data:
+sudo crontab -u www-data -l | { cat; echo '* * * * * /usr/bin/flock -n /var/lib/moodledata/tmp/.cron.lock /usr/bin/php8.3 /var/www/universityLMS/admin/cli/cron.php >> /var/log/moodle/cron.log 2>&1'; } | sudo crontab -u www-data -
+
+# Create the log dir and lock dir on first install:
+sudo mkdir -p /var/log/moodle /var/lib/moodledata/tmp
+sudo chown www-data:adm /var/log/moodle
+sudo chmod 2750 /var/log/moodle
+sudo chown www-data:www-data /var/lib/moodledata/tmp
+sudo chmod 2770 /var/lib/moodledata/tmp
+# Logrotate for moodle cron (place under /etc/logrotate.d/moodle-cron):
+cat <<'LOGROT' | sudo tee /etc/logrotate.d/moodle-cron
+/var/log/moodle/*.log {
+  daily
+  rotate 60
+  missingok
+  notifempty
+  compress
+  delaycompress
+  copytruncate
+  su www-data adm
+  create 0640 www-data adm
+}
+LOGROT
+sudo chmod 0644 /etc/logrotate.d/moodle-cron
+```
+
+Verify immediately with a one-shot run (see §13.4.1 f).  The `flock -n` guard means overlapping runs SKIP silently — never remove it.
+
+### 14.2 ULMS-specific scheduled tasks (local plugins)
+- Kortext entitlement sync: runs via `local/ulms_kortext/cli/cron_sync_adoptions_and_entitlements.php` — scheduled through Moodle's built-in scheduled_task registered in `local/ulms_kortext/db/tasks.php` (no separate cron entry).
+- Exam batch auto-grade: `local/ulms_exam/cli/batch_autograde_cron.php` (same, via Moodle scheduler).
+- Mail resend queue: `local/ulms_mail/cli/send_test_email.php` is one-shot; the actual resend transport runs per-Moodle-cron-task as configured in `local_ulms_mail`.
+
+### 14.3 Email smoke test (SMTP/Resend)
+
+Run only after `.env` contains the production Resend key or SMTP password:
+```bash
+sudo -u www-data php8.3 /var/www/universityLMS/local/ulms_mail/cli/send_test_email.php --to=ops-verify@bellsuniversity.edu.ng
+```
+Expected: exit 0, recipient inbox contains the test email in <2 min.  If it does not → check §11.7.
+
+## 15. Final Go-live Declaration Checklist
+
+Only mark PASSED after the check has actually been run.  **Do not mark "LMS is live" unless all rows in the "Verified on Production Server" column are PASS.**
+
+| ID | Check | Verified in dev/build env | Verified on Production Server | Not yet verified |
+|---|---|---|---|---|
+| GL-01 | `php -l config.php` PASS on deploy commit | | | ▢ |
+| GL-02 | Clean git clone of deploy commit → `cache/classes/cache.php`, `backup/backup.class.php`, `repository/filepicker.js` present | | | ▢ |
+| GL-03 | `scripts/ulms_test_db_ssl.php` against real DO endpoint → exit 0, `Ssl_version` TLS 1.2/1.3, `Ssl_cipher` non-empty, `final flags = 0x40000800` | | | ▢ |
+| GL-04 | `scripts/ulms_db_state_probe.php` → STATE resolved correctly (not DOWNGRADE_UNSAFE) | | | ▢ |
+| GL-05 | `nginx -t` PASS; `php-fpm8.3 -t` PASS; reloads succeed | | | ▢ |
+| GL-06 | HTTP → HTTPS 301 redirect works on public curl | | | ▢ |
+| GL-07 | `curl -I https://learn.bellsuniversity.edu.ng/.env` → 403; same for `/config.php` → 403 | | | ▢ |
+| GL-08 | Public `https://learn.bellsuniversity.edu.ng/login/index.php` → HTTP 200; renders login form | | | ▢ |
+| GL-09 | Super admin login + admin dashboard load with no errors | | | ▢ |
+| GL-10 | Test course created + file upload + download works (use test teacher account, not real users) | | | ▢ |
+| GL-11 | §12 backups confirmed on; §12.5 restore-test completed | | | ▢ |
+| GL-12 | Cron one-shot run (§14.1) succeeds; `/var/log/moodle/cron.log` is populated after 2 min | | | ▢ |
+| GL-13 | Email smoke test (§14.3) delivered to real inbox | | | ▢ |
+| GL-14 | Cloudflare SSL/TLS mode = Full (strict) with origin CA cert installed on Droplet | | | ▢ |
+| GL-15 | Session cookie Secure + HttpOnly + SameSite Strict set when browsing over HTTPS | | | ▢ |
+| GL-16 | Moodledata 0750 www-data:www-data, source tree root-owned, not writable by www-data | | | ▢ |
+| GL-17 | Install or Upgrade DB decision actually executed correctly (empty=install, match=no change, upgrade=upgrade) + backup taken first | | | ▢ |
+| GL-18 | Atomic swap deployment (§13) used, no in-place overwrites, .env not touched, rollback steps ready | | | ▢ |
+| GL-19 | `ulms_refresh_live.sh` AND `phase3_purge_rebuild.php` NOT run during deploy | | | ▢ |
+
+Go-live requires GL-01 through GL-19 all PASS on the Production Server column.  Any GL-NOT-VERIFIED → remain at "deployment complete, not yet live" until operator returns evidence for each outstanding row.
+
