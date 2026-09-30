@@ -91,8 +91,11 @@ body.theme-ulms-university {
 }
 
 .theme-ulms-university #page.drawers .main-inner {
-    max-width: min(1440px, 100%);
-    margin-inline: auto;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh;
 }
 
 .theme-ulms-university .card,
@@ -115,9 +118,9 @@ body.theme-ulms-university {
 }
 
 .theme-ulms-university.pagelayout-login .login-container {
-    flex: 1 1 1160px;
-    width: min(1160px, 100%);
-    max-width: min(1160px, calc(100vw - 2rem));
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: min(1280px, 100%);
     min-width: 0;
     margin: 0 auto;
     padding: 0;
@@ -718,6 +721,25 @@ body.theme-ulms-university {
     --ulms-fast-ms: 0.18s;
     --ulms-overlay-bg: rgba(10, 29, 48, 0.55);
     --ulms-overlay-blur: 2px;
+    --ulms-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ulms-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+    --ulms-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --ulms-t-fast: 150ms;
+    --ulms-t-base: 250ms;
+    --ulms-t-slow: 350ms;
+    --ulms-page-padding-x: clamp(1rem, 2.2vw, 2.5rem);
+    --ulms-page-padding-y: clamp(0.75rem, 1.1vw, 1.25rem);
+    --ulms-content-gap: clamp(1rem, 1.4vw, 1.5rem);
+    --ulms-radius-card: 12px;
+    --ulms-radius-button: 10px;
+    --ulms-radius-pill: 999px;
+    --ulms-border-subtle: 1px solid #eef2f7;
+    --ulms-border-strong: 1px solid #dde4ef;
+    --ulms-card-shadow-sm: 0 1px 2px rgba(15, 50, 30, 0.06), 0 1px 3px rgba(15, 50, 30, 0.08);
+    --ulms-card-shadow-md: 0 4px 12px rgba(15, 50, 30, 0.08), 0 1px 3px rgba(15, 50, 30, 0.06);
+    --ulms-card-shadow-lg: 0 12px 32px rgba(15, 50, 30, 0.12), 0 2px 6px rgba(15, 50, 30, 0.08);
+    --ulms-kpi-card-height: 112px;
+    --ulms-surface-soft: #f8fbff;
 }
 
 
@@ -1870,11 +1892,11 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
     position: relative;
     display: grid;
     grid-template-columns: minmax(0, var(--ulms-sidebar-w)) minmax(0, 1fr);
-    gap: var(--ulms-grid-gap);
-    width: auto;
-    max-width: min(1440px, 100%);
-    margin: 0 auto;
-    padding-inline: max(0.5rem, env(safe-area-inset-left)) max(0.5rem, env(safe-area-inset-right));
+    gap: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding-inline: 0;
     align-items: start;
     transition: grid-template-columns var(--ulms-transition-ms) var(--ulms-ease),
                 gap var(--ulms-transition-ms) var(--ulms-ease),
@@ -2854,694 +2876,1539 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 }
 
 /* ============================================================
-   FINAL CASCADE OVERRIDE (LAST IN FILE = EQUAL SPEC WINS)
-   Counteracts the legacy 0,3,0 specificity !important block at
-   lines ~1586-1588 that was forcing display:flex + margin-left
-   hard offsets + fixed 60px topbar.  Uses identical specificity
-   (.theme-ulms-university.ulms-dashboard-shell + descendant)
-   and matching !important flags so this late block wins.
+   AUTHORITATIVE APP SHELL GRID + DASHBOARD CONTENT TARGET LAYOUT
+   Single-source-of-truth (SSoT). 0,3,0 body.ulms-dashboard-shell
+   specificity. Every rule !important to override Boost utilities.
+   Grid shell: 280 / minmax(0,1fr) XL, 68/1fr LG, 1fr MD drawer.
+   NO max-width caps on shell, content, main-inner (user req #1-#6).
+   Dashboard target = TARGET REFERENCE SCREENSHOT PROVIDED BY USER:
+   HERO full span → KPI 4 cards 3/5/2/50% → Academic 7/12 + Deadlines 5/12 2-col → My Courses 3-col card grid → QuickActions column list.
+   All 5 portals inherit (same shell template).
+   Sidebar navy #0f3d67 preserved. Breakpoints B4 exact: xl≥1200, 992≤lg≤1199, md≤991.98, xs≤767.98.
    ============================================================ */
 
-/* --- Base XL: shell = CSS Grid (sidebar FLUSH LEFT, content read-safe) --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
-    position: relative !important;
+/* -------------- SHELL LAYER 1: GRID ARCHITECTURE XL≥1200 -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
     display: grid !important;
+    position: relative !important;
     grid-template-columns: minmax(0, var(--ulms-sidebar-w)) minmax(0, 1fr) !important;
     gap: 0 !important;
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
     padding: 0 !important;
-    padding-inline: 0 max(0.75rem, env(safe-area-inset-right)) !important;
+    padding-inline: 0 !important;
     align-items: start !important;
-    flex-direction: initial !important;
-    transition: grid-template-columns var(--ulms-transition-ms) var(--ulms-ease) !important;
+    min-height: 100vh !important;
+    box-sizing: border-box !important;
+    background: #f3f6fb !important;
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell > * {
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell > * {
     min-width: 0 !important;
-}
-
-/* --- Content pinned flush-right of sidebar; max-width protects ultra-wide 4K --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-    flex: 0 0 auto !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-    margin-inline: 0 auto !important;
-    padding: 0 0 0 var(--ulms-grid-gap) !important;
-    max-width: min(1160px, 100%) !important;
-    min-width: 0 !important;
+    overflow-x: clip !important;
     box-sizing: border-box !important;
 }
-
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
     position: sticky !important;
-    top: var(--ulms-topbar-h) !important;
-    left: auto !important;
-    right: auto !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    z-index: 20 !important;
+    position: -webkit-sticky !important;
+    top: 0 !important;
     align-self: start !important;
-    background: transparent !important;
-    border: 0 !important;
-    transition: transform var(--ulms-transition-ms) var(--ulms-ease),
-                width var(--ulms-transition-ms) var(--ulms-ease) !important;
-    transform: none !important;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__inner {
-    display: flex !important;
-    flex-direction: column !important;
-    padding: 28px 20px calc(28px + env(safe-area-inset-bottom, 0px)) !important;
-    min-height: calc(100dvh - var(--ulms-topbar-h) - 0.8rem);
-    height: calc(100vh - var(--ulms-topbar-h) - 0.8rem);
-    overflow-y: auto;
-    overflow-x: hidden;
+    height: 100vh !important;
+    height: 100dvh !important;
     background: var(--ulms-sidebar-bg) !important;
     border-right: 1px solid var(--ulms-sidebar-border) !important;
-    border-radius: 0;
-    box-sizing: border-box;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner::-webkit-scrollbar { width: 6px; }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner::-webkit-scrollbar-thumb { background: rgba(200,224,248,0.32); border-radius: 3px; }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner > * + * { margin-top: 20px !important; }
-
-/* --- Brand wrapper = CSS Grid (2×2 template areas) --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__brand {
-    display: grid !important;
-    grid-template-columns: var(--ulms-brand-size) minmax(0, 1fr) !important;
-    grid-template-rows: auto auto !important;
-    grid-template-areas:
-        "logo eyebrow"
-        "logo title" !important;
-    column-gap: 12px;
-    row-gap: 6px;
-    align-items: center;
-    flex: 0 0 auto !important;
-    padding: 0 12px 24px !important;
-    border-bottom: 1px solid var(--ulms-sidebar-divider);
-    box-sizing: border-box;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__brand::before {
-    content: '' !important;
-    display: block !important;
-    grid-area: logo !important;
-    grid-row: 1 / -1 !important;
-    align-self: center;
-    justify-self: start;
-    width: var(--ulms-brand-size);
-    height: var(--ulms-brand-size);
-    border-radius: var(--ulms-brand-radius);
-    background-color: transparent;
-    background-image: url("/theme/ulms_university/pix/logo.svg");
-    background-size: contain;
-    background-position: center;
-    background-repeat: no-repeat;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__eyebrow {
-    grid-area: eyebrow !important;
-    display: block !important;
-    min-width: 0;
     color: var(--ulms-sidebar-text) !important;
-    @include ulms-fluid-font(0.78rem, 0.82rem);
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    align-self: end;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 1.25rem 1.1rem 1.5rem 1.25rem !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    transition:
+        width var(--ulms-t-base) var(--ulms-ease-out),
+        padding var(--ulms-t-base) var(--ulms-ease-out) !important;
+    z-index: 1020 !important;
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__title {
-    grid-area: title !important;
-    display: block !important;
-    min-width: 0;
-    color: var(--ulms-sidebar-strong) !important;
-    @include ulms-fluid-font(1rem, 1.12rem);
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    line-height: 1.25;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    align-self: start;
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar::-webkit-scrollbar { width: 6px; }
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 3px; }
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    padding-top: calc(var(--ulms-topbar-h) + 0.25rem) !important;
+    padding-bottom: 3rem !important;
+    padding-inline: var(--ulms-page-padding-x) !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap) !important;
+    align-items: start !important;
+    min-height: 100vh !important;
+    flex: 1 1 auto !important;
+    background: #f3f6fb !important;
+    overflow-x: clip !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content #region-main {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap) !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell #region-main > .container,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > div.container,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > section.container,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > div.container-fluid {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap) !important;
+    background: transparent !important;
 }
 
-/* --- Nav links: 44px targets + ::before green accent bar --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link {
-    min-height: var(--ulms-nav-link-h);
-    height: var(--ulms-nav-link-h);
-    padding: 10px 14px !important;
-    border-radius: var(--ulms-nav-link-radius) !important;
+/* -------------- LAYER 2: SIDEBAR NAV STRUCTURE XL -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar > * + * { margin-top: 0.5rem !important; }
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .brand {
+    min-height: 56px;
+    padding: 0 0 0.9rem 0 !important;
+    border-bottom: 1px solid var(--ulms-sidebar-divider) !important;
+    margin-bottom: 0.75rem !important;
     display: flex !important;
     align-items: center !important;
-    gap: 12px;
-    position: relative;
+    gap: 0.85rem !important;
+    color: var(--ulms-sidebar-strong) !important;
     text-decoration: none !important;
-    color: var(--ulms-sidebar-text) !important;
-    font-weight: 500;
-    line-height: 1.35;
-    transition: background-color var(--ulms-fast-ms) ease,
-                color var(--ulms-fast-ms) ease,
-                transform var(--ulms-fast-ms) ease,
-                padding var(--ulms-transition-ms) var(--ulms-ease),
-                justify-content var(--ulms-transition-ms) var(--ulms-ease);
-    box-sizing: border-box;
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link::before {
-    content: '' !important;
-    position: absolute !important;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    height: 56%;
-    width: 3px;
-    background: var(--ulms-accent-green);
-    opacity: 0;
-    border-radius: 0 4px 4px 0;
-    transition: opacity var(--ulms-fast-ms) ease,
-                width var(--ulms-fast-ms) ease;
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.15rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link:hover,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link:focus {
-    background-color: rgba(255,255,255,0.07);
-    color: var(--ulms-sidebar-strong) !important;
-    transform: translateX(2px);
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link:focus-visible {
-    outline: 2px solid var(--ulms-accent-green) !important;
-    outline-offset: 2px;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link:focus:not(:focus-visible) {
-    outline: 0 !important;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link--active {
-    background: rgba(255,255,255,0.10) !important;
-    color: var(--ulms-sidebar-strong) !important;
-    font-weight: 600;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link--active::before {
-    width: 4px !important;
-    opacity: 1 !important;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__icon {
-    flex: 0 0 var(--ulms-nav-icon);
-    width: var(--ulms-nav-icon);
-    height: var(--ulms-nav-icon);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: inherit;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__icon > svg {
-    width: 100%;
-    height: 100%;
-    fill: currentColor;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__label {
-    flex: 1 1 auto;
-    min-width: 0;
-    color: inherit;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    @include ulms-fluid-font(0.9rem, 0.96rem);
-    font-weight: 500;
-    line-height: 1.3;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group__title,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group > h2,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group > h3 {
-    margin: 18px 14px 10px;
-    padding: 0;
-    @include ulms-fluid-font(0.7rem, 0.76rem);
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav .nav-section-label {
+    font-size: 0.68rem !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
     color: var(--ulms-sidebar-muted) !important;
-    line-height: 1.2;
+    padding: 0.9rem 0.85rem 0.35rem !important;
+    margin: 0 !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
 }
-
-/* --- Nav group list spacing --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__nav > * + * { margin-top: 12px !important; }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group__list { padding: 0 !important; margin: 0 !important; list-style: none !important; }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group__list > * + * { margin-top: 4px !important; }
-
-/* --- Overlay: absolute, starts below topbar (hamburger always visible) --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-overlay {
-    position: fixed !important;
-    inset: 0 !important;
-    top: var(--ulms-topbar-h) !important;
-    left: 0 !important; right: 0 !important; bottom: 0 !important;
-    z-index: 40 !important;
-    background: transparent !important;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: background var(--ulms-transition-ms) var(--ulms-ease),
-                opacity var(--ulms-transition-ms) var(--ulms-ease),
-                visibility var(--ulms-transition-ms) var(--ulms-ease),
-                backdrop-filter var(--ulms-transition-ms) var(--ulms-ease);
-}
-.theme-ulms-university.ulms-dashboard-shell.ulms-sidebar-open .ulms-shell-overlay,
-.theme-ulms-university.ulms-dashboard-shell.drawer-open-left .ulms-shell-overlay,
-.theme-ulms-university.ulms-dashboard-shell.ulms-shell.is-sidebar-open .ulms-shell-overlay {
-    background: var(--ulms-overlay-bg) !important;
-    backdrop-filter: blur(var(--ulms-overlay-blur));
-    -webkit-backdrop-filter: blur(var(--ulms-overlay-blur));
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-}
-body.theme-ulms-university.ulms-dashboard-shell.ulms-sidebar-open,
-body.theme-ulms-university.ulms-dashboard-shell.drawer-open-left {
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a {
+    width: 100% !important;
+    min-height: var(--ulms-nav-link-h) !important;
+    padding: 0.55rem 0.85rem !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.85rem !important;
+    color: var(--ulms-sidebar-text) !important;
+    text-decoration: none !important;
+    border-radius: var(--ulms-nav-link-radius) !important;
+    font-size: 0.92rem !important;
+    line-height: 1.3 !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
     overflow: hidden !important;
-    touch-action: pan-y;
-    overscroll-behavior: contain;
+    text-overflow: ellipsis !important;
+    transition:
+        background-color var(--ulms-t-fast) var(--ulms-ease-standard),
+        color var(--ulms-t-fast) var(--ulms-ease-standard),
+        transform var(--ulms-t-fast) var(--ulms-ease-out),
+        padding var(--ulms-t-base) var(--ulms-ease-out) !important;
+    outline: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a:hover,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a:hover {
+    background: rgba(255,255,255,0.07) !important;
+    color: var(--ulms-sidebar-strong) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a.is-active,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a.is-active,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li.active a {
+    background: rgba(255,255,255,0.12) !important;
+    color: var(--ulms-sidebar-strong) !important;
+    font-weight: 600 !important;
+    box-shadow: inset 3px 0 0 var(--ulms-accent-green) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a i,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a svg,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a i,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a svg {
+    width: var(--ulms-nav-icon) !important;
+    height: var(--ulms-nav-icon) !important;
+    min-width: var(--ulms-nav-icon) !important;
+    flex: 0 0 var(--ulms-nav-icon) !important;
+    line-height: var(--ulms-nav-icon) !important;
+    text-align: center !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.02rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a span.label,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a span {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    transition:
+        opacity var(--ulms-t-base) var(--ulms-ease-out),
+        width var(--ulms-t-base) var(--ulms-ease-out),
+        max-width var(--ulms-t-base) var(--ulms-ease-out) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .sidebar-footer {
+    margin-top: auto !important;
+    padding-top: 1.25rem !important;
+    border-top: 1px solid var(--ulms-sidebar-divider) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.15rem !important;
+    min-height: 120px !important;
+    justify-content: flex-end !important;
 }
 
-/* --- Dashboard grids: XL default = 4 cols --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid,
-.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid {
+/* -------------- LAYER 3: DASHBOARD HERO / PAGE HEADER FULL SPAN -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: clamp(1.1rem, 1.6vw, 1.6rem) var(--ulms-page-padding-x) !important;
+    border-radius: var(--ulms-radius-card) !important;
+    background:
+        linear-gradient(120deg,
+            #eef3fb 0%,
+            rgba(230,240,255,0.82) 42%,
+            rgba(240,248,255,0.94) 72%,
+            #eaf3ff 100%) !important;
+    border: var(--ulms-border-subtle) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto auto !important;
+    grid-template-areas:
+        "eyebrow date"
+        "title date"
+        "cta date" !important;
+    gap: 0.6rem 1.25rem !important;
+    align-items: start !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header::after {
+    content: "" !important;
+    position: absolute !important;
+    right: -40px !important;
+    bottom: -60px !important;
+    width: clamp(180px, 30vw, 420px) !important;
+    height: clamp(180px, 30vw, 420px) !important;
+    border-radius: 50% !important;
+    background: radial-gradient(circle at 35% 35%, rgba(64, 128, 220, 0.10), transparent 68%) !important;
+    pointer-events: none !important;
+    z-index: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header > * { position: relative !important; z-index: 1 !important; }
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__eyebrow {
+    grid-area: eyebrow !important;
+    margin: 0 0 0.1rem 0 !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.14em !important;
+    text-transform: uppercase !important;
+    color: #0f3d67 !important;
+    font-weight: 700 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__title {
+    grid-area: title !important;
+    margin: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.4rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__title h1,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header h1,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header h2 {
+    font-size: clamp(1.45rem, 2.2vw, 2.1rem) !important;
+    font-weight: 800 !important;
+    line-height: 1.12 !important;
+    margin: 0 !important;
+    color: #0b2b4d !important;
+    letter-spacing: -0.02em !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header p,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__subtitle {
+    margin: 0 !important;
+    color: #4e5d73 !important;
+    font-size: clamp(0.92rem, 1.05vw, 1.02rem) !important;
+    line-height: 1.55 !important;
+    max-width: 72ch !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta {
+    grid-area: cta !important;
+    margin-top: 0.35rem !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 0.65rem !important;
+    align-items: center !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta a,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta button,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header .nav-pills li a {
+    min-height: 44px !important;
+    padding: 0 1.1rem !important;
+    border-radius: var(--ulms-radius-button) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.45rem !important;
+    font-weight: 600 !important;
+    font-size: 0.94rem !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    line-height: 1.1 !important;
+    box-sizing: border-box !important;
+    border: 1px solid transparent !important;
+    transition:
+        background-color var(--ulms-t-fast) var(--ulms-ease-standard),
+        border-color var(--ulms-t-fast) var(--ulms-ease-standard),
+        color var(--ulms-t-fast) var(--ulms-ease-standard),
+        box-shadow var(--ulms-t-fast) var(--ulms-ease-standard),
+        transform var(--ulms-t-fast) var(--ulms-ease-out) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta a.primary,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header .nav-pills li a.primary,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header .nav-pills li.active a {
+    background: #0f3d67 !important;
+    color: #ffffff !important;
+    border-color: #0f3d67 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta a.primary:hover,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header .nav-pills li.active a:hover {
+    background: #0a2e4f !important;
+    box-shadow: 0 6px 16px rgba(15, 61, 103, 0.22) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta a.secondary,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header .nav-pills li a:not(.primary):not(.active) {
+    background: #ffffff !important;
+    color: #0f3d67 !important;
+    border-color: #cfdbed !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta a.secondary:hover,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header .nav-pills li a:not(.primary):not(.active):hover {
+    background: #f5f9ff !important;
+    border-color: #b9c8e1 !important;
+    box-shadow: 0 2px 8px rgba(15, 61, 103, 0.08) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date {
+    grid-area: date !important;
+    align-self: start !important;
+    min-width: min(280px, 44vw) !important;
+    max-width: 340px !important;
+    background: rgba(255,255,255,0.78) !important;
+    backdrop-filter: blur(6px) saturate(1.1) !important;
+    -webkit-backdrop-filter: blur(6px) saturate(1.1) !important;
+    border: 1px solid rgba(255,255,255,0.88) !important;
+    border-radius: var(--ulms-radius-card) !important;
+    padding: 1rem 1.1rem !important;
+    box-sizing: border-box !important;
+    box-shadow: 0 2px 10px rgba(15,50,80,0.08) !important;
+    display: grid !important;
+    grid-template-columns: 44px minmax(0, 1fr) !important;
+    grid-template-rows: auto auto auto !important;
+    gap: 0 0.85rem !important;
+    align-items: start !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date > .date-icon {
+    grid-column: 1 !important;
+    grid-row: 1 / span 3 !important;
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 10px !important;
+    background: #e7efff !important;
+    color: #0f3d67 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.15rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date .dow {
+    font-weight: 600 !important;
+    color: #0f3d67 !important;
+    font-size: 0.86rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date .fulldate {
+    font-weight: 800 !important;
+    color: #0b2b4d !important;
+    font-size: 1.1rem !important;
+    line-height: 1.2 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date .session {
+    margin-top: 2px !important;
+    color: #4e5d73 !important;
+    font-size: 0.84rem !important;
+}
+
+/* -------------- LAYER 4: KPI / QUICK ACCESS 4-EQUAL COLS -------------- */
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access > div:first-child,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > section.ulms-quick-access > div {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
     display: grid !important;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: var(--ulms-grid-gap) !important;
+    gap: var(--ulms-content-gap) !important;
+    box-sizing: border-box !important;
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__grid {
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div {
+    min-height: var(--ulms-kpi-card-height) !important;
+    padding: clamp(1rem, 1.4vw, 1.25rem) clamp(1rem, 1.6vw, 1.5rem) !important;
+    background: #ffffff !important;
+    border: var(--ulms-border-subtle) !important;
+    border-radius: var(--ulms-radius-card) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
+    box-sizing: border-box !important;
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: var(--ulms-grid-gap) !important;
+    grid-template-columns: 52px minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto auto !important;
+    grid-template-areas:
+        "icon  metric  arrow"
+        "icon  label   arrow"
+        "icon  hint    arrow" !important;
+    gap: 0 0.9rem !important;
+    align-items: start !important;
+    text-decoration: none !important;
+    color: inherit !important;
+    position: relative !important;
+    overflow: hidden !important;
+    transition:
+        transform var(--ulms-t-fast) var(--ulms-ease-out),
+        box-shadow var(--ulms-t-fast) var(--ulms-ease-standard),
+        border-color var(--ulms-t-fast) var(--ulms-ease-standard) !important;
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-sections,
-.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-support {
-    display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: var(--ulms-grid-gap) !important;
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:hover,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: var(--ulms-card-shadow-md) !important;
+    border-color: #dde7f5 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div > div:first-child,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div > i:first-child,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div > .icon,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div > *:first-child {
+    grid-area: icon !important;
+    width: 52px !important;
+    height: 52px !important;
+    min-width: 52px !important;
+    min-height: 52px !important;
+    border-radius: 12px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.4rem !important;
+    line-height: 52px !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="courses"] > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(1) > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(1) > div:first-child {
+    background: #e7efff !important;
+    color: #1a5eb5 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="assignments"] > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(2) > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(2) > div:first-child {
+    background: #e5f6ed !important;
+    color: var(--ulms-accent-green) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="exams"] > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(3) > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(3) > div:first-child {
+    background: #ffeaea !important;
+    color: #b43434 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="progress"] > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(4) > .qa-icon,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(4) > div:first-child {
+    background: #f1e9ff !important;
+    color: #6d3cb5 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-metric,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div strong,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div h3,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div b {
+    grid-area: metric !important;
+    margin: 0 0 2px 0 !important;
+    font-size: clamp(1.55rem, 2vw, 1.95rem) !important;
+    line-height: 1 !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.02em !important;
+    color: #0b2b4d !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-label,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div span.label,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div div:nth-child(2) {
+    grid-area: label !important;
+    margin: 0 !important;
+    font-size: 0.94rem !important;
+    font-weight: 600 !important;
+    line-height: 1.25 !important;
+    color: #0b2b4d !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-hint,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div small,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div span.hint {
+    grid-area: hint !important;
+    margin: 3px 0 0 0 !important;
+    font-size: 0.82rem !important;
+    line-height: 1.4 !important;
+    color: #63738c !important;
+    font-weight: 500 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-progressbar {
+    grid-column: 2 !important;
+    grid-row: auto !important;
+    margin-top: 0.5rem !important;
+    width: 100% !important;
+    height: 6px !important;
+    background: #e8eef7 !important;
+    border-radius: 999px !important;
+    overflow: hidden !important;
+    align-self: end !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-progressbar > span,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-progressbar > div {
+    display: block !important;
+    height: 100% !important;
+    width: 50% !important;
+    background: linear-gradient(90deg, #4674e2, #6d3cb5) !important;
+    border-radius: 999px !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-arrow,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div > a::after {
+    grid-area: arrow !important;
+    align-self: center !important;
+    justify-self: end !important;
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    border-radius: 8px !important;
+    background: #f4f7fc !important;
+    color: #7f90ad !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 0.9rem !important;
+    line-height: 28px !important;
+    text-align: center !important;
+    text-decoration: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:hover .qa-arrow,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:hover .qa-arrow {
+    background: #0f3d67 !important;
+    color: #ffffff !important;
+    transform: translateX(2px) !important;
 }
 
-/* ============================================================
-   RESPONSIVE BREAKPOINTS (Bootstrap 4 inheritance, .98 convention)
-   Final override media queries placed last in cascade = win.
-   ============================================================ */
+/* -------------- LAYER 5: DASHBOARD PRIMARY 2-COL (Academic 7/12 + Deadlines 5/12) -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > div.container > .ulms-dashboard-primary,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > div > .ulms-dashboard-primary {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap) !important;
+    align-items: start !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__main,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__aside,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-sections > .ulms-panel {
+    background: #ffffff !important;
+    border: var(--ulms-border-subtle) !important;
+    border-radius: var(--ulms-radius-card) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
+    padding: clamp(1.1rem, 1.4vw, 1.4rem) !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 1rem !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel__header,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel > h3,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel > header,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div > header,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div > h3 {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 0 0.15rem 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.75rem !important;
+    box-sizing: border-box !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel__header h3,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel h3,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div > h3,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div > header h3 {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 1.05rem !important;
+    line-height: 1.3 !important;
+    color: #0b2b4d !important;
+    font-weight: 700 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.55rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel__header h3::before,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel > h3::before,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div > header h3::before {
+    content: "" !important;
+    width: 4px !important;
+    height: 1.1rem !important;
+    border-radius: 4px !important;
+    background: linear-gradient(180deg, #2f6cd2, #0f3d67) !important;
+    display: inline-block !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel__header a.view-all,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel header a,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel__header a {
+    min-height: 36px !important;
+    padding: 0 0.9rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    border-radius: var(--ulms-radius-pill) !important;
+    background: #f4f7fc !important;
+    border: 1px solid transparent !important;
+    color: #0f3d67 !important;
+    font-size: 0.84rem !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+    transition: background-color var(--ulms-t-fast) var(--ulms-ease-standard), color var(--ulms-t-fast) var(--ulms-ease-standard), border-color var(--ulms-t-fast) var(--ulms-ease-standard) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel__header a.view-all:hover {
+    background: #0f3d67 !important;
+    color: #ffffff !important;
+}
 
-/* --- LG (992 – 1199.98 px): collapsed 68px icon rail + CSS tooltips --- */
+/* -------------- LAYER 5B: Academic Profile interior 2-col info grid -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel .profile-grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__main > div:nth-of-type(1) .info,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__main .info-card,
+body.theme-ulms-university.ulms-dashboard-shell div[data-region="academic-profile"],
+body.theme-ulms-university.ulms-dashboard-shell #academic-profile {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0.75rem !important;
+    background: var(--ulms-surface-soft) !important;
+    border: 1px solid #e2ecf7 !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem 1.5rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid > div,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel .profile-grid > dl,
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid > dl,
+body.theme-ulms-university.ulms-dashboard-shell div[data-region="academic-profile"] > div,
+body.theme-ulms-university.ulms-dashboard-shell #academic-profile > div {
+    padding: 0.75rem 1rem !important;
+    background: #ffffff !important;
+    border-radius: 8px !important;
+    border: 1px solid #e6eff8 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.2rem !important;
+    min-height: 64px !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid label,
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid dt,
+body.theme-ulms-university.ulms-dashboard-shell div[data-region="academic-profile"] label,
+body.theme-ulms-university.ulms-dashboard-shell .profile-grid dt {
+    font-size: 0.72rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+    color: #6d7c94 !important;
+    font-weight: 600 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid strong,
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid dd,
+body.theme-ulms-university.ulms-dashboard-shell div[data-region="academic-profile"] strong,
+body.theme-ulms-university.ulms-dashboard-shell .profile-grid dd {
+    font-size: 0.94rem !important;
+    line-height: 1.35 !important;
+    color: #0b2b4d !important;
+    font-weight: 650 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid strong.pill,
+body.theme-ulms-university.ulms-dashboard-shell span.status-active {
+    display: inline-block !important;
+    padding: 0.2rem 0.7rem !important;
+    background: #d7f1e1 !important;
+    color: var(--ulms-accent-green) !important;
+    border-radius: 999px !important;
+    font-weight: 700 !important;
+    font-size: 0.8rem !important;
+    line-height: 1.1 !important;
+    width: fit-content !important;
+}
+
+/* -------------- LAYER 5C: Upcoming deadlines list (aside column) -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel.deadlines ul,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__aside > ul {
+    width: 100% !important;
+    max-width: none !important;
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.65rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list > div,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__aside > ul > li,
+body.theme-ulms-university.ulms-dashboard-shell .upcoming-deadline-item {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    min-height: 64px !important;
+    padding: 0.75rem 0.85rem !important;
+    background: var(--ulms-surface-soft) !important;
+    border: 1px solid #e2ecf7 !important;
+    border-radius: 10px !important;
+    display: grid !important;
+    grid-template-columns: 48px minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto !important;
+    grid-template-areas:
+        "date  title  pill"
+        "date  code   pill" !important;
+    gap: 0 0.8rem !important;
+    align-items: start !important;
+    transition: border-color var(--ulms-t-fast) var(--ulms-ease-standard), background-color var(--ulms-t-fast) var(--ulms-ease-standard), box-shadow var(--ulms-t-fast) var(--ulms-ease-standard) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li:hover {
+    border-color: #cfdbeb !important;
+    background: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(15,50,80,0.06) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .date,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > time,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > div:first-child {
+    grid-area: date !important;
+    width: 48px !important;
+    min-width: 48px !important;
+    min-height: 48px !important;
+    border-radius: 10px !important;
+    background: #ffe9e9 !important;
+    color: #c03636 !important;
+    display: inline-flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    padding: 0.25rem 0 !important;
+    box-sizing: border-box !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .date > .mon,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > time > .mon {
+    font-size: 0.65rem !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+    opacity: 0.85 !important;
+    margin-bottom: 2px !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .date > .day,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > time > .day {
+    font-size: 1.25rem !important;
+    font-weight: 900 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .title,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > div:nth-child(2) > .title,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li strong {
+    grid-area: title !important;
+    margin: 0 0 0.15rem 0 !important;
+    font-size: 0.92rem !important;
+    font-weight: 700 !important;
+    line-height: 1.3 !important;
+    color: #0b2b4d !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .code,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > div:nth-child(2) > .code,
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li span.code {
+    grid-area: code !important;
+    margin: 0 !important;
+    font-size: 0.8rem !important;
+    color: #63738c !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.02em !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .status-pill {
+    grid-area: pill !important;
+    align-self: start !important;
+    justify-self: end !important;
+    min-height: 26px !important;
+    padding: 0.2rem 0.65rem !important;
+    border-radius: 999px !important;
+    font-size: 0.74rem !important;
+    font-weight: 700 !important;
+    line-height: 1.1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+    border: 1px solid transparent !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .status-pill[data-level="soon"]    { background: #ffe6e6; color: #c03636; border-color: #ffd4d4; }
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .status-pill[data-level="7d"]      { background: #fff6df; color: #9b6b10; border-color: #ffe2a3; }
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .status-pill[data-level="11d"]     { background: #fff3e0; color: #a24f10; border-color: #ffd9a8; }
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .status-pill[data-level="16d"]     { background: #e7efff; color: #2358a8; border-color: #cdddf5; }
+body.theme-ulms-university.ulms-dashboard-shell .deadlines-empty,
+body.theme-ulms-university.ulms-dashboard-shell .empty-state {
+    padding: 2rem 1.5rem !important;
+    text-align: center !important;
+    border: 2px dashed #dfe7f3 !important;
+    border-radius: 12px !important;
+    background: #fbfdff !important;
+    color: #63738c !important;
+    font-size: 0.9rem !important;
+    line-height: 1.6 !important;
+}
+
+/* -------------- LAYER 6: CURRENT COURSES 3-COL CARD GRID -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .courses-grid,
+body.theme-ulms-university.ulms-dashboard-shell .my-courses-list,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__main > div.courses,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary__main section.courses,
+body.theme-ulms-university.ulms-dashboard-shell .course-cards,
+body.theme-ulms-university.ulms-dashboard-shell #my-courses > div,
+body.theme-ulms-university.ulms-dashboard-shell .enrolled-courses-grid {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)) !important;
+    gap: var(--ulms-content-gap) !important;
+    align-items: stretch !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card,
+body.theme-ulms-university.ulms-dashboard-shell .courses-grid > div,
+body.theme-ulms-university.ulms-dashboard-shell .course-cards > article,
+body.theme-ulms-university.ulms-dashboard-shell .enrolled-courses-grid > div {
+    min-height: 320px !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    border: var(--ulms-border-subtle) !important;
+    border-radius: var(--ulms-radius-card) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    position: relative !important;
+    transition:
+        transform var(--ulms-t-fast) var(--ulms-ease-out),
+        box-shadow var(--ulms-t-fast) var(--ulms-ease-standard),
+        border-color var(--ulms-t-fast) var(--ulms-ease-standard) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: var(--ulms-card-shadow-md) !important;
+    border-color: #dde7f5 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__thumb,
+body.theme-ulms-university.ulms-dashboard-shell .course-card > div:first-child,
+body.theme-ulms-university.ulms-dashboard-shell .course-card .thumbnail,
+body.theme-ulms-university.ulms-dashboard-shell .course-cards > article > a:first-child > div {
+    position: relative !important;
+    width: 100% !important;
+    aspect-ratio: 16 / 9 !important;
+    min-height: 148px !important;
+    max-height: 200px !important;
+    background: linear-gradient(135deg, #184c7b 0%, #0f3d67 55%, #153760 100%) !important;
+    overflow: hidden !important;
+    flex: 0 0 auto !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__thumb::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 !important;
+    background:
+        radial-gradient(circle at 25% 20%, rgba(255,255,255,0.18), transparent 55%),
+        linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.18) 100%) !important;
+    pointer-events: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__status {
+    position: absolute !important;
+    top: 0.9rem !important;
+    right: 0.9rem !important;
+    z-index: 2 !important;
+    min-height: 26px !important;
+    padding: 0.2rem 0.7rem !important;
+    border-radius: 999px !important;
+    background: rgba(15, 125, 63, 0.94) !important;
+    color: #ffffff !important;
+    font-size: 0.74rem !important;
+    font-weight: 700 !important;
+    line-height: 1.1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    letter-spacing: 0.02em !important;
+    backdrop-filter: blur(4px) !important;
+    border: 1px solid rgba(255,255,255,0.25) !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__body,
+body.theme-ulms-university.ulms-dashboard-shell .course-card > div:nth-child(2),
+body.theme-ulms-university.ulms-dashboard-shell .course-card .card-body {
+    padding: 1rem 1.1rem 1.1rem !important;
+    box-sizing: border-box !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.55rem !important;
+    min-width: 0 !important;
+    width: 100% !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__code,
+body.theme-ulms-university.ulms-dashboard-shell .course-card small.code {
+    font-size: 0.74rem !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    color: #2b6dd2 !important;
+    font-weight: 800 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.1 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__title,
+body.theme-ulms-university.ulms-dashboard-shell .course-card h4,
+body.theme-ulms-university.ulms-dashboard-shell .course-card strong.title {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 1.04rem !important;
+    line-height: 1.32 !important;
+    font-weight: 700 !important;
+    color: #0b2b4d !important;
+    min-height: 2.64rem !important;
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__progress {
+    margin: 0.3rem 0 0 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.35rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__progress .bar {
+    width: 100% !important;
+    height: 6px !important;
+    background: #eaf0f9 !important;
+    border-radius: 999px !important;
+    overflow: hidden !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__progress .bar > span,
+body.theme-ulms-university.ulms-dashboard-shell .course-card__progress .bar > div {
+    display: block !important;
+    height: 100% !important;
+    background: linear-gradient(90deg, #1f6ad1, var(--ulms-accent-green)) !important;
+    border-radius: 999px !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__progress .meta {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    font-size: 0.78rem !important;
+    color: #63738c !important;
+    font-weight: 500 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__progress .meta b {
+    color: #0b2b4d !important;
+    font-weight: 700 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer {
+    margin-top: auto !important;
+    padding-top: 0.55rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.75rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    min-height: 44px !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer .level-tag,
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer > span:first-child {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    min-height: 32px !important;
+    padding: 0 0.75rem !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    color: #0f3d67 !important;
+    background: #f0f6ff !important;
+    border: 1px solid #dbe7f7 !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer .btn-open,
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer > a,
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer > button {
+    min-height: 40px !important;
+    padding: 0 1rem !important;
+    border-radius: 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.4rem !important;
+    background: #ffffff !important;
+    color: #0f3d67 !important;
+    border: 1px solid #c7d4e7 !important;
+    font-size: 0.86rem !important;
+    font-weight: 700 !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    box-sizing: border-box !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
+    transition:
+        background-color var(--ulms-t-fast) var(--ulms-ease-standard),
+        color var(--ulms-t-fast) var(--ulms-ease-standard),
+        border-color var(--ulms-t-fast) var(--ulms-ease-standard),
+        box-shadow var(--ulms-t-fast) var(--ulms-ease-standard) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .course-card__footer .btn-open:hover {
+    background: #0f3d67 !important;
+    color: #ffffff !important;
+    border-color: #0f3d67 !important;
+    box-shadow: 0 6px 16px rgba(15,61,103,0.2) !important;
+}
+
+/* -------------- LAYER 7: DASHBOARD SECTIONS / KEY ACTIONS FULL-WIDTH COLUMN LIST -------------- */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-sections,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > div.container > .ulms-dashboard-sections {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel.key-actions > ul,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel.quick-actions ul {
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.45rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-panel.quick-actions li a {
+    width: 100% !important;
+    min-height: 56px !important;
+    padding: 0.7rem 0.9rem !important;
+    display: grid !important;
+    grid-template-columns: 42px minmax(0, 1fr) 28px !important;
+    grid-template-rows: auto auto !important;
+    grid-template-areas:
+        "icon  title  arrow"
+        "icon  hint   arrow" !important;
+    gap: 0 0.8rem !important;
+    align-items: center !important;
+    border-radius: 10px !important;
+    text-decoration: none !important;
+    color: inherit !important;
+    box-sizing: border-box !important;
+    transition: background-color var(--ulms-t-fast) var(--ulms-ease-standard), border-color var(--ulms-t-fast) var(--ulms-ease-standard), transform var(--ulms-t-fast) var(--ulms-ease-out) !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li:hover,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a:hover {
+    background: var(--ulms-surface-soft) !important;
+    border-color: #dde8f6 !important;
+    transform: translateX(2px) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a > i:first-child,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a > .icon,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li > div:first-child {
+    grid-area: icon !important;
+    width: 42px !important;
+    height: 42px !important;
+    border-radius: 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.1rem !important;
+    line-height: 42px !important;
+    background: #eaf3ff !important;
+    color: #0f3d67 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a > .ka-title,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a strong,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li strong {
+    grid-area: title !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 0.94rem !important;
+    font-weight: 700 !important;
+    color: #0b2b4d !important;
+    line-height: 1.2 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a > .ka-hint,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a span.hint,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li small {
+    grid-area: hint !important;
+    margin: 2px 0 0 0 !important;
+    padding: 0 !important;
+    font-size: 0.8rem !important;
+    line-height: 1.35 !important;
+    color: #63738c !important;
+    font-weight: 500 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a > .ka-arrow,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li::after {
+    grid-area: arrow !important;
+    width: 28px !important;
+    height: 28px !important;
+    align-self: center !important;
+    justify-self: end !important;
+    border-radius: 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #f4f7fc !important;
+    color: #7f90ad !important;
+    font-size: 0.9rem !important;
+    line-height: 28px !important;
+    text-align: center !important;
+    text-decoration: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list a:hover > .ka-arrow,
+body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li:hover::after {
+    background: #0f3d67 !important;
+    color: #ffffff !important;
+}
+
+/* -------------- BREAKPOINT 1: LG 992–1199.98px collapsed sidebar rail 68px -------------- */
 @media (min-width: 992px) and (max-width: 1199.98px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
         grid-template-columns: minmax(0, var(--ulms-sidebar-w-collapsed)) minmax(0, 1fr) !important;
-        max-width: none !important;
-        width: 100% !important;
-        margin: 0 !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+        padding: 1rem 0.5rem 1.5rem 0.5rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav .nav-section-label {
+        padding: 0.9rem 0.5rem 0.35rem !important;
+        text-indent: -9999px !important;
+        height: 0 !important;
         padding: 0 !important;
-        padding-inline: 0 max(0.5rem, env(safe-area-inset-right)) !important;
+        margin: 0.4rem 0 !important;
+        overflow: hidden !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a {
+        justify-content: center !important;
+        padding: 0.55rem 0.4rem !important;
         gap: 0 !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        margin-inline: 0 auto !important;
-        padding: 0 0 0 var(--ulms-grid-gap) !important;
-        padding-left: var(--ulms-grid-gap) !important;
-        padding-right: 0 !important;
-        max-width: min(1000px, 100%) !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a i,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a i {
+        margin: 0 auto !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__inner {
-        padding: 16px 8px calc(20px + env(safe-area-inset-bottom, 0px)) !important;
-        align-items: center !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a span.label,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a span.label,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav a > span:not(.icon):not(i):not(svg),
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav li a > span:not(.icon):not(i):not(svg) {
+        position: absolute !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
+        width: 1px !important;
+        height: 1px !important;
+        overflow: hidden !important;
+        white-space: nowrap !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner > * + * { margin-top: 14px !important; }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__brand {
-        grid-template-columns: var(--ulms-brand-size) !important;
-        grid-template-rows: auto !important;
-        grid-template-areas: "logo" !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .brand > span.brand-name,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .brand .portal-label,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .brand strong,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .sidebar-footer span:not(.icon):not(i):not(svg) {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .brand {
         justify-content: center !important;
-        padding: 0 0 14px !important;
-        justify-items: center !important;
+        padding: 0 0 0.9rem 0 !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__brand::before {
-        grid-area: logo !important;
-        justify-self: center !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__brand > .ulms-shell-sidebar__eyebrow,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__brand > .ulms-shell-sidebar__title {
-        display: none !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group__title,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group > h2,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group > h3 {
-        display: none !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__nav > * + * { margin-top: 6px !important; }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-nav-link {
-        padding: 10px 0 !important;
-        justify-content: center !important;
-        position: relative;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__icon {
-        margin-right: 0 !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__label,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__meta,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link > .count-container,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link > .media-body {
-        display: none !important;
-    }
-    /* Tooltip: CSS-only ::after generated label */
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link::after {
-        content: attr(title);
-        position: absolute;
-        left: calc(100% + 6px);
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--ulms-sidebar-bg);
-        color: var(--ulms-sidebar-strong);
-        padding: 8px 12px;
-        border-radius: 8px;
-        font-size: 0.86rem;
-        font-weight: 600;
-        white-space: nowrap;
-        opacity: 0;
-        visibility: hidden;
-        pointer-events: none;
-        z-index: 100;
-        box-shadow: 0 4px 14px rgba(10,29,48,0.4);
-        border: 1px solid var(--ulms-sidebar-border);
-        transition: opacity var(--ulms-fast-ms) ease,
-                    left var(--ulms-fast-ms) ease,
-                    visibility var(--ulms-fast-ms) ease;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link:hover::after,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link:focus-visible::after {
-        left: calc(100% + 10px);
-        opacity: 1;
-        visibility: visible;
-    }
-
-    /* Grids: 3 cols */
-    .theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-sections,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-support {
+    body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header {
+        grid-template-columns: minmax(0, 1fr) !important;
+        grid-template-areas:
+            "eyebrow"
+            "title"
+            "cta"
+            "date" !important;
     }
-    /* Override the legacy 850px margin-left hard offset */
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-        margin-left: 0 !important;
-    }
-}
-
-/* --- XL (≥ 1200 px): grids 4 cols --- */
-@media (min-width: 1200px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-sections,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-support {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    }
-    /* Override legacy 850px margin offset rule */
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-        margin-left: 0 !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date {
+        min-width: 100% !important;
+        max-width: none !important;
     }
 }
 
-/* --- MD & below (≤ 991.98 px): Off-canvas drawer mode --- */
+/* -------------- BREAKPOINT 2: MD ≤991.98px OFF-CANVAS DRAWER + SINGLE-COL MAIN -------------- */
 @media (max-width: 991.98px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
         grid-template-columns: minmax(0, 1fr) !important;
-        padding-inline: max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-right)) !important;
+        gap: 0 !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
-        position: fixed !important;
-        top: var(--ulms-topbar-h) !important;
-        left: 0 !important;
-        bottom: 0 !important;
-        z-index: 50 !important;
-        width: var(--ulms-drawer-w) !important;
-        max-width: min(300px, 86vw) !important;
-        height: calc(100vh - var(--ulms-topbar-h)) !important;
-        min-height: calc(100dvh - var(--ulms-topbar-h)) !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        transform: translateX(-103%) !important;
-        background: transparent !important;
-        border-right: 0 !important;
-        box-shadow: 0 16px 48px -12px rgba(10, 29, 48, 0.35);
-        will-change: transform;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
+        padding-inline: clamp(0.75rem, 3.5vw, 1.25rem) !important;
+        padding-top: calc(var(--ulms-topbar-h) + 0.15rem) !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell.ulms-shell.is-sidebar-open .ulms-shell-sidebar,
-    .theme-ulms-university.ulms-dashboard-shell.ulms-sidebar-open .ulms-shell-sidebar,
-    .theme-ulms-university.ulms-dashboard-shell.drawer-open-left .ulms-shell-sidebar {
-        transform: translateX(0) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-sidebar__inner {
-        padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)) !important;
-        min-height: calc(100dvh - var(--ulms-topbar-h));
-        height: calc(100vh - var(--ulms-topbar-h));
-        border-radius: 0 18px 18px 0;
-        border-right: 1px solid var(--ulms-sidebar-border) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar .ulms-shell-nav-link__icon {
-        margin-right: 12px !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-        margin-left: 0 !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__grid,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-sections,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-support {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary {
         grid-template-columns: minmax(0, 1fr) !important;
     }
-    /* Override legacy 849px display:block rule at ~L1664 */
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell {
-        display: grid !important;
+    body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.85rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header {
+        grid-template-columns: minmax(0, 1fr) !important;
+        grid-template-areas:
+            "eyebrow"
+            "title"
+            "cta"
+            "date" !important;
+        padding: 1rem 1rem 1.1rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date {
+        min-width: 100% !important;
+        max-width: none !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .academic-profile-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.5rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .courses-grid {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-panel,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div {
+        padding: 1rem !important;
     }
 }
 
-/* --- SM & below (≤ 767.98 px): KPI 2 cols, topbar reorder, tables scroll --- */
+/* -------------- BREAKPOINT 3: XS ≤767.98px strict single column every grid -------------- */
 @media (max-width: 767.98px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
+        padding-inline: 0.85rem !important;
+        padding-top: calc(var(--ulms-topbar-h) + 0.1rem) !important;
+        gap: 0.9rem !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-topbar__context {
-        order: 3;
-        width: 100%;
-        padding-left: 0;
-        justify-content: space-between;
+    body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.75rem !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-topbar__portal,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-topbar__role {
-        max-width: 45%;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-filter-field,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-filter-field--wide {
-        grid-column: span 12 !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content table {
-        display: block;
-        max-width: 100%;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        white-space: normal;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content th,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content td {
-        white-space: nowrap;
-        max-width: 280px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content td:hover,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content th:hover {
-        white-space: normal;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .modal-dialog {
-        max-width: calc(100vw - 2rem);
-        margin: 1rem;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .breadcrumb {
-        flex-wrap: wrap;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .breadcrumb-item,
-    .theme-ulms-university.ulms-dashboard-shell .breadcrumb-item.active {
-        max-width: 38vw;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-}
-
-/* --- XS (≤ 575.98 px): tighter mobile paddings --- */
-@media (max-width: 575.98px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-topbar > .container-fluid {
-        padding-inline: 0.75rem;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-welcome-banner__title {
-        @include ulms-fluid-font(1.4rem, 2.2rem);
-        line-height: 1.15;
-    }
-}
-
-/* --- Narrow mobile (≤ 479.98 px): 1 col grids --- */
-@media (max-width: 479.98px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid {
+    body.theme-ulms-university.ulms-dashboard-shell .courses-grid {
         grid-template-columns: minmax(0, 1fr) !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-action-grid {
-        grid-template-columns: minmax(0, 1fr) !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card {
+        min-height: 100px !important;
+        padding: 0.95rem 1rem !important;
+        grid-template-columns: 44px minmax(0, 1fr) 28px !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card > .qa-icon {
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-metric {
+        font-size: 1.5rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li {
+        grid-template-columns: 44px minmax(0, 1fr) !important;
+        grid-template-areas:
+            "date title"
+            "date code"
+            "pill pill" !important;
+        gap: 0.35rem 0.7rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li > .status-pill {
+        justify-self: start !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header {
+        padding: 0.95rem 1rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta {
+        gap: 0.5rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta a,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__cta button {
+        width: 100% !important;
+        padding: 0 1rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li a {
+        grid-template-columns: 40px minmax(0, 1fr) 24px !important;
+        min-height: 56px !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li a > i:first-child {
+        width: 40px !important;
+        height: 40px !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .course-card {
+        min-height: 300px !important;
     }
 }
 
-/* --- Global text wrapping + forms --- */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content h1,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content h2,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content h3,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content h4,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content h5,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content h6 {
-    word-break: break-word;
-    overflow-wrap: anywhere;
+/* -------------- BREAKPOINT 4: XXS ≤414px phones tightest -------------- */
+@media (max-width: 414.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
+        padding-inline: 0.75rem !important;
+        gap: 0.8rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card {
+        padding: 0.85rem 0.85rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header {
+        padding: 0.85rem 0.9rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-panel,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary > div {
+        padding: 0.9rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .course-card__footer {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 0.5rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .course-card__footer .btn-open,
+    body.theme-ulms-university.ulms-dashboard-shell .course-card__footer > a {
+        width: 100% !important;
+        min-height: 44px !important;
+    }
 }
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content form .form-group,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content .form-control,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content select,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content textarea,
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content input[type],
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content .custom-select {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card { min-height: 0; }
 
-/* --- prefers-reduced-motion: strip all transitions --- */
+/* -------------- TABLES / WIDE CONTENT overflow-x: auto only (never page scroll) -------------- */
+body.theme-ulms-university.ulms-dashboard-shell #region-main table,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > * table,
+body.theme-ulms-university.ulms-dashboard-shell .table-responsive,
+body.theme-ulms-university.ulms-dashboard-shell #region-main [data-table],
+body.theme-ulms-university.ulms-dashboard-shell #region-main .generaltable {
+    max-width: 100% !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell #region-main > *,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > section,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > div.container > *,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > * {
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    max-width: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .has-table-wrapper,
+body.theme-ulms-university.ulms-dashboard-shell #region-main > *:has(table),
+body.theme-ulms-university.ulms-dashboard-shell #region-main > * > *:has(table),
+body.theme-ulms-university.ulms-dashboard-shell #region-main > * > * > *:has(table) {
+    display: block !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    border-radius: var(--ulms-radius-card) !important;
+}
+
+/* -------------- SETTINGS / FORMS: 2-col balanced grid → 1-col @≤991 -------------- */
+body.theme-ulms-university.ulms-dashboard-shell #page-content form,
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-form-grid,
+body.theme-ulms-university.ulms-dashboard-shell form > fieldset,
+body.theme-ulms-university.ulms-dashboard-shell .settings-form {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+    gap: clamp(0.85rem, 1.1vw, 1.1rem) !important;
+}
+@media (max-width: 991.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell form > fieldset,
+    body.theme-ulms-university.ulms-dashboard-shell .settings-grid,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-form-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid label,
+body.theme-ulms-university.ulms-dashboard-shell form label {
+    font-size: 0.88rem !important;
+    font-weight: 600 !important;
+    color: #3e4e66 !important;
+    margin-bottom: 0.35rem !important;
+    display: block !important;
+    line-height: 1.4 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid input[type="text"],
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid input[type="email"],
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid input[type="password"],
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid input[type="number"],
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid input[type="tel"],
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid input[type="url"],
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid select,
+body.theme-ulms-university.ulms-dashboard-shell .settings-grid textarea,
+body.theme-ulms-university.ulms-dashboard-shell form input[type="text"],
+body.theme-ulms-university.ulms-dashboard-shell form input[type="email"],
+body.theme-ulms-university.ulms-dashboard-shell form input[type="password"],
+body.theme-ulms-university.ulms-dashboard-shell form select,
+body.theme-ulms-university.ulms-dashboard-shell form textarea {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 44px !important;
+    padding: 0.55rem 0.85rem !important;
+    background: #ffffff !important;
+    border: 1px solid #d2dcec !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+    font-size: 0.94rem !important;
+    color: #0b2b4d !important;
+    line-height: 1.4 !important;
+    transition: border-color var(--ulms-t-fast) var(--ulms-ease-standard), box-shadow var(--ulms-t-fast) var(--ulms-ease-standard) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell form input:focus,
+body.theme-ulms-university.ulms-dashboard-shell form select:focus,
+body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
+    border-color: #2e6fd2 !important;
+    box-shadow: 0 0 0 3px rgba(46, 111, 210, 0.15) !important;
+    outline: none !important;
+}
+
+/* -------------- Shell prefers-reduced-motion local guard (HEADER ULTRA also has own PRM tail absolute last wins; fine both run) -------------- */
 @media (prefers-reduced-motion: reduce) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell *,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell *::before,
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell *::after {
-        transition: none !important;
-        animation: none !important;
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell *,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell *::before,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell *::after {
+        transition-duration: 0.001ms !important;
+        transition-property: none !important;
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
         scroll-behavior: auto !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
         transition-property: none !important;
     }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-overlay {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar * {
+        transition-property: none !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-overlay {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
     }
 }
 .ZZX_EOF_MARKER_20260929_VFLUSH { color: #ff00ff !important; }
-
-/* ============================================================
-   FINAL CASCADE ULTRA-OVERRIDE (GUARANTEED LAST = WINS ALL)
-   Sidebar FLUSH to x=0 viewport left (Gmail/Notion/Apple standard).
-   Content independent max-width cap for 4K read comfort.
-   Every property here = matching 0,3,0 specificity + !important.
-   ============================================================ */
-
-/* XL: shell flush left + content capped */
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
-    display: grid !important;
-    position: relative !important;
-    grid-template-columns: minmax(0, var(--ulms-sidebar-w)) minmax(0, 1fr) !important;
-    gap: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    padding-inline: 0 max(0.75rem, env(safe-area-inset-right)) !important;
-    align-items: start !important;
-    flex-direction: initial !important;
-    grid-template-rows: auto !important;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell > * {
-    min-width: 0 !important;
-}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-    flex: 0 0 auto !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-    margin-inline: 0 auto !important;
-    padding: 0 0 0 var(--ulms-grid-gap) !important;
-    max-width: min(1160px, 100%) !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    width: 100% !important;
-}
-
-/* LG (992 – 1199.98 px): collapsed 68px rail also flush left */
-@media (min-width: 992px) and (max-width: 1199.98px) {
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell {
-        grid-template-columns: minmax(0, var(--ulms-sidebar-w-collapsed)) minmax(0, 1fr) !important;
-        max-width: none !important;
-        width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        padding-inline: 0 max(0.5rem, env(safe-area-inset-right)) !important;
-        gap: 0 !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        margin-inline: 0 auto !important;
-        padding: 0 0 0 var(--ulms-grid-gap) !important;
-        padding-left: var(--ulms-grid-gap) !important;
-        padding-right: 0 !important;
-        max-width: min(1000px, 100%) !important;
-        width: 100% !important;
-    }
-}
-
 /* ====================================================================
    UX POLISH LAYER (non-breaking incremental, prefers-reduced-motion guarded)
    Transitions · tactile click states · hover elevation · focus rings ·
    card structure consistency · drawer overlay fade · dropdown flow.
    ==================================================================== */
 
-/* Global motion policy: 0,2,0 specificity — no body prefix needed */
-:root {
-    --ulms-ease-out: cubic-bezier(0.16, 1, 0.3, 1) !important;
-    --ulms-ease-in: cubic-bezier(0.7, 0, 0.84, 0) !important;
-    --ulms-ease-standard: cubic-bezier(0.4, 0, 0.2, 1) !important;
-    --ulms-t-fast: 150ms !important;
-    --ulms-t-base: 250ms !important;
-    --ulms-t-slow: 350ms !important;
-    --ulms-shadow-sm: 0 1px 2px rgba(15, 50, 30, 0.06), 0 1px 3px rgba(15, 50, 30, 0.08) !important;
-    --ulms-shadow-md: 0 4px 12px rgba(15, 50, 30, 0.08), 0 1px 3px rgba(15, 50, 30, 0.06) !important;
-    --ulms-shadow-lg: 0 12px 32px rgba(15, 50, 30, 0.12), 0 2px 6px rgba(15, 50, 30, 0.08) !important;
-    --ulms-border: 1px solid #eef2f7 !important;
-    --ulms-border-strong: 1px solid #dde4ef !important;
-    --ulms-radius-card: 12px !important;
-    --ulms-radius-btn: 10px !important;
-}
 
 /* ====================================================================
    1/6 Nav links: smooth hover + focus-visible (keyboard) ring +
@@ -4257,6 +5124,171 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
 }
 
 /* ====================================================================
+   T6 BP9 MATRIX HOTFIX: qa-card grid-column inner span + kpi/body min-width
+   Bug: .ulms-qa-card grid 3-col 0px trapped __inner in col-1 (52px) →
+        __body 11px wide → letter-by-letter vertical wrapping.
+   Fix: Remove 3-col 0px garbage grid; __inner full width flex row center;
+        __body min-width:0 flex 1 1 auto; gap system tokens.
+   ==================================================================== */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: var(--ulms-kpi-card-height, 112px) !important;
+    border-radius: var(--ulms-radius-card, 12px) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
+    border: 1px solid var(--ulms-border-subtle, #eef2f7) !important;
+    background: #ffffff !important;
+    padding: 1.25rem 1.5rem !important;
+    transition: box-shadow 180ms var(--ulms-ease-out, cubic-bezier(0.16,1,0.3,1)),
+                transform 180ms var(--ulms-ease-out, cubic-bezier(0.16,1,0.3,1)),
+                border-color 180ms var(--ulms-ease-out, cubic-bezier(0.16,1,0.3,1)) !important;
+    text-decoration: none !important;
+    color: inherit !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:hover,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:focus-visible {
+    box-shadow: var(--ulms-card-shadow-md) !important;
+    transform: translateY(-2px) !important;
+    border-color: rgba(15, 61, 103, 0.2) !important;
+    outline: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card > .ulms-qa-card__inner {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: clamp(0.75rem, 1.1vw, 1rem) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 100% !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__icon {
+    flex: 0 0 auto !important;
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    border-radius: 12px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: linear-gradient(135deg, rgba(15,61,103,0.10), rgba(15,61,103,0.05)) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__icon svg,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__icon i,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__icon img {
+    width: 22px !important;
+    height: 22px !important;
+    color: var(--ulms-sidebar-bg, #0f3d67) !important;
+    fill: currentColor !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    gap: 0.25rem !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body > :first-child {
+    font-weight: 600 !important;
+    font-size: clamp(0.95rem, 1vw, 1rem) !important;
+    line-height: 1.35 !important;
+    color: #0b2a47 !important;
+    margin: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body > :last-child,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body p,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body small,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body [class*="subtitle"],
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card__body [class*="subtext"] {
+    font-size: 0.8rem !important;
+    line-height: 1.45 !important;
+    color: #5d6b80 !important;
+    margin: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+
+/* T6 Hotfix: ulms-kpi-grid (metric cards: 3 Enrolled / 5 Pending / 2 Exams / 50% Progress)
+   — boost container to auto-fit 4 cols XL, ensure inner card spans full width,
+   min-width:0 on every flex/grid child to prevent overflow in FF/Safari. */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid {
+    grid-column: 1 / -1 !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: var(--ulms-content-gap, 1.25rem) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid > * {
+    min-width: 0 !important;
+    min-height: var(--ulms-kpi-card-height, 112px) !important;
+}
+
+/* T6 Hotfix: action-grid full span, 4col XL → 2col LG → 1col mobile */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-action-grid {
+    grid-column: 1 / -1 !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: var(--ulms-content-gap, 1.25rem) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+}
+
+/* T6 Hotfix: dashboard shell content top-level anonymous div wrapper
+   shellContent returned 1 child = Quick Access only. Hero/Academic/Courses/Deadlines/KeyActions
+   are likely nested inside an anonymous wrapper div. Ensure wrapper inherits grid. */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > :first-child:not([class*="ulms-"]):not([class*="quick"]):not(section):not(header):not(.ulms-page-header),
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > div:first-of-type {
+    grid-column: 1 / -1 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap, 1.25rem) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* T6 Hotfix: breakpoints for qa/kpi grids
+   XL≥1200 = 4col (set above)
+   LG 992-1199.98 = qa 2col, kpi 2col, action 2col
+   MD ≤991.98 = qa 2col, kpi 2col, action 2col
+   XS ≤767.98 = qa 1col, kpi 1col, action 1col
+   XXS ≤414.98 = same 1col, reduce paddings */
+@media (min-width: 992px) and (max-width: 1199.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-action-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+@media (max-width: 991.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-action-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+@media (max-width: 767.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-action-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card {
+        padding: 1rem 1.1rem !important;
+    }
+}
+
+/* ====================================================================
    prefers-reduced-motion: disable ALL transitions for users who
    opted-out (respect OS/browser Accessibility settings).
    Must be the last rule to ensure wins over equal specificity above.
@@ -4274,4 +5306,3 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
         -webkit-backdrop-filter: none !important;
     }
 }
-
