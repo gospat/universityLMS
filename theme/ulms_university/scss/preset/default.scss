@@ -3863,8 +3863,11 @@ body.theme-ulms-university.ulms-dashboard-shell .course-card strong.title {
     color: #0b2b4d !important;
     min-height: 2.64rem !important;
     display: -webkit-box !important;
+    display: box !important;
     -webkit-box-orient: vertical !important;
+            box-orient: vertical !important;
     -webkit-line-clamp: 2 !important;
+            line-clamp: 2 !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
 }
