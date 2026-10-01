@@ -73,6 +73,9 @@ $PAGE->add_body_class('ulms-password-reset-page');
 local_ulms_auth_require_shared_ui($PAGE);
 $PAGE->requires->js_call_amd('core/togglesensitive', 'init', ['id_password']);
 $PAGE->requires->js_call_amd('core/togglesensitive', 'init', ['id_password2']);
+if (function_exists('local_ulms_privacy_extend_navigation')) {
+    local_ulms_privacy_extend_navigation(null);
+}
 
 $identifier = '';
 $error = '';
@@ -168,6 +171,13 @@ if ($token === '' && data_submitted() && confirm_sesskey()) {
     }
 }
 
+if (function_exists('local_ulms_privacy_extend_navigation')) {
+    local_ulms_privacy_extend_navigation(null);
+}
+$PAGE->requires->js_init_code("document.addEventListener('DOMContentLoaded', function(){try{var sel=document.querySelectorAll('.alert.alert-danger, .notification.notification-danger');if(sel.length>0){sel[0].setAttribute('tabindex','-1');sel[0].focus({preventScroll:false});}}catch(err){}});", true);
+if (function_exists('local_ulms_dashboard_emit_x_render_time')) {
+    local_ulms_dashboard_emit_x_render_time();
+}
 echo $OUTPUT->header();
 echo html_writer::start_div('ulms-role-login ulms-password-reset');
 echo html_writer::start_div('ulms-role-login__hero');

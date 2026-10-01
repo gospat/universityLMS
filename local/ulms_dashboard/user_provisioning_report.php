@@ -42,6 +42,43 @@ $filename = clean_filename((string)($report['filename'] ?? 'user-provisioning-re
 $rows = $report['rows'];
 $headers = array_keys(reset($rows));
 
+try {
+    global $DB, $USER;
+    if (!empty($USER) && !empty($USER->id)) {
+        $reportfields = $headers;
+        $urlpath = '/' . ltrim((string)($_SERVER['REQUEST_URI'] ?? ''), '/');
+        $eventclass = '\\local_ulms_privacy\\event\\pii_field_accessed';
+        if (class_exists($eventclass) && is_callable([$eventclass, 'fire_for'])) {
+            foreach (array_chunk($rows, 50) as $chunk) {
+                foreach ($chunk as $row) {
+                    $sid = null;
+                    if (!empty($row['userid'])) {
+                        $sid = (int)$row['userid'];
+                    } elseif (!empty($row['id'])) {
+                        $sid = (int)$row['id'];
+                    } elseif (!empty($row['email'])) {
+                        $sid = (int)($DB->get_field('user', 'id', ['email' => $row['email']], IGNORE_MISSING) ?: 0);
+                    }
+                    if (empty($sid)) {
+                        continue;
+                    }
+                    try {
+                        $eventclass::fire_for(
+                            (int)$USER->id,
+                            $sid,
+                            $reportfields,
+                            'provisioning_admin_report',
+                            $urlpath
+                        );
+                    } catch (\Throwable) {
+                    }
+                }
+            }
+        }
+    }
+} catch (\Throwable) {
+}
+
 local_ulms_dashboard_emit_security_headers();
 header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="' . $filename . '"');

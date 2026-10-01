@@ -262,5 +262,25 @@ function xmldb_local_ulms_academics_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091501, 'local', 'ulms_academics');
     }
 
+    if ($oldversion < 2026091601) {
+        // 2026091601: Version parity savepoint; refresh access.php + language caches.
+        upgrade_plugin_savepoint(true, 2026091601, 'local', 'ulms_academics');
+    }
+
+    if ($oldversion < 2026100100) {
+        // 2026100100: Professional audit batch version stamp parity.
+        upgrade_plugin_savepoint(true, 2026100100, 'local', 'ulms_academics');
+    }
+
+    if ($oldversion < 2026100101) {
+        $dbman = $DB->get_manager();
+        $table = new xmldb_table('local_ulms_semesters');
+        $index = new xmldb_index('currstatus', XMLDB_INDEX_NOTUNIQUE, ['iscurrent', 'status']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+        upgrade_plugin_savepoint(true, 2026100101, 'local', 'ulms_academics');
+    }
+
     return true;
 }

@@ -26,3 +26,6 @@ $plugin->version = 2026091703;
 $plugin->requires = 2024042200;
 $plugin->maturity = MATURITY_ALPHA;
 $plugin->release = '0.3.0';
+$plugin->dependencies = [
+    'local_ulms_auth' => 2026091601,
+];

@@ -19,6 +19,9 @@ require_once($CFG->dirroot . '/local/ulms_dashboard/lib.php');
 
 global $PAGE, $OUTPUT;
 
+local_ulms_dashboard_mark_request_start();
+local_ulms_dashboard_register_x_render_time_shutdown();
+
 require_login();
 
 $dashboardservice = new \local_ulms_dashboard\local\service\dashboard_service();
@@ -55,6 +58,7 @@ $portalservice = new \local_ulms_dashboard\local\service\lecturer_portal_service
 $overviewservice = new \local_ulms_dashboard\local\service\portal_overview_service();
 $data = $overviewservice->get_lecturer_overview_data($view);
 
+local_ulms_dashboard_emit_x_render_time();
 echo $OUTPUT->header();
 $headercontext = $portalservice->get_header_context_for_section($view);
 echo local_ulms_dashboard_render_page_header([

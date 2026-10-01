@@ -1,0 +1,41 @@
+# ULMS CODEOWNERS — required reviewers for production-impacting paths.
+# Merges touching these paths need at least one approval from the owning team
+# before deploy-production job (deploy.yml) proceeds on the main branch.
+
+# Default catch-all: platform engineering owns root-level deploy infra.
+*           @gospat
+
+# Production deploy pipeline + CI gates
+/.github/workflows/deploy.yml       @gospat
+/.github/workflows/push.yml         @gospat
+/.github/CODEOWNERS                 @gospat
+
+# Environment & secrets templates
+/.env.example                       @gospat
+/composer.json                      @gospat
+/composer.lock                      @gospat
+
+# Database install/upgrade schema (FK, UNIQUE, indexes, savepoints)
+/local/*/db/install.xml             @gospat
+/local/*/db/upgrade.php             @gospat
+/local/*/version.php                @gospat
+
+# Authentication & security surfaces
+/local/ulms_auth/                   @gospat
+/local/ulms_dashboard/classes/local/service/user_management_service.php @gospat
+/local/ulms_dashboard/classes/local/service/user_provisioning_service.php @gospat
+
+# Privacy / GDPR / PII events
+/local/ulms_privacy/                @gospat
+
+# Deploy / install scripts (destructive or live-mutating)
+/scripts/                           @gospat
+/local/ulms_dashboard/cli/install_cron.php @gospat
+/local/ulms_dashboard/cli/production_readiness_check.php @gospat
+/local/ulms_dashboard/cli/phase3_purge_rebuild.php @gospat
+
+# Theme frontend (CSS-only edits per scope lock)
+/theme/ulms_university/scss/default.scss  @gospat
+/theme/ulms_university/pix/              @gospat
+/favicon*                                @gospat
+/apple-touch-icon*                        @gospat

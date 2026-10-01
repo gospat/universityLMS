@@ -19,6 +19,32 @@ define('CLI_SCRIPT', 1);
 define('ULMS_CRON_MARKER_BEGIN', '# ULMS-moodle-cron BEGIN (managed by install_cron.php — do not edit manually)');
 define('ULMS_CRON_MARKER_END',   '# ULMS-moodle-cron END');
 
+require_once(__DIR__ . '/../../../config.php');
+
+// OQ-4 Production Boot Guard. MUST execute as EARLY as possible after $CFG populated.
+// Prevents ANY production boot that still uses MySQL root account (minimum-privilege violation).
+global $CFG;
+$dbuser = $CFG->dbuser ?? $_ENV['DB_USER'] ?? getenv('DB_USER') ?: '';
+$appenv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'local';
+if ((defined('APP_ENV') ? APP_ENV === 'production' : (stripos((string)$appenv, 'prod') !== false))
+    && (strcasecmp((string)$dbuser, 'root') === 0)) {
+    http_response_code(500);
+    if (PHP_SAPI !== 'cli') {
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+    $msg = "ULMS-SAFETY-P0: Production environment detected but DB_USER='root' in active configuration. "
+         . "Create a dedicated minimum-privilege user (ulms_rw) per .env.example L64-68, update .env DB_USER/DB_PASS, "
+         . "then retry. ULMS refuses to boot in production with root MySQL account. See: SECURITY.md / deployment checklist.";
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, "ERROR [OQ-4]: " . $msg . PHP_EOL);
+        exit(2);
+    } else {
+        die($msg);
+    }
+}
+
+require_once($CFG->libdir . '/clilib.php');
+
 $ulmsInstallerPaths = [
     __DIR__,
     dirname(__DIR__, 3),
@@ -118,7 +144,7 @@ function read_crontab(): string {
     $lines = []; $rc = 0;
     @exec('crontab -l 2>/dev/null', $lines, $rc);
     if ($rc !== 0 && $rc !== 1) {
-        throw new RuntimeException("crontab -l failed (rc={$rc}). Install cronie and try again.");
+        throw new moodle_exception('errorcrontableread', 'local_ulms_dashboard', '', null, "crontab -l failed (rc={$rc}). Install cronie and try again.");
     }
     return implode("\n", $lines) . ($lines ? "\n" : '');
 }
@@ -129,43 +155,45 @@ function write_crontab(string $content): void {
         $dir = dirname($stub);
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
         if (file_put_contents($stub, $content) === false) {
-            throw new RuntimeException("failed writing stub crontab at {$stub}");
-        }
-        return;
+        throw new moodle_exception('errorcrontabstubwrite', 'local_ulms_dashboard', '', null, "failed writing stub crontab at {$stub}");
     }
-    if (!crontab_available()) {
-        throw new RuntimeException("crontab binary not available on PATH. Install cronie/cron.");
-    }
+    return;
+}
+if (!crontab_available()) {
+    throw new moodle_exception('errorcrontabmissing', 'local_ulms_dashboard', '', null, "crontab binary not available on PATH. Install cronie/cron.");
+}
     $tmp = tempnam(sys_get_temp_dir(), 'ulms-cron-');
-    if ($tmp === false) throw new RuntimeException('tempnam() failed');
+    if ($tmp === false) {
+        throw new moodle_exception('errortempnam', 'local_ulms_dashboard', '', null, 'tempnam() failed');
+    }
     if (file_put_contents($tmp, $content) === false) {
         @unlink($tmp);
-        throw new RuntimeException('tmpfile write failed');
+        throw new moodle_exception('errortmpfilewrite', 'local_ulms_dashboard', '', null, 'tmpfile write failed');
     }
     $cmd = 'crontab ' . escapeshellarg($tmp) . ' 2>&1';
     $out = []; $rc = 0;
     @exec($cmd, $out, $rc);
     @unlink($tmp);
     if ($rc !== 0) {
-        throw new RuntimeException("crontab install failed (rc={$rc}): " . implode("\n", $out));
+        throw new moodle_exception('errorcrontabinstall', 'local_ulms_dashboard', '', null, "crontab install failed (rc={$rc}): " . implode("\n", $out));
     }
 }
 
 function build_managed_block(string $wrapperPath, string $phpBinary): string {
     if (!is_file($wrapperPath)) {
-        throw new RuntimeException("Wrapper file not found at {$wrapperPath}");
+        throw new moodle_exception('errorwrapperfound', 'local_ulms_dashboard', '', null, "Wrapper file not found at {$wrapperPath}");
     }
     if (!is_executable($wrapperPath)) {
         @chmod($wrapperPath, 0755);
         clearstatcache(true, $wrapperPath);
         if (!is_executable($wrapperPath)) {
-            throw new RuntimeException("Wrapper is not executable after chmod 0755: {$wrapperPath}");
+            throw new moodle_exception('errorwrappernotexecutable', 'local_ulms_dashboard', '', null, "Wrapper is not executable after chmod 0755: {$wrapperPath}");
         }
     }
     // Signature sanity — refuse to install if wrapper starts with suspicious bytes
     $head = (string)@file_get_contents($wrapperPath, false, null, 0, 2);
     if ($head !== '#!') {
-        throw new RuntimeException("Wrapper does not look like a shell script (missing #! shebang): {$wrapperPath}");
+        throw new moodle_exception('errorwrappershebang', 'local_ulms_dashboard', '', null, "Wrapper does not look like a shell script (missing #! shebang): {$wrapperPath}");
     }
     $shell = '/bin/bash';
     return ULMS_CRON_MARKER_BEGIN . "\n"
@@ -194,57 +222,72 @@ $action = $argv[1] ?? '';
 if ($action === '' && ($argv[0] ?? '') !== '') $action = '--help';
 $allowed = ['--install', '--uninstall', '--status', '-h', '--help'];
 if (!in_array($action, $allowed, true)) {
-    fwrite(STDERR, "Unknown action: {$action}\n\n");
+    cli_writeln("Unknown action: {$action}\n", STDERR);
     usage(1);
 }
 if ($action === '-h' || $action === '--help') usage(0);
 
-if ($action === '--status') {
-    $current    = read_crontab();
-    $installed  = has_managed_block($current);
-    $wrapperOk  = is_file($wrapper) && is_executable($wrapper);
-    $logDir     = $repoRoot . '/var/log/cron';
-    $lockFile   = $repoRoot . '/var/run/moodle-cron.lock';
-    $lastLog    = '';
-    if (is_dir($logDir)) {
-        $logs = glob($logDir . '/moodle-cron-*.log');
-        if (is_array($logs) && $logs !== []) {
-            rsort($logs);
-            $lastLog = $logs[0];
+try {
+    if ($action === '--status') {
+        $current    = read_crontab();
+        $installed  = has_managed_block($current);
+        $wrapperOk  = is_file($wrapper) && is_executable($wrapper);
+        $logDir     = $repoRoot . '/var/log/cron';
+        $lockFile   = $repoRoot . '/var/run/moodle-cron.lock';
+        $lastLog    = '';
+        if (is_dir($logDir)) {
+            $logs = glob($logDir . '/moodle-cron-*.log');
+            if (is_array($logs) && $logs !== []) {
+                rsort($logs);
+                $lastLog = $logs[0];
+            }
         }
+        $wwwroot = isset($CFG->wwwroot) ? $CFG->wwwroot : '';
+        echo json_encode([
+            'wrapper_path'      => $wrapper,
+            'wrapper_exists'    => $wrapperOk,
+            'wrapper_shebang_ok'=> $wrapperOk && (@file_get_contents($wrapper, false, null, 0, 2) === '#!'),
+            'php_binary'        => $phpBinary,
+            'moodle_bootstrap'  => true,
+            'moodle_version'    => isset($CFG->version) ? (int)$CFG->version : 0,
+            'wwwroot'           => $wwwroot,
+            'cron_available'    => crontab_available(),
+            'cron_installed'    => $installed,
+            'install_command'   => 'php local/ulms_dashboard/cli/install_cron.php --install',
+            'uninstall_command' => 'php local/ulms_dashboard/cli/install_cron.php --uninstall',
+            'daily_log_dir'     => $logDir,
+            'last_log_file'     => $lastLog,
+            'lock_file'         => $lockFile,
+            'lock_held'         => is_file($lockFile),
+        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
+        exit(0);
     }
-    echo json_encode([
-        'wrapper_path'      => $wrapper,
-        'wrapper_exists'    => $wrapperOk,
-        'wrapper_shebang_ok'=> $wrapperOk && (@file_get_contents($wrapper, false, null, 0, 2) === '#!'),
-        'php_binary'        => $phpBinary,
-        'cron_available'    => crontab_available(),
-        'cron_installed'    => $installed,
-        'install_command'   => 'php local/ulms_dashboard/cli/install_cron.php --install',
-        'uninstall_command' => 'php local/ulms_dashboard/cli/install_cron.php --uninstall',
-        'daily_log_dir'     => $logDir,
-        'last_log_file'     => $lastLog,
-        'lock_file'         => $lockFile,
-        'lock_held'         => is_file($lockFile),
-    ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
-    exit(0);
-}
 
-if ($action === '--install') {
-    $current  = read_crontab();
-    $stripped = rtrim(strip_managed_block($current), "\n") . "\n";
-    $block    = build_managed_block($wrapper, $phpBinary);
-    $next     = $stripped . "\n" . $block;
-    write_crontab($next);
-    fwrite(STDOUT, "INSTALLED managed cron block.\nVerify with: php local/ulms_dashboard/cli/install_cron.php --status\n");
-    exit(0);
-}
+    if ($action === '--install') {
+        $current  = read_crontab();
+        $stripped = rtrim(strip_managed_block($current), "\n") . "\n";
+        $block    = build_managed_block($wrapper, $phpBinary);
+        $next     = $stripped . "\n" . $block;
+        write_crontab($next);
+        cli_writeln("INSTALLED managed cron block.\nVerify with: php local/ulms_dashboard/cli/install_cron.php --status");
+        exit(0);
+    }
 
-// --uninstall
-$current = read_crontab();
-if (!has_managed_block($current)) {
-    fwrite(STDOUT, "NOT INSTALLED — managed block not present; nothing to remove.\n");
+    // --uninstall
+    $current = read_crontab();
+    if (!has_managed_block($current)) {
+        cli_writeln("NOT INSTALLED — managed block not present; nothing to remove.");
+        exit(0);
+    }
+    write_crontab(strip_managed_block($current));
+    cli_writeln("UNINSTALLED managed cron block.\nRemaining crontab untouched.");
     exit(0);
+} catch (\Throwable $e) {
+    if (function_exists('local_ulms_dashboard_log_operational_error')) {
+        local_ulms_dashboard_log_operational_error($e, 'install_cron::main_action', ['action' => $action ?? '']);
+    } else {
+        error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'install_cron::main_action','action'=>$action ?? '','type'=>get_class($e),'message'=>$e->getMessage(),'line'=>$e->getLine(),'file'=>$e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+    }
+    cli_writeln('ERROR: ' . $e->getMessage(), STDERR);
+    exit(1);
 }
-write_crontab(strip_managed_block($current));
-fwrite(STDOUT, "UNINSTALLED managed cron block.\nRemaining crontab untouched.\n");

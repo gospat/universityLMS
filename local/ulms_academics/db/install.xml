@@ -70,6 +70,7 @@
                 <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
                 <FIELD NAME="moodlecourseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
                 <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="levelid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Academic level FK (100/200/300/400/500/600); 0 = any-level scope"/>
                 <FIELD NAME="coursetype" TYPE="char" LENGTH="30" NOTNULL="true" DEFAULT="core" SEQUENCE="false"/>
                 <FIELD NAME="iscore" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
                 <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
@@ -85,7 +86,8 @@
                 <INDEX NAME="programme_idx" UNIQUE="false" FIELDS="programmeid"/>
                 <INDEX NAME="course_idx" UNIQUE="false" FIELDS="moodlecourseid"/>
                 <INDEX NAME="semester_idx" UNIQUE="false" FIELDS="semesterid"/>
-                <INDEX NAME="programme_course_per_semester_unique" UNIQUE="true" FIELDS="programmeid,moodlecourseid,semesterid"/>
+                <INDEX NAME="programme_course_full_hierarchy_unique" UNIQUE="true" FIELDS="programmeid,moodlecourseid,semesterid,levelid"/>
+                <INDEX NAME="level_programme_semester_scope_idx" UNIQUE="false" FIELDS="levelid,programmeid,semesterid"/>
             </INDEXES>
         </TABLE>
 
@@ -128,6 +130,7 @@
             <INDEXES>
                 <INDEX NAME="session_idx" UNIQUE="false" FIELDS="sessionid"/>
                 <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
+                <INDEX NAME="currstatus" UNIQUE="false" FIELDS="iscurrent,status"/>
             </INDEXES>
         </TABLE>
     </TABLES>

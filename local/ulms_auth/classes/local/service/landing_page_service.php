@@ -579,6 +579,38 @@ class landing_page_service {
             '/local/ulms_dashboard/index.php' => [
                 'type' => 'dashboardindex',
             ],
+            '/privacy' => [
+                'target' => '/local/ulms_privacy/legal.php?page=privacy',
+                'statuscode' => 302,
+            ],
+            '/privacy.php' => [
+                'target' => '/local/ulms_privacy/legal.php?page=privacy',
+                'statuscode' => 302,
+            ],
+            '/gdpr' => [
+                'target' => '/local/ulms_privacy/legal.php?page=gdpr',
+                'statuscode' => 302,
+            ],
+            '/gdpr.php' => [
+                'target' => '/local/ulms_privacy/legal.php?page=gdpr',
+                'statuscode' => 302,
+            ],
+            '/cookie-policy' => [
+                'target' => '/local/ulms_privacy/legal.php?page=cookie-policy',
+                'statuscode' => 302,
+            ],
+            '/cookie-policy.php' => [
+                'target' => '/local/ulms_privacy/legal.php?page=cookie-policy',
+                'statuscode' => 302,
+            ],
+            '/data-protection' => [
+                'target' => '/local/ulms_privacy/legal.php?page=data-protection',
+                'statuscode' => 302,
+            ],
+            '/data-protection.php' => [
+                'target' => '/local/ulms_privacy/legal.php?page=data-protection',
+                'statuscode' => 302,
+            ],
         ];
 
         if (!array_key_exists($path, $staticroutes)) {

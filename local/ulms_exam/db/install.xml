@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <XMLDB PATH="local/ulms_exam/db" VERSION="2026091101" COMMENT="ULMS Exams schema v3 (multi answer rows per question)" NEXT="2026091102">
   <TABLES>
-    <TABLE NAME="local_ulms_exams" COMMENT="Exam definitions scope to programme+semester+course">
+    <TABLE NAME="local_ulms_exams" COMMENT="Exam definitions scope to programme+level+session+semester+course">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="programmeid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_programmes.id"/>
         <FIELD NAME="semesterid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_semesters.id"/>
+        <FIELD NAME="levelid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_levels.id or 0 = any-level scope"/>
+        <FIELD NAME="sessionid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK local_ulms_sessions.id"/>
         <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="FK mdl_course.id"/>
         <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT=""/>
         <FIELD NAME="instructions" TYPE="text" NOTNULL="false"/>
@@ -30,12 +32,16 @@
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="programmeid" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+        <KEY NAME="semesterid" TYPE="foreign" FIELDS="semesterid" REFTABLE="local_ulms_semesters" REFFIELDS="id"/>
+        <KEY NAME="levelid" TYPE="foreign" FIELDS="levelid" REFTABLE="local_ulms_levels" REFFIELDS="id"/>
+        <KEY NAME="sessionid" TYPE="foreign" FIELDS="sessionid" REFTABLE="local_ulms_sessions" REFFIELDS="id"/>
         <KEY NAME="courseid" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
         <KEY NAME="createdby" TYPE="foreign" FIELDS="createdby" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="gradeitemid_fk" TYPE="foreign" FIELDS="gradeitemid" REFTABLE="grade_items" REFFIELDS="id"/>
       </KEYS>
       <INDEXES>
         <INDEX NAME="status_idx" UNIQUE="false" FIELDS="status"/>
-        <INDEX NAME="scope_idx" UNIQUE="false" FIELDS="programmeid, semesterid, courseid"/>
+        <INDEX NAME="scope_idx" UNIQUE="false" FIELDS="programmeid, levelid, sessionid, semesterid, courseid"/>
         <INDEX NAME="window_idx" UNIQUE="false" FIELDS="start_ts, end_ts"/>
         <INDEX NAME="creator_idx" UNIQUE="false" FIELDS="createdby, status"/>
       </INDEXES>
@@ -58,10 +64,12 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="examid" TYPE="foreign" FIELDS="examid" REFTABLE="local_ulms_exams" REFFIELDS="id"/>
+        <KEY NAME="examid_fk" TYPE="foreign" FIELDS="examid" REFTABLE="local_ulms_exams" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="questionbankid_fk" TYPE="foreign" FIELDS="questionbankid" REFTABLE="local_ulms_question_bank" REFFIELDS="id" ONDELETE="SET NULL"/>
+        <KEY NAME="usermodified_fk" TYPE="foreign" FIELDS="usermodified" REFTABLE="user" REFFIELDS="id" ONDELETE="SET NULL"/>
       </KEYS>
       <INDEXES>
-        <INDEX NAME="exam_order_idx" UNIQUE="false" FIELDS="examid, ordernum"/>
+        <INDEX NAME="exam_order_idx" UNIQUE="true" FIELDS="examid, ordernum"/>
         <INDEX NAME="banklink_idx" UNIQUE="false" FIELDS="questionbankid"/>
       </INDEXES>
     </TABLE>
@@ -79,10 +87,11 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="examquestionid" TYPE="foreign" FIELDS="examquestionid" REFTABLE="local_ulms_exam_questions" REFFIELDS="id"/>
+        <KEY NAME="examquestionid_fk" TYPE="foreign" FIELDS="examquestionid" REFTABLE="local_ulms_exam_questions" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="usermodified_fk" TYPE="foreign" FIELDS="usermodified" REFTABLE="user" REFFIELDS="id" ONDELETE="SET NULL"/>
       </KEYS>
       <INDEXES>
-        <INDEX NAME="qorder_idx" UNIQUE="false" FIELDS="examquestionid, ordernum"/>
+        <INDEX NAME="qorder_idx" UNIQUE="true" FIELDS="examquestionid, ordernum"/>
       </INDEXES>
     </TABLE>
 
@@ -102,9 +111,11 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="programmeid" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
-        <KEY NAME="courseid" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
-        <KEY NAME="createdby" TYPE="foreign" FIELDS="createdby" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="programmeid_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="semesterid_fk" TYPE="foreign" FIELDS="semesterid" REFTABLE="local_ulms_semesters" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="courseid_fk" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="createdby_fk" TYPE="foreign" FIELDS="createdby" REFTABLE="user" REFFIELDS="id" ONDELETE="SET NULL"/>
+        <KEY NAME="usermodified_fk" TYPE="foreign" FIELDS="usermodified" REFTABLE="user" REFFIELDS="id" ONDELETE="SET NULL"/>
       </KEYS>
       <INDEXES>
         <INDEX NAME="scope_idx" UNIQUE="false" FIELDS="programmeid, semesterid, courseid, status"/>
@@ -124,10 +135,11 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="bankquestionid" TYPE="foreign" FIELDS="bankquestionid" REFTABLE="local_ulms_question_bank" REFFIELDS="id"/>
+        <KEY NAME="bankquestionid_fk" TYPE="foreign" FIELDS="bankquestionid" REFTABLE="local_ulms_question_bank" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="usermodified_fk" TYPE="foreign" FIELDS="usermodified" REFTABLE="user" REFFIELDS="id" ONDELETE="SET NULL"/>
       </KEYS>
       <INDEXES>
-        <INDEX NAME="bankorder_idx" UNIQUE="false" FIELDS="bankquestionid, ordernum"/>
+        <INDEX NAME="bankorder_idx" UNIQUE="true" FIELDS="bankquestionid, ordernum"/>
       </INDEXES>
     </TABLE>
 
@@ -149,8 +161,8 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="examid" TYPE="foreign" FIELDS="examid" REFTABLE="local_ulms_exams" REFFIELDS="id"/>
-        <KEY NAME="examinee_userid" TYPE="foreign" FIELDS="examinee_userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="examid_fk" TYPE="foreign" FIELDS="examid" REFTABLE="local_ulms_exams" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="examinee_userid_fk" TYPE="foreign" FIELDS="examinee_userid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
       </KEYS>
       <INDEXES>
         <INDEX NAME="unique_attendee" UNIQUE="true" FIELDS="examid, examinee_userid"/>
@@ -172,8 +184,8 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="submissionid" TYPE="foreign" FIELDS="submissionid" REFTABLE="local_ulms_exam_submissions" REFFIELDS="id"/>
-        <KEY NAME="examquestionid" TYPE="foreign" FIELDS="examquestionid" REFTABLE="local_ulms_exam_questions" REFFIELDS="id"/>
+        <KEY NAME="submissionid_fk" TYPE="foreign" FIELDS="submissionid" REFTABLE="local_ulms_exam_submissions" REFFIELDS="id" ONDELETE="CASCADE"/>
+        <KEY NAME="examquestionid_fk" TYPE="foreign" FIELDS="examquestionid" REFTABLE="local_ulms_exam_questions" REFFIELDS="id" ONDELETE="CASCADE"/>
       </KEYS>
       <INDEXES>
         <INDEX NAME="subq_idx" UNIQUE="false" FIELDS="submissionid, examquestionid"/>

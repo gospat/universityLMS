@@ -21,6 +21,9 @@ require_once($CFG->dirroot . '/local/ulms_dashboard/lib.php');
 /** @var core_renderer $OUTPUT */
 global $PAGE, $OUTPUT;
 
+local_ulms_dashboard_mark_request_start();
+local_ulms_dashboard_register_x_render_time_shutdown();
+
 require_login();
 
 $dashboardservice = new \local_ulms_dashboard\local\service\dashboard_service();

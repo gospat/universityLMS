@@ -454,5 +454,157 @@ function xmldb_local_ulms_dashboard_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091700, 'local', 'ulms_dashboard');
     }
 
+    if ($oldversion < 2026091701) {
+        // 2026091701: Referential integrity hardening.
+        // - Add ON DELETE CASCADE FKs for faculty/department admin assignments.
+        // - Add UNIQUE(userid, facultyid) and UNIQUE(userid, departmentid) constraints.
+        // - Add ON DELETE CASCADE FKs to provisioning_log actor/created columns.
+        // - Add FK indexes for user/faculty/department on admin assignment tables.
+        $table = new xmldb_table('local_ulms_faculty_admin_assignments');
+        if ($dbman->table_exists($table)) {
+            $candidates = [
+                ['user_fk_cascade',       XMLDB_KEY_FOREIGN, ['userid'],     'user',                  ['id'], XMLDB_KEY_CASCADE],
+                ['faculty_fk_cascade',    XMLDB_KEY_FOREIGN, ['facultyid'],  'local_ulms_faculties',   ['id'], XMLDB_KEY_CASCADE],
+            ];
+            foreach ($candidates as [$name, $type, $cols, $reftable, $refcols, $ondelete]) {
+                $key = new xmldb_key($name, $type, $cols, $reftable, $refcols);
+                $key->set_on_delete($ondelete);
+                try {
+                    if (!$dbman->key_exists($table, $key)) {
+                        $dbman->add_key($table, $key);
+                    }
+                } catch (\Throwable) {
+                }
+            }
+            $uniq = new xmldb_index('userfaculty_unique', XMLDB_INDEX_UNIQUE, ['userid', 'facultyid']);
+            try {
+                if (!$dbman->index_exists($table, $uniq)) {
+                    $dbman->add_index($table, $uniq);
+                }
+            } catch (\Throwable) {
+            }
+            $idxs = [
+                ['userid_idx', XMLDB_INDEX_NOTUNIQUE, ['userid']],
+                ['facultyid_idx', XMLDB_INDEX_NOTUNIQUE, ['facultyid']],
+            ];
+            foreach ($idxs as [$name, $type, $cols]) {
+                $i = new xmldb_index($name, $type, $cols);
+                try {
+                    if (!$dbman->index_exists($table, $i)) {
+                        $dbman->add_index($table, $i);
+                    }
+                } catch (\Throwable) {
+                }
+            }
+        }
+        $table = new xmldb_table('local_ulms_department_admin_assignments');
+        if ($dbman->table_exists($table)) {
+            $candidates = [
+                ['user_fk_cascade',       XMLDB_KEY_FOREIGN, ['userid'],       'user',                    ['id'], XMLDB_KEY_CASCADE],
+                ['department_fk_cascade', XMLDB_KEY_FOREIGN, ['departmentid'], 'local_ulms_departments',  ['id'], XMLDB_KEY_CASCADE],
+            ];
+            foreach ($candidates as [$name, $type, $cols, $reftable, $refcols, $ondelete]) {
+                $key = new xmldb_key($name, $type, $cols, $reftable, $refcols);
+                $key->set_on_delete($ondelete);
+                try {
+                    if (!$dbman->key_exists($table, $key)) {
+                        $dbman->add_key($table, $key);
+                    }
+                } catch (\Throwable) {
+                }
+            }
+            $uniq = new xmldb_index('userdept_unique', XMLDB_INDEX_UNIQUE, ['userid', 'departmentid']);
+            try {
+                if (!$dbman->index_exists($table, $uniq)) {
+                    $dbman->add_index($table, $uniq);
+                }
+            } catch (\Throwable) {
+            }
+            $idxs = [
+                ['userid_idx', XMLDB_INDEX_NOTUNIQUE, ['userid']],
+                ['departmentid_idx', XMLDB_INDEX_NOTUNIQUE, ['departmentid']],
+            ];
+            foreach ($idxs as [$name, $type, $cols]) {
+                $i = new xmldb_index($name, $type, $cols);
+                try {
+                    if (!$dbman->index_exists($table, $i)) {
+                        $dbman->add_index($table, $i);
+                    }
+                } catch (\Throwable) {
+                }
+            }
+        }
+        $table = new xmldb_table('local_ulms_user_provisioning_log');
+        if ($dbman->table_exists($table)) {
+            $candidates = [
+                ['actor_fk_cascade',      XMLDB_KEY_FOREIGN, ['actorid'],       'user', ['id'], XMLDB_KEY_CASCADE],
+                ['createduser_fk_cascade',XMLDB_KEY_FOREIGN, ['createduserid'], 'user', ['id'], XMLDB_KEY_CASCADE],
+            ];
+            foreach ($candidates as [$name, $type, $cols, $reftable, $refcols, $ondelete]) {
+                $key = new xmldb_key($name, $type, $cols, $reftable, $refcols);
+                $key->set_on_delete($ondelete);
+                try {
+                    if (!$dbman->key_exists($table, $key)) {
+                        $dbman->add_key($table, $key);
+                    }
+                } catch (\Throwable) {
+                }
+            }
+        }
+        upgrade_plugin_savepoint(true, 2026091701, 'local', 'ulms_dashboard');
+    }
+
+    if ($oldversion < 2026091702) {
+        // 2026091702: User profile referential integrity + composite index.
+        $table = new xmldb_table('local_ulms_user_profile');
+        if ($dbman->table_exists($table)) {
+            $candidates = [
+                ['user_fk_cascade',         XMLDB_KEY_FOREIGN, ['userid'],       'user',                     ['id'], XMLDB_KEY_CASCADE],
+                ['faculty_fk_setnull',      XMLDB_KEY_FOREIGN, ['facultyid'],    'local_ulms_faculties',     ['id'], XMLDB_KEY_SETNULL],
+                ['department_fk_setnull',   XMLDB_KEY_FOREIGN, ['departmentid'], 'local_ulms_departments',   ['id'], XMLDB_KEY_SETNULL],
+                ['programme_fk_setnull',    XMLDB_KEY_FOREIGN, ['programmeid'],  'local_ulms_programmes',    ['id'], XMLDB_KEY_SETNULL],
+            ];
+            foreach ($candidates as [$name, $type, $cols, $reftable, $refcols, $ondelete]) {
+                $key = new xmldb_key($name, $type, $cols, $reftable, $refcols);
+                $key->set_on_delete($ondelete);
+                try {
+                    if (!$dbman->key_exists($table, $key)) {
+                        $dbman->add_key($table, $key);
+                    }
+                } catch (\Throwable) {
+                }
+            }
+            $idx = new xmldb_index('facdeptprog_composite_idx', XMLDB_INDEX_NOTUNIQUE, ['facultyid', 'departmentid', 'programmeid']);
+            try {
+                if (!$dbman->index_exists($table, $idx)) {
+                    $dbman->add_index($table, $idx);
+                }
+            } catch (\Throwable) {
+            }
+        }
+        upgrade_plugin_savepoint(true, 2026091702, 'local', 'ulms_dashboard');
+    }
+
+    if ($oldversion < 2026091703) {
+        // 2026091703: Attendance marked_by SET NULL FK.
+        $table = new xmldb_table('local_ulms_dashboard_attendance');
+        if ($dbman->table_exists($table)) {
+            $key = new xmldb_key('markedby_fk_setnull', XMLDB_KEY_FOREIGN, ['marked_by'], 'user', ['id']);
+            $key->set_on_delete(XMLDB_KEY_SETNULL);
+            try {
+                if (!$dbman->key_exists($table, $key)) {
+                    $dbman->add_key($table, $key);
+                }
+            } catch (\Throwable) {
+            }
+        }
+        upgrade_plugin_savepoint(true, 2026091703, 'local', 'ulms_dashboard');
+    }
+
+    if ($oldversion < 2026100100) {
+        // 2026100100: Professional audit batch: refresh caps/lang, version stamp parity.
+        upgrade_plugin_savepoint(true, 2026100100, 'local', 'ulms_dashboard');
+    }
+
     return true;
 }

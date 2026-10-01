@@ -793,16 +793,27 @@ class exam_service {
             ['eid' => $examid]
         );
         $imported = 0;
+        $bqIds = array_map(static fn($b) => (int)$b->id, $bankrows);
+        $allChoicesMap = [];
+        if (!empty($bqIds)) {
+            [$insql, $inparams] = $DB->get_in_or_equal($bqIds, SQL_PARAMS_NAMED, 'bqid');
+            $allChoices = $DB->get_records_select(
+                'local_ulms_question_bank_choices',
+                "bankquestionid $insql",
+                $inparams,
+                'bankquestionid, ordernum ASC',
+                'id, bankquestionid, choice_html, iscorrect, ordernum, feedback'
+            );
+            foreach ($allChoices as $ch) {
+                $allChoicesMap[(int)$ch->bankquestionid][] = $ch;
+            }
+        }
         foreach ($bankrows as $bq) {
             if ((int)$bq->programmeid !== 0 && (int)$bq->programmeid !== (int)$exam->programmeid) {
                 continue;
             }
             $currentmax++;
-            $choices = $DB->get_records(
-                'local_ulms_question_bank_choices',
-                ['bankquestionid' => (int)$bq->id],
-                'ordernum ASC'
-            );
+            $choices = $allChoicesMap[(int)$bq->id] ?? [];
             $importqtype = property_exists($bq, 'questiontype') && in_array((string)$bq->questiontype, ['single', 'multi'], true)
                 ? (string)$bq->questiontype : 'single';
             $qid = (int)$DB->insert_record('local_ulms_exam_questions', (object)[

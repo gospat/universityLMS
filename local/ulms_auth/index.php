@@ -41,6 +41,9 @@ $PAGE->set_heading(get_string('portallandingtitle', 'local_ulms_auth'));
 $PAGE->add_body_class('ulms-role-login-page');
 $PAGE->add_body_class('ulms-role-landing-page');
 local_ulms_auth_require_shared_ui($PAGE);
+if (function_exists('local_ulms_privacy_extend_navigation')) {
+    local_ulms_privacy_extend_navigation(null);
+}
 
 $portals = $service->get_portal_cards();
 $supportitems = [
@@ -49,6 +52,9 @@ $supportitems = [
     get_string('portalsecurityitemrecovery', 'local_ulms_auth'),
 ];
 
+if (function_exists('local_ulms_dashboard_emit_x_render_time')) {
+    local_ulms_dashboard_emit_x_render_time();
+}
 echo $OUTPUT->header();
 echo html_writer::start_div('ulms-role-login');
 echo html_writer::start_div('ulms-role-login__hero');
@@ -67,7 +73,7 @@ echo html_writer::tag('p', get_string('portallandingpaneldesc', 'local_ulms_auth
 echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel__body');
-echo local_ulms_auth_render_portal_cards($portals, 'h2');
+echo local_ulms_auth_render_portal_cards($portals, 'h3');
 echo html_writer::div(
     html_writer::link(
         $service->get_url_for_route('public.passwordreset'),

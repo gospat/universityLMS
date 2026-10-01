@@ -59,5 +59,15 @@ function xmldb_local_ulms_kortext_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026091601, 'local', 'ulms_kortext');
     }
 
+    if ($oldversion < 2026091602) {
+        // 2026091602: Savepoint parity with version.php; refresh caps and lang caches.
+        upgrade_plugin_savepoint(true, 2026091602, 'local', 'ulms_kortext');
+    }
+
+    if ($oldversion < 2026100100) {
+        // 2026100100: Professional audit batch version stamp parity.
+        upgrade_plugin_savepoint(true, 2026100100, 'local', 'ulms_kortext');
+    }
+
     return true;
 }

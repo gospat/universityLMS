@@ -4,25 +4,6 @@
     "description": "Moodle - the world's open source learning platform",
     "type": "project",
     "homepage": "https://moodle.org",
-    "require-dev": {
-        "phpunit/phpunit": "^9.6.34",
-        "mikey179/vfsstream": "1.6.*",
-        "behat/mink": "^1.11.0",
-        "friends-of-behat/mink-extension": "^2.7.5",
-        "behat/mink-browserkit-driver": "^2.2.0",
-        "symfony/process": "^4.4 || ^5.0 || ^6.0 || ^7.0",
-        "symfony/mime": "^4.4 || ^5.0 || ^6.0 || ^7.0",
-        "behat/behat": "3.14.*",
-        "oleg-andreyev/mink-phpwebdriver": "1.3.*",
-        "filp/whoops": "^2.15"
-    },
-    "autoload-dev": {
-        "psr-0": {
-            "Moodle\\BehatExtension": "lib/behat/extension/"
-        }
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true,
     "require": {
         "php": ">=8.1.0",
         "symfony/http-client": "^4.4 || ^5.0 || ^6.0 || ^7.0",
@@ -44,15 +25,47 @@
         "ext-json": "*",
         "ext-hash": "*",
         "ext-fileinfo": "*",
-        "ext-sodium": "*"
+        "ext-sodium": "*",
+        "ext-mysqli": "*",
+        "monolog/monolog": "^3"
     },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6.34",
+        "mikey179/vfsstream": "1.6.*",
+        "behat/mink": "^1.11.0",
+        "friends-of-behat/mink-extension": "^2.7.5",
+        "behat/mink-browserkit-driver": "^2.2.0",
+        "symfony/process": "^4.4 || ^5.0 || ^6.0 || ^7.0",
+        "symfony/mime": "^4.4 || ^5.0 || ^6.0 || ^7.0",
+        "behat/behat": "3.14.*",
+        "oleg-andreyev/mink-phpwebdriver": "1.3.*",
+        "filp/whoops": "^2.15",
+        "vimeo/psalm": "^5",
+        "phpstan/phpstan": "^1"
+    },
+    "autoload-dev": {
+        "psr-0": {
+            "Moodle\\BehatExtension": "lib/behat/extension/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit --testsuite local_ulms_dashboard,local_ulms_auth,local_ulms_academics,local_ulms_exam,local_ulms_kortext,local_ulms_mail",
+        "prc": "php local/ulms_dashboard/cli/production_readiness_check.php",
+        "backup-smoke": "php local/ulms_dashboard/cli/ops_backup_smoke.php",
+        "check": [
+            "@php -d memory_limit=512M vendor/bin/psalm --no-progress || true",
+            "@php -d memory_limit=512M vendor/bin/phpstan analyse local/ --level=3 --no-progress || true"
+        ],
+        "check-platform-reqs": "composer check-platform-reqs --no-dev --strict"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "suggest": {
-        "ext-mysqli": "Needed when Moodle uses MySQL or MariaDB database.",
         "ext-pgsql": "Needed when Moodle uses PostgreSQL database.",
         "ext-sqlsrv": "Needed when Moodle uses MS SQL Server database.",
         "ext-oci8": "Needed when Moodle uses Oracle database.",
         "ext-tokenizer": "Enabling Tokenizer PHP extension is recommended, it improves Moodle Networking functionality.",
         "ext-soap": "Enabling SOAP PHP extension is useful for web services and some plugins.",
-        "ext-exif": "Enabling Exif PHP extension is recommended, it is used by Moodle to parse image meta data."
+        "ext-exif": "Enabling Exif PHP extension is recommended. It is used by Moodle to parse image meta data."
     }
 }

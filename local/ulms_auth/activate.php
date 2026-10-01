@@ -50,6 +50,9 @@ $PAGE->add_body_class('ulms-activation-page');
 local_ulms_auth_require_shared_ui($PAGE);
 $PAGE->requires->js_call_amd('core/togglesensitive', 'init', ['id_password']);
 $PAGE->requires->js_call_amd('core/togglesensitive', 'init', ['id_password2']);
+if (function_exists('local_ulms_privacy_extend_navigation')) {
+    local_ulms_privacy_extend_navigation(null);
+}
 
 $tokenerror = '';
 $setpasswordform = null;
@@ -83,6 +86,9 @@ if ($tokenstate['status'] === 'valid' && !empty($tokenstate['user'])) {
     $tokenerror = get_string('activationtokeninvalid', 'local_ulms_auth');
 }
 
+if (function_exists('local_ulms_dashboard_emit_x_render_time')) {
+    local_ulms_dashboard_emit_x_render_time();
+}
 echo $OUTPUT->header();
 echo html_writer::start_div('ulms-role-login ulms-activation');
 echo html_writer::start_div('ulms-role-login__hero');

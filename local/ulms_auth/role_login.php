@@ -17,11 +17,28 @@
 require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/login/lib.php');
 require_once(__DIR__ . '/lib.php');
+require_once($CFG->dirroot . '/local/ulms_dashboard/lib.php');
+@include_once($CFG->dirroot . '/local/ulms_privacy/lib.php');
+
+local_ulms_dashboard_mark_request_start();
+local_ulms_dashboard_register_x_render_time_shutdown();
 
 if (!(defined('PHPUNIT_TEST') && PHPUNIT_TEST) && !(defined('BEHAT_TEST') && BEHAT_TEST)) {
     try {
         require_once(__DIR__ . '/classes/local/service/login_rate_limit.php');
     } catch (\Throwable $_) {
+        local_ulms_auth_log_security_event('login_rate_limit_bootstrap_failed', [
+            'type' => get_class($_),
+            'message' => $_->getMessage(),
+            'file' => $_->getFile(),
+            'line' => $_->getLine(),
+        ]);
+        if (function_exists('local_ulms_dashboard_log_operational_error')) {
+            local_ulms_dashboard_log_operational_error($_, 'role_login::require_login_rate_limit', []);
+        } else {
+            error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'role_login::require_login_rate_limit','type'=>get_class($_),'message'=>$_->getMessage(),'line'=>$_->getLine(),'file'=>$_->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+        }
+        trigger_error('ULMS: login_rate_limit service failed to load. Rate limiting is disabled for this request. Rotate credentials at next maintenance window.', E_USER_WARNING);
     }
 }
 
@@ -197,6 +214,13 @@ if ($username === '') {
     $passwordattributes['autofocus'] = 'autofocus';
 }
 
+if (function_exists('local_ulms_privacy_extend_navigation')) {
+    local_ulms_privacy_extend_navigation(null);
+}
+$PAGE->requires->js_init_code("document.addEventListener('DOMContentLoaded', function(){try{var e=document.getElementById('ulms-role-login-error');if(e){e.setAttribute('tabindex','-1');e.focus({preventScroll:false});}}catch(err){}});", true);
+if (function_exists('local_ulms_dashboard_emit_x_render_time')) {
+    local_ulms_dashboard_emit_x_render_time();
+}
 echo $OUTPUT->header();
 echo html_writer::start_div('ulms-role-login');
 echo html_writer::start_div('ulms-role-login__hero');
@@ -349,7 +373,7 @@ echo local_ulms_auth_render_info_list([
     get_string('portalsecurityitemrecovery', 'local_ulms_auth'),
 ]);
 echo html_writer::tag('h3', get_string('portalalternateheading', 'local_ulms_auth'), ['class' => 'ulms-role-login__section-title']);
-echo local_ulms_auth_render_portal_cards($otherportals);
+echo local_ulms_auth_render_portal_cards($otherportals, 'h4');
 echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::end_div();

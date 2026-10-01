@@ -17,6 +17,29 @@
 define('CLI_SCRIPT', true);
 
 require_once(__DIR__ . '/../../../config.php');
+
+// OQ-4 Production Boot Guard. MUST execute as EARLY as possible after $CFG populated.
+// Prevents ANY production boot that still uses MySQL root account (minimum-privilege violation).
+global $CFG;
+$dbuser = $CFG->dbuser ?? $_ENV['DB_USER'] ?? getenv('DB_USER') ?: '';
+$appenv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'local';
+if ((defined('APP_ENV') ? APP_ENV === 'production' : (stripos((string)$appenv, 'prod') !== false))
+    && (strcasecmp((string)$dbuser, 'root') === 0)) {
+    http_response_code(500);
+    if (PHP_SAPI !== 'cli') {
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+    $msg = "ULMS-SAFETY-P0: Production environment detected but DB_USER='root' in active configuration. "
+         . "Create a dedicated minimum-privilege user (ulms_rw) per .env.example L64-68, update .env DB_USER/DB_PASS, "
+         . "then retry. ULMS refuses to boot in production with root MySQL account. See: SECURITY.md / deployment checklist.";
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, "ERROR [OQ-4]: " . $msg . PHP_EOL);
+        exit(2);
+    } else {
+        die($msg);
+    }
+}
+
 require_once($CFG->libdir . '/clilib.php');
 
 $checks = [];
@@ -722,6 +745,423 @@ try {
     $recordcheck('audit:guards', false, 'Guards audit scan failed: ' . $exception->getMessage());
 }
 
+try {
+    $timezoneok = !empty($CFG->timezone) && $CFG->timezone !== '99';
+    $tzval = $timezoneok ? (string)$CFG->timezone : 'empty/unset (default=99)';
+    if (!$timezoneok && function_exists('date_default_timezone_get')) {
+        $t = @date_default_timezone_get();
+        if (!empty($t)) {
+            $timezoneok = true;
+            $tzval = 'default=' . $t;
+        }
+    }
+    $recordcheck('cfg:php-timezone', $timezoneok, 'PHP/Timezone cfg: ' . $tzval);
+
+    $wwwrootok = !empty($CFG->wwwroot) && is_string($CFG->wwwroot) && preg_match('#^https?://#i', $CFG->wwwroot) === 1;
+    $recordcheck(
+        'cfg:wwwroot-valid',
+        $wwwrootok,
+        $wwwrootok ? 'wwwroot valid: ' . (string)$CFG->wwwroot : 'wwwroot missing or invalid protocol.'
+    );
+
+    $xdebugok = !extension_loaded('xdebug') || false === ini_get('xdebug.remote_enable');
+    $recordcheck(
+        'cfg:xdebug-off',
+        $xdebugok,
+        $xdebugok ? 'xdebug not loaded or remote disabled.' : 'xdebug remote_enable detected; disable in production.'
+    );
+
+    $tmpok = !empty($CFG->tempdir) && is_dir((string)$CFG->tempdir) && is_writable((string)$CFG->tempdir);
+    $recordcheck(
+        'cfg:tmpdir-writable',
+        $tmpok,
+        $tmpok ? 'tempdir writable: ' . ((string)($CFG->tempdir ?? 'NULL')) : 'tempdir missing or not writable.'
+    );
+
+    $diskpct = null;
+    if (!empty($CFG->dataroot)) {
+        $dp = @disk_free_space((string)$CFG->dataroot);
+        $dt = @disk_total_space((string)$CFG->dataroot);
+        if (is_float($dp) && is_float($dt) && $dt > 0) {
+            $diskpct = 100 - round(($dp / $dt) * 100, 2);
+        }
+    }
+    $diskok = $diskpct !== null && $diskpct < 90;
+    $recordcheck(
+        'sys:disk-usage-lt90',
+        $diskok,
+        ($diskpct !== null ? sprintf('dataroot disk usage %.2f%%', $diskpct) : 'disk usage unavailable for dataroot.')
+    );
+
+    $memoryok = false;
+    $memoryBytes = 0;
+    $limit = trim((string)ini_get('memory_limit'));
+    if ($limit !== '' && $limit !== '-1') {
+        $val = (int)$limit;
+        $last = strtolower(substr($limit, -1));
+        $memoryBytes = match ($last) {
+            'g' => $val * 1024 * 1024 * 1024,
+            'm' => $val * 1024 * 1024,
+            'k' => $val * 1024,
+            default => $val,
+        };
+    }
+    if ($limit === '-1' || $memoryBytes >= 512 * 1024 * 1024) {
+        $memoryok = true;
+    }
+    $recordcheck(
+        'sys:memory-gte-512M',
+        $memoryok,
+        $memoryBytes > 0
+            ? sprintf('memory_limit=%s (%d bytes) %s', $limit, $memoryBytes, $memoryok ? '>= 512M threshold' : '< 512M threshold')
+            : 'memory_limit=-1 (unlimited)'
+    );
+
+    $dblatency = null;
+    try {
+        global $DB;
+        $t0 = microtime(true);
+        $DB->get_record_sql('SELECT 1 AS ping', [], IGNORE_MULTIPLE);
+        $t1 = microtime(true);
+        $dblatency = (int)round(($t1 - $t0) * 1000);
+    } catch (\Throwable) {
+        $dblatency = null;
+    }
+    $dbok = $dblatency !== null && $dblatency < 200;
+    $recordcheck(
+        'perf:db-lt-200ms',
+        $dbok,
+        $dblatency !== null ? sprintf('DB SELECT 1 ping latency=%d ms (threshold<200ms)', $dblatency) : 'DB ping unavailable.'
+    );
+
+    $opok = null;
+    $hitratio = 0;
+    $opstat = function_exists('opcache_get_status') ? @opcache_get_status(false) : null;
+    if (is_array($opstat) && !empty($opstat['opcache_enabled']) && !empty($opstat['statistics']) && is_array($opstat['statistics'])) {
+        $s = $opstat['statistics'];
+        $hits = (int)($s['hits'] ?? 0);
+        $misses = (int)($s['misses'] ?? 0);
+        $total = $hits + $misses;
+        if ($total > 0) {
+            $hitratio = round(($hits / $total) * 100, 2);
+            $opok = sprintf('hits=%d misses=%d ratio=%.2f%%', $hits, $misses, $hitratio);
+        }
+    }
+    $opokbool = $opok !== null && $hitratio >= 90;
+    $recordcheck(
+        'perf:opcache-hitrate-gte-90',
+        $opokbool,
+        $opok !== null
+            ? 'OPCache ' . $opok . ($opokbool ? ' >= 90% threshold' : ' < 90% threshold')
+            : 'OPCache status unavailable via opcache_get_status.'
+    );
+
+    $dbpoolok = null;
+    try {
+        global $DB;
+        $status = $DB->get_records_sql_menu("SHOW SESSION STATUS WHERE Variable_name IN ('Threads_connected','Max_used_connections')");
+        if (is_array($status) && isset($status['Max_used_connections']) && isset($status['Threads_connected'])) {
+            $tc = (int)$status['Threads_connected'];
+            $max = (int)$status['Max_used_connections'];
+            if ($max <= 0) {
+                $max = 100;
+            }
+            $pct = round(($tc / $max) * 100, 2);
+            $dbpoolok = sprintf('Threads_connected=%d Max_used_connections=%d usage=%.2f%%', $tc, $max, $pct);
+            $dbpoolbool = $pct < 70;
+        }
+    } catch (\Throwable) {
+        $dbpoolok = null;
+    }
+    $recordcheck(
+        'perf:db-pool-lt70',
+        !empty($dbpoolbool),
+        $dbpoolok !== null ? 'DB connection pool: ' . $dbpoolok : 'SHOW SESSION STATUS unavailable (mysqli session status probe skipped).'
+    );
+
+    $kortextok = null;
+    if (get_config('local_ulms_kortext', 'apiurl') || get_config('local_ulms_kortext', 'enabled')) {
+        $url = (string)(get_config('local_ulms_kortext', 'apiurl') ?: '');
+        if ($url !== '') {
+            $ctx = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
+            $h = @get_headers($url, true, $ctx);
+            $kortextok = is_array($h) && !empty($h[0]) && strpos((string)$h[0], '200') !== false;
+            $detail = sprintf('Kortext %s %s', $url, $kortextok ? 'HTTP 200 reachable' : 'ping failed (head_response=' . json_encode(array_slice((array)$h, 0, 3, true)) . ')');
+        } else {
+            $kortextok = 'disabled';
+            $detail = 'Kortext apiurl not set; skipping.';
+        }
+    } else {
+        $kortextok = 'disabled';
+        $detail = 'Kortext not configured; skipping.';
+    }
+    $recordcheck(
+        'svc:kortext-ping',
+        $kortextok !== false,
+        $detail
+    );
+
+    $resendok = null;
+    if (!empty($CFG->resend_api_key) || get_config('local_ulms_mail', 'resendkey')) {
+        $url = 'https://api.resend.com';
+        $ctx = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
+        $h = @get_headers($url, true, $ctx);
+        $resendok = is_array($h) && !empty($h[0]);
+        $detail = sprintf('Resend API %s', $resendok ? 'reachable via HEAD / 200' : 'ping failed');
+    } else {
+        $resendok = 'disabled';
+        $detail = 'Resend key not configured; skipping.';
+    }
+    $recordcheck(
+        'svc:resend-ping',
+        $resendok !== false,
+        $detail
+    );
+
+    $lastcronok = null;
+    $last = (int)get_config('core', 'lastcron');
+    if ($last > 0) {
+        $delta = time() - $last;
+        $lastcronok = sprintf('lastcron=%d (%s) elapsed=%ds (threshold<300s)', $last, userdate($last), $delta);
+        $lcbool = $delta < 300;
+    }
+    $recordcheck(
+        'ops:last-cron-lt5min',
+        !empty($lcbool),
+        $lastcronok !== null ? $lastcronok : 'lastcron value unavailable from mdl_config.'
+    );
+
+    $adhocok = null;
+    try {
+        global $DB;
+        if ($DB->get_manager()->table_exists(new \xmldb_table('task_adhoc'))) {
+            $count = (int)$DB->count_records('task_adhoc');
+            $adhocok = sprintf('task_adhoc queue=%d items (threshold<100k)', $count);
+            $adhocbool = $count < 100000;
+        }
+    } catch (\Throwable) {
+        $adhocok = null;
+    }
+    $recordcheck(
+        'ops:adhoc-queue-lt100k',
+        !empty($adhocbool),
+        $adhocok !== null ? $adhocok : 'task_adhoc table missing.'
+    );
+
+    $backupok = null;
+    if (!empty($CFG->backuptempdir)) {
+        $bdir = (string)$CFG->backuptempdir;
+        $datarootnorm = rtrim(strtr((string)($CFG->dataroot ?? ''), '\\', '/'), '/');
+        $bdirnorm = rtrim(strtr($bdir, '\\', '/'), '/');
+        $underdataroot = $datarootnorm !== '' && str_starts_with($bdirnorm . '/', $datarootnorm . '/');
+        $underdocroot = false;
+        if (!empty($CFG->dirroot)) {
+            $drnorm = rtrim(strtr((string)$CFG->dirroot, '\\', '/'), '/');
+            $underdocroot = $drnorm !== '' && str_starts_with($bdirnorm . '/', $drnorm . '/');
+        }
+        $backupok = sprintf('backuptempdir=%s under_dataroot=%s under_docroot=%s', $bdir, $underdataroot ? 'YES' : 'NO', $underdocroot ? 'YES' : 'NO');
+        $backupbool = $underdataroot && !$underdocroot;
+    }
+    $recordcheck(
+        'ops:backup-dir-not-webroot',
+        !empty($backupbool),
+        $backupok !== null ? $backupok : 'backuptempdir undefined (OK for minimal configs).'
+    );
+
+    $portalperf = null;
+    $portalbool = false;
+    try {
+        global $CFG;
+        $www = rtrim((string)$CFG->wwwroot, '/');
+        if ($www !== '' && function_exists('curl_multi_init')) {
+            $targets = [
+                'student'    => $www . '/student/',
+                'lecturer'   => $www . '/lecturer/',
+                'management' => $www . '/management/',
+                'superadmin' => $www . '/super-admin/',
+                'signin'     => $www . '/sign-in/',
+            ];
+            $mh = curl_multi_init();
+            $chs = [];
+            foreach ($targets as $name => $url) {
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HEADER => true,
+                    CURLOPT_NOBODY => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_MAXREDIRS => 5,
+                    CURLOPT_CONNECTTIMEOUT => 5,
+                    CURLOPT_TIMEOUT => 15,
+                    CURLOPT_SSL_VERIFYPEER => !in_array(PHP_SAPI, ['cli', 'phpdbg'], true),
+                ]);
+                $chs[$name] = $ch;
+                curl_multi_add_handle($mh, $ch);
+            }
+            $running = 0;
+            do {
+                curl_multi_exec($mh, $running);
+                if ($running > 0) {
+                    curl_multi_select($mh, 0.5);
+                }
+            } while ($running > 0);
+            $results = [];
+            $allUnder1s = true;
+            foreach ($chs as $name => $ch) {
+                $info = curl_getinfo($ch);
+                $t = (float)($info['total_time'] ?? 0);
+                $http = (int)($info['http_code'] ?? 0);
+                $results[] = sprintf('%s=http:%d ms=%d', $name, $http, (int)round($t * 1000));
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+                if ($http > 0 && $t >= 1.0) {
+                    $allUnder1s = false;
+                }
+            }
+            curl_multi_close($mh);
+            $portalperf = implode('; ', $results);
+            $portalbool = $allUnder1s;
+        }
+    } catch (\Throwable) {
+        $portalperf = null;
+    }
+    $recordcheck(
+        'perf:portal-pages-p50-lt1s',
+        !empty($portalbool),
+        $portalperf !== null
+            ? ('5 portals HEAD: ' . $portalperf . ($portalbool ? '  ALL under 1s threshold' : '  >=1 portal P50 exceeded 1s'))
+            : 'curl_multi unavailable (requires ext-curl); skipped.'
+    );
+
+    // ---- Checks 71-78: New ini/hardening + ops checks (performance audit section 1c) ----
+    $prc_appenv = strtolower((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'local'));
+    $prc_isprod = (defined('APP_ENV') ? APP_ENV === 'production' : (stripos($prc_appenv, 'prod') !== false));
+
+    // 71. sec:ini-expose_php-off
+    $expose_val = ini_get('expose_php');
+    $expose_off = ($expose_val === '' || (string)$expose_val === '0' || (int)$expose_val === 0);
+    $recordcheck(
+        'sec:ini-expose_php-off',
+        $expose_off,
+        $expose_off
+            ? 'expose_php disabled (X-Powered-By fingerprint hidden).'
+            : 'expose_php is On; disable in php.ini to hide PHP X-Powered-By fingerprint.'
+    );
+
+    // 72. sec:ini-allow_url_fopen-off
+    $auf_val = (int)ini_get('allow_url_fopen');
+    $auf_off = $auf_val === 0;
+    $recordcheck(
+        'sec:ini-allow_url_fopen-off',
+        $auf_off,
+        $auf_off
+            ? 'allow_url_fopen disabled (remote URL stream wrapper blocked).'
+            : 'allow_url_fopen is enabled; disable in php.ini to block SSRF-capable stream wrappers.'
+    );
+
+    // 73. sec:ini-open_basedir-active (dev-only relaxed; REQUIRED in prod)
+    $obd_val = trim((string)ini_get('open_basedir'));
+    $obd_active = strlen($obd_val) > 0;
+    $obd_canrelax = !$prc_isprod;
+    $obd_pass = $obd_active || $obd_canrelax;
+    $recordcheck(
+        'sec:ini-open_basedir-active',
+        $obd_pass,
+        $obd_active
+            ? 'open_basedir active: ' . $obd_val
+            : ($obd_canrelax
+                ? 'open_basedir not set (dev environment: accepted; REQUIRED for production).'
+                : 'open_basedir not set in PRODUCTION; configure in php.ini to constrain filesystem access.')
+    );
+
+    // 74. sec:db-ssl-active
+    global $DB;
+    $dbssl_ok = false;
+    $dbssl_detail = 'unavailable';
+    try {
+        $cfgssl = !empty($CFG->dboptions['ssl']) || !empty($CFG->dboptions['dbssl']);
+        $sslcipher = '';
+        $dbtype = (string)($CFG->dbtype ?? '');
+        if (in_array($dbtype, ['mysqli', 'native/mysqli', 'mariadb'], true)) {
+            $row = $DB->get_record_sql("SHOW STATUS LIKE 'Ssl_cipher'", [], IGNORE_MISSING);
+            if ($row && !empty($row->Value)) {
+                $sslcipher = (string)$row->Value;
+            }
+        }
+        $dbssl_ok = $cfgssl || ($sslcipher !== '' && $sslcipher !== '0');
+        $dbssl_detail = $cfgssl
+            ? 'DB SSL enabled via $CFG->dboptions.'
+            : ($sslcipher !== '' ? 'DB session SSL cipher: ' . $sslcipher : 'DB SSL/TLS not active (no cipher, no dboptions).');
+    } catch (\Throwable $e) {
+        $dbssl_ok = false;
+        $dbssl_detail = 'DB SSL probe error: ' . $e->getMessage();
+    }
+    $recordcheck(
+        'sec:db-ssl-active',
+        $dbssl_ok,
+        $dbssl_detail
+    );
+
+    // 75. sec:ini-session-save_path-ok
+    $session_handler = (string)ini_get('session.save_handler');
+    $session_path = (string)session_save_path();
+    $sess_path_ok = ($session_handler !== 'files') || ($session_path !== '' && is_writable($session_path));
+    $recordcheck(
+        'sec:ini-session-save_path-ok',
+        $sess_path_ok,
+        $sess_path_ok
+            ? ('Session handler=' . $session_handler
+                . ($session_handler === 'files' ? '; save_path=' . $session_path . ' (writable).' : ' (non-files; filesystem path not required).'))
+            : ('session.save_path (' . ($session_path === '' ? '[empty]' : $session_path) . ') is not writable; session persistence will fail.')
+    );
+
+    // 76. cfg:ini-max_execution_time-sane
+    $met = (int)ini_get('max_execution_time');
+    $met_sane = (($met >= 10 && $met <= 60) || ($met === 0 && PHP_SAPI === 'cli'));
+    $recordcheck(
+        'cfg:ini-max_execution_time-sane',
+        $met_sane,
+        sprintf(
+            'max_execution_time=%d sapi=%s %s',
+            $met,
+            PHP_SAPI,
+            $met_sane
+                ? '(within 10-60s web range or CLI 0 unlimited: accepted).'
+                : (PHP_SAPI === 'cli' ? '(CLI; any value accepted).' : '(web requires 10-60s; set in php.ini to avoid runaway requests).')
+        )
+    );
+
+    // 77. ops:dataroot-not-under-docroot
+    $dataroot_real = realpath((string)($CFG->dataroot ?? ''));
+    $dirroot_real = realpath((string)($CFG->dirroot ?? ''));
+    $dataroot_safe = ($dataroot_real !== false && $dirroot_real !== false && strpos($dataroot_real, $dirroot_real) !== 0);
+    $recordcheck(
+        'ops:dataroot-not-under-docroot',
+        $dataroot_safe,
+        $dataroot_safe
+            ? ('dataroot=' . $dataroot_real . ' (outside docroot=' . $dirroot_real . ').')
+            : ('dataroot=' . ($dataroot_real === false ? '[unresolvable]' : $dataroot_real)
+                . ' is UNDER docroot=' . ($dirroot_real === false ? '[unresolvable]' : $dirroot_real)
+                . '; move dataroot outside web root to protect sensitive files.')
+    );
+
+    // 78. cfg:php-version-sane (PHP >= 8.2 required by composer.lock symfony/http-client)
+    $phpver_ok = PHP_VERSION_ID >= 80200;
+    $recordcheck(
+        'cfg:php-version-sane',
+        $phpver_ok,
+        $phpver_ok
+            ? 'PHP version ' . PHP_VERSION . ' (>= 8.2; meets composer.lock symfony/http-client requirement).'
+            : ('PHP version ' . PHP_VERSION . ' (VERSION_ID=' . PHP_VERSION_ID
+                . '); upgrade to PHP 8.2 or newer (required by bundled symfony/http-client).')
+    );
+    // ---- End of checks 71-78 ----
+
+} catch (\Throwable $exception) {
+    if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'prc::new_perf_ops_checks', ['ctx' => basename(__FILE__)]); }
+    $recordcheck('perf:ops-batch', false, 'New PRC checks (55→70 expansion) block threw: ' . $exception->getMessage());
+}
+
 $failures = array_values(array_filter($checks, static fn(array $check): bool => !$check['passed']));
 $criticalfailures = array_values(array_filter($failures, static fn(array $check): bool => strpos($check['name'], 'sec:') === 0));
 
@@ -736,3 +1176,26 @@ if ($failures !== []) {
 }
 
 cli_writeln('All ULMS production-readiness checks passed.');
+
+// PRC exit codes: 0=all-pass, 1=fail (P2+/ops gaps), 2=P1 sec/hardening fail, 3=<70 checks
+$total = count($checks) ?? 78;
+$passCount = 0;
+$hasCriticalSec = false;
+foreach ($checks as $c) {
+    if (!empty($c['passed'])) {
+        $passCount++;
+    }
+    if (strpos((string)($c['name'] ?? ''), 'sec:') === 0 && empty($c['passed'])) {
+        $hasCriticalSec = true;
+    }
+}
+if ($passCount < 70) {
+    exit(3);
+}
+if ($hasCriticalSec) {
+    exit(2);
+}
+if ($passCount < $total) {
+    exit(1);
+}
+exit(0);

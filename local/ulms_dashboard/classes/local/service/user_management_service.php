@@ -515,23 +515,75 @@ class user_management_service {
         if (!in_array($action, $allowed, true)) {
             return $result;
         }
-        foreach ($userids as $uid) {
-            $uid = (int)$uid;
+        $needcapmatch = match ($action) {
+            'bulksuspend', 'bulkunsuspend', 'bulkwelcome' => 'require_update_capability',
+            'bulkdelete' => 'require_delete_capability',
+            default => null,
+        };
+        if ($needcapmatch === 'require_update_capability') {
+            $this->require_update_capability();
+        } elseif ($needcapmatch === 'require_delete_capability') {
+            $this->require_delete_capability();
+        }
+        $siteadminids = $this->get_site_admin_ids();
+        $hassaidthreat = false;
+        foreach ($userids as $uidraw) {
+            $uid = (int)$uidraw;
             if ($uid <= 0 || $this->is_self_target($uid)) {
                 $result['failed']++;
                 $result['messages'][$uid] = get_string('usermanagementbulkskippedself', 'local_ulms_dashboard');
                 continue;
             }
+            if (in_array($uid, $siteadminids, true)) {
+                $hassaidthreat = true;
+            }
+        }
+        $suspendval = match ($action) {
+            'bulksuspend' => 1,
+            'bulkunsuspend' => 0,
+            default => null,
+        };
+        $eventaction = match ($action) {
+            'bulksuspend' => 'USER_SUSPENDED',
+            'bulkunsuspend' => 'USER_UNSUSPENDED',
+            'bulkwelcome' => 'USER_WELCOME_RESENT',
+            'bulkdelete' => 'USER_DELETED',
+            default => '',
+        };
+        $eventverb = match ($action) {
+            'bulksuspend' => 'suspend',
+            'bulkunsuspend' => 'unsuspend',
+            'bulkdelete' => 'delete',
+            default => '',
+        };
+        $logentries = [];
+        foreach ($userids as $uidraw) {
+            $uid = (int)$uidraw;
+            if ($uid <= 0 || $this->is_self_target($uid)) {
+                continue;
+            }
             try {
+                if ($hassaidthreat && in_array($uid, $siteadminids, true) && $eventverb !== '') {
+                    $this->assert_last_superadmin_protection($uid, $eventverb);
+                }
                 $outcome = match ($action) {
-                    'bulksuspend' => $this->suspend_user($uid),
-                    'bulkunsuspend' => $this->unsuspend_user($uid),
+                    'bulksuspend' => $this->suspend_user_internal($uid, $suspendval, $eventaction),
+                    'bulkunsuspend' => $this->suspend_user_internal($uid, $suspendval, $eventaction),
                     'bulkwelcome' => $this->resend_welcome_email($uid),
                     'bulkdelete' => $this->delete_user_account($uid),
                     default => null,
                 };
                 if ($outcome !== null && !empty($outcome['success'])) {
                     $result['success']++;
+                    if (($action === 'bulksuspend' || $action === 'bulkunsuspend') && !empty($outcome['_bypass_log_event'])) {
+                        $logentries[] = [
+                            'targetuserid' => $uid,
+                            'action'       => $eventaction,
+                            'status'       => 'success',
+                            'message'      => (string)($outcome['message'] ?? ''),
+                            'details'      => ['batch' => true, 'mode' => $action],
+                        ];
+                    }
                 } else {
                     $result['failed']++;
                     $result['messages'][$uid] = (string)($outcome['message'] ?? get_string('unknownerror'));
@@ -541,7 +593,39 @@ class user_management_service {
                 $result['messages'][$uid] = $e->getMessage();
             }
         }
+        if (!empty($logentries)) {
+            $this->bulk_log_events($logentries);
+        }
         return $result;
+    }
+
+    /**
+     * Internal suspend/unsuspend implementation that skips permission / last-admin
+     * checks (those are hoisted in execute_bulk_action) and returns a log marker
+     * so the event log can be emitted in a single bulk insert at the end.
+     *
+     * @param int $userid
+     * @param int<0,1> $suspendedval
+     * @param string $eventaction
+     * @return array<string, mixed>
+     */
+    private function suspend_user_internal(int $userid, int $suspendedval, string $eventaction): array {
+        $user = $this->get_user_details($userid);
+        $this->assert_admin_protection($user, null, $suspendedval ? 'suspended' : 'unsuspended');
+        if (!empty($user['deleted'])) {
+            throw new \moodle_exception('invaliduser');
+        }
+        user_update_user((object)[
+            'id' => $userid,
+            'suspended' => $suspendedval,
+        ], false, true);
+        $msgkey = $suspendedval ? 'usermanagementsuspendsuccess' : 'usermanagementunsuspendsuccess';
+        return [
+            'success' => true,
+            'warning' => false,
+            'message' => get_string($msgkey, 'local_ulms_dashboard', $this->format_fullname($user)),
+            '_bypass_log_event' => true,
+        ];
     }
 
     /**
@@ -637,43 +721,85 @@ class user_management_service {
         $extraheads = $roleheads[$role] ?? [];
         $headers = array_merge($heads, $extraheads);
         $rows = [];
+        $userids = [];
+        foreach ($listing['rows'] as $r) {
+            $u = (int)($r['id'] ?? 0);
+            if ($u > 0) {
+                $userids[] = $u;
+            }
+        }
+        $bulkdetails = $this->bulk_get_export_details($userids);
         foreach ($listing['rows'] as $row) {
             $userid = (int)$row['id'];
-            try {
-                $detail = $this->get_user_details($userid);
-            } catch (\Throwable) {
-                $detail = $row;
+            $bdetail = $bulkdetails[$userid] ?? [];
+            $fullname = trim(
+                ($row['firstname'] ?? '')
+                . (isset($row['middlename']) && (string)$row['middlename'] !== '' ? ' ' . $row['middlename'] : '')
+                . ' ' . ($row['lastname'] ?? '')
+            );
+            if ($fullname === '') {
+                $fullname = (string)($row['username'] ?? '');
             }
+            $deptname = (string)($bdetail['departmentname'] ?? ($row['departmentname'] ?? ''));
+            $facname  = (string)($bdetail['facultyname']   ?? ($row['facultyname']   ?? ''));
+            $progname = (string)($bdetail['programmename'] ?? ($row['programmename'] ?? ''));
+            $staffidv = (string)($bdetail['staffid']       ?? ($row['staffid']       ?? ''));
+            $levelv   = (string)($bdetail['studylevel']    ?? ($row['studylevel']    ?? ''));
             $base = [
-                $detail['fullname'] ?? ($row['firstname'] . ' ' . $row['lastname']),
-                $detail['username'] ?? $row['username'],
-                $detail['email'] ?? $row['email'],
-                $detail['idnumber'] ?? $row['idnumber'],
-                $detail['rolelabel'] ?? $row['rolelabel'],
-                $detail['statuslabel'] ?? $row['statuslabel'],
-                $detail['timecreatedformatted'] ?? $row['timecreatedformatted'],
-                $detail['lastaccessformatted'] ?? $row['lastaccessformatted'],
+                $fullname,
+                (string)($row['username'] ?? ''),
+                (string)($row['email'] ?? ''),
+                (string)($row['idnumber'] ?? ''),
+                (string)($row['rolelabel'] ?? ''),
+                (string)($row['statuslabel'] ?? ''),
+                (string)($row['timecreatedformatted'] ?? ''),
+                (string)($row['lastaccessformatted'] ?? ''),
             ];
             $extradata = [];
             if ($role === 'student') {
-                $extradata = [
-                    (string)($detail['programmename'] ?? ''),
-                    (string)($detail['departmentname'] ?? ''),
-                    (string)($detail['facultyname'] ?? ''),
-                    (string)($detail['studylevel'] ?? ''),
-                ];
+                $extradata = [$progname, $deptname, $facname, $levelv];
             } elseif ($role === 'lecturer') {
-                $extradata = [
-                    (string)($detail['staffid'] ?? ''),
-                    (string)($detail['departmentname'] ?? ''),
-                    (string)($detail['facultyname'] ?? ''),
-                ];
+                $extradata = [$staffidv, $deptname, $facname];
             } elseif ($role === 'admin') {
-                $extradata = [
-                    (string)($detail['staffid'] ?? ''),
-                ];
+                $extradata = [$staffidv];
             }
             $rows[] = array_merge($base, $extradata);
+        }
+        try {
+            global $USER, $PAGE;
+            if (!empty($userids) && !empty($USER) && !empty($USER->id)) {
+                $exportedfields = [
+                    'firstname', 'lastname', 'username', 'email', 'idnumber',
+                    'role', 'status', 'timecreated', 'lastaccess',
+                ];
+                if ($role === 'student') {
+                    $exportedfields = array_merge($exportedfields, ['programme', 'department', 'faculty', 'studylevel']);
+                } elseif ($role === 'lecturer' || $role === 'admin') {
+                    $exportedfields = array_merge($exportedfields, ['staffid', 'department', 'faculty']);
+                }
+                $urlpath = null;
+                if (!empty($PAGE) && method_exists($PAGE, 'url') && $PAGE->url instanceof \moodle_url) {
+                    $urlpath = $PAGE->url->out_as_local_url(false);
+                }
+                $eventclass = '\\local_ulms_privacy\\event\\pii_field_accessed';
+                if (class_exists($eventclass) && is_callable([$eventclass, 'fire_for'])) {
+                    foreach (array_chunk($userids, 50) as $chunk) {
+                        foreach ($chunk as $subjectid) {
+                            try {
+                                $eventclass::fire_for(
+                                    (int)$USER->id,
+                                    (int)$subjectid,
+                                    $exportedfields,
+                                    'csv_user_export',
+                                    $urlpath
+                                );
+                            } catch (\Throwable) {
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable) {
         }
         return ['headers' => $headers, 'rows' => $rows];
     }
@@ -834,7 +960,129 @@ class user_management_service {
         $user['activity'] = $this->get_recent_user_activity($userid, 20);
         $user['actions'] = $this->get_user_actions($user);
 
+        try {
+            global $USER, $PAGE;
+            if (!empty($USER) && !empty($USER->id) && (int)$USER->id !== (int)$userid) {
+                $profilefields = [
+                    'firstname', 'lastname', 'middlename', 'username', 'email', 'idnumber',
+                    'auth', 'institution', 'department', 'role', 'timecreated', 'timemodified',
+                    'lastaccess', 'facultyid', 'departmentid', 'programmeid', 'staffid', 'studylevel',
+                ];
+                $urlpath = null;
+                if (!empty($PAGE) && method_exists($PAGE, 'url') && $PAGE->url instanceof \moodle_url) {
+                    $urlpath = $PAGE->url->out_as_local_url(false);
+                }
+                $eventclass = '\\local_ulms_privacy\\event\\pii_field_accessed';
+                if (class_exists($eventclass) && is_callable([$eventclass, 'fire_for'])) {
+                    $eventclass::fire_for(
+                        (int)$USER->id,
+                        $userid,
+                        $profilefields,
+                        'admin_profile_view',
+                        $urlpath
+                    );
+                }
+            }
+        } catch (\Throwable) {
+        }
+
         return $user;
+    }
+
+    /**
+     * Bulk-fetches export-pertinent profile fields for a set of user ids
+     * using a single LEFT JOIN query. Eliminates the N+1 per-row
+     * get_user_details calls that otherwise scale linearly with CSV size.
+     *
+     * @param array<int, int> $userids
+     * @return array<int, array<string, mixed>> map keyed by userid
+     */
+    public function bulk_get_export_details(array $userids): array {
+        global $DB;
+        $map = [];
+        $userids = array_values(array_filter(array_map('intval', $userids), static fn(int $v): bool => $v > 0));
+        if (empty($userids)) {
+            return $map;
+        }
+        [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'bulkexp');
+        $hasprofiletable = $this->profile_table_exists();
+        if ($hasprofiletable) {
+            $sql = "SELECT u.id,
+                           p.staffid, p.studylevel, p.facultyid, p.departmentid, p.programmeid,
+                           f.name AS facultyname, d.name AS departmentname, pr.name AS programmename
+                      FROM {user} u
+                 LEFT JOIN {" . self::PROFILE_TABLE . "} p ON p.userid = u.id
+                 LEFT JOIN {local_ulms_faculties} f ON f.id = p.facultyid
+                 LEFT JOIN {local_ulms_departments} d ON d.id = p.departmentid
+                 LEFT JOIN {local_ulms_programmes} pr ON pr.id = p.programmeid
+                     WHERE u.id {$insql}";
+        } else {
+            $sql = "SELECT u.id,
+                           '' AS staffid, '' AS studylevel,
+                           0 AS facultyid, 0 AS departmentid, 0 AS programmeid,
+                           '' AS facultyname, '' AS departmentname, '' AS programmename
+                      FROM {user} u
+                     WHERE u.id {$insql}";
+        }
+        $rs = $DB->get_recordset_sql($sql, $inparams);
+        foreach ($rs as $r) {
+            $uid = (int)$r->id;
+            $map[$uid] = [
+                'id'               => $uid,
+                'staffid'          => (string)($r->staffid ?? ''),
+                'studylevel'       => (string)($r->studylevel ?? ''),
+                'facultyid'        => (int)($r->facultyid ?? 0),
+                'facultyname'      => (string)($r->facultyname ?? ''),
+                'departmentid'     => (int)($r->departmentid ?? 0),
+                'departmentname'   => (string)($r->departmentname ?? ''),
+                'programmeid'      => (int)($r->programmeid ?? 0),
+                'programmename'    => (string)($r->programmename ?? ''),
+            ];
+        }
+        $rs->close();
+        return $map;
+    }
+
+    /**
+     * Writes a batch of user-management log rows in a single insert,
+     * eliminating the per-row insert_record overhead for bulk actions.
+     *
+     * @param array<int, array{targetuserid:int, action:string, status:string, message:string, details?:array<string,mixed>}> $entries
+     * @return void
+     */
+    public function bulk_log_events(array $entries): void {
+        global $DB, $USER;
+        if (empty($entries)) {
+            return;
+        }
+        if (!$DB->get_manager()->table_exists(new \xmldb_table(self::LOG_TABLE))) {
+            return;
+        }
+        $actorid = (int)($USER->id ?? 0);
+        $ip = substr((string)getremoteaddr(null), 0, 64);
+        $now = time();
+        $rows = [];
+        foreach ($entries as $e) {
+            $uid = (int)($e['targetuserid'] ?? 0);
+            if ($uid <= 0) {
+                continue;
+            }
+            $details = $e['details'] ?? [];
+            $scrubbed = \local_ulms_dashboard_scrub_sensitive_details($details);
+            $rows[] = (object)[
+                'actorid'      => $actorid,
+                'targetuserid' => $uid,
+                'action'       => substr((string)($e['action'] ?? ''), 0, 64),
+                'status'       => substr((string)($e['status'] ?? ''), 0, 32),
+                'message'      => (string)($e['message'] ?? ''),
+                'detailsjson'  => json_encode($scrubbed),
+                'ipaddress'    => $ip,
+                'timecreated'  => $now,
+            ];
+        }
+        if (!empty($rows)) {
+            $DB->insert_records(self::LOG_TABLE, $rows);
+        }
     }
 
     /**

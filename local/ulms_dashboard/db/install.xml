@@ -14,9 +14,14 @@
             </FIELDS>
             <KEYS>
                 <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
-                <KEY NAME="facultyid_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id"/>
+                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
+                <KEY NAME="facultyid_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id" ONDELETE="CASCADE"/>
             </KEYS>
+            <INDEXES>
+                <INDEX NAME="userid_idx" UNIQUE="false" FIELDS="userid"/>
+                <INDEX NAME="facultyid_idx" UNIQUE="false" FIELDS="facultyid"/>
+                <INDEX NAME="user_faculty_unique" UNIQUE="true" FIELDS="userid,facultyid"/>
+            </INDEXES>
         </TABLE>
         <TABLE NAME="local_ulms_department_admin_assignments" COMMENT="Maps department admin users to their primary department scope">
             <FIELDS>
@@ -28,9 +33,14 @@
             </FIELDS>
             <KEYS>
                 <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
-                <KEY NAME="departmentid_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id"/>
+                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
+                <KEY NAME="departmentid_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id" ONDELETE="CASCADE"/>
             </KEYS>
+            <INDEXES>
+                <INDEX NAME="userid_idx" UNIQUE="false" FIELDS="userid"/>
+                <INDEX NAME="departmentid_idx" UNIQUE="false" FIELDS="departmentid"/>
+                <INDEX NAME="user_department_unique" UNIQUE="true" FIELDS="userid,departmentid"/>
+            </INDEXES>
         </TABLE>
         <TABLE NAME="local_ulms_user_provisioning_log" COMMENT="Stores audit entries for manual and bulk ULMS user provisioning">
             <FIELDS>
@@ -47,6 +57,8 @@
             </FIELDS>
             <KEYS>
                 <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="actorid_fk" TYPE="foreign" FIELDS="actorid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
+                <KEY NAME="createduserid_fk" TYPE="foreign" FIELDS="createduserid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
             </KEYS>
             <INDEXES>
                 <INDEX NAME="actorid_idx" UNIQUE="false" FIELDS="actorid"/>
@@ -70,13 +82,15 @@
             </FIELDS>
             <KEYS>
                 <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-                <KEY NAME="userprofile_faculty_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id"/>
-                <KEY NAME="userprofile_department_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id"/>
-                <KEY NAME="userprofile_programme_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id"/>
+                <KEY NAME="userprofile_user_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
+                <KEY NAME="userprofile_faculty_fk" TYPE="foreign" FIELDS="facultyid" REFTABLE="local_ulms_faculties" REFFIELDS="id" ONDELETE="SET NULL"/>
+                <KEY NAME="userprofile_department_fk" TYPE="foreign" FIELDS="departmentid" REFTABLE="local_ulms_departments" REFFIELDS="id" ONDELETE="SET NULL"/>
+                <KEY NAME="userprofile_programme_fk" TYPE="foreign" FIELDS="programmeid" REFTABLE="local_ulms_programmes" REFFIELDS="id" ONDELETE="SET NULL"/>
             </KEYS>
             <INDEXES>
                 <INDEX NAME="userid_uix" UNIQUE="true" FIELDS="userid"/>
                 <INDEX NAME="studylevel_idx" UNIQUE="false" FIELDS="studylevel"/>
+                <INDEX NAME="fac_dept_prog_idx" UNIQUE="false" FIELDS="facultyid,departmentid,programmeid"/>
             </INDEXES>
         </TABLE>
         <TABLE NAME="local_ulms_levels" COMMENT="Stores study-level definitions for the ULMS academic structure">
@@ -187,8 +201,9 @@
             </FIELDS>
             <KEYS>
                 <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-                <KEY NAME="sessionid_fk" TYPE="foreign" FIELDS="sessionid" REFTABLE="local_ulms_dashboard_session" REFFIELDS="id"/>
-                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+                <KEY NAME="sessionid_fk" TYPE="foreign" FIELDS="sessionid" REFTABLE="local_ulms_dashboard_session" REFFIELDS="id" ONDELETE="CASCADE"/>
+                <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id" ONDELETE="CASCADE"/>
+                <KEY NAME="marked_by_fk" TYPE="foreign" FIELDS="marked_by" REFTABLE="user" REFFIELDS="id" ONDELETE="SET NULL"/>
             </KEYS>
             <INDEXES>
                 <INDEX NAME="mdl_locaulmsdashatte_sesuseocc_uix" UNIQUE="true" FIELDS="sessionid, userid, session_occurrence_date"/>

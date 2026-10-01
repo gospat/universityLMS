@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<psalm
+    errorLevel="3"
+    resolveFromConfigFile="true"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="https://getpsalm.org/schema/config"
+    xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
+    reportMixedIssues="false"
+    useDocblockTypes="true"
+    useDocblockPropertyTypes="true"
+    strictBinaryOperands="false"
+    ensureArrayStringOffsetsExist="false"
+    allowPhpStormGenerics="true"
+    hoistConstants="false"
+    addParamDefaultToDocblockType="true"
+    skipChecksOnUnresolvableIncludes="true"
+    totallyTyped="false"
+>
+    <projectFiles>
+        <directory name="local/ulms_dashboard/classes" />
+        <directory name="local/ulms_dashboard/cli" />
+        <directory name="local/ulms_dashboard/db" />
+        <directory name="local/ulms_dashboard/lang" />
+        <directory name="local/ulms_auth/classes" />
+        <directory name="local/ulms_auth/db" />
+        <directory name="local/ulms_auth/lang" />
+        <directory name="local/ulms_academics/classes" />
+        <directory name="local/ulms_academics/db" />
+        <directory name="local/ulms_academics/lang" />
+        <directory name="local/ulms_exam/classes" />
+        <directory name="local/ulms_exam/db" />
+        <directory name="local/ulms_exam/lang" />
+        <directory name="local/ulms_kortext/classes" />
+        <directory name="local/ulms_kortext/db" />
+        <directory name="local/ulms_kortext/lang" />
+        <directory name="local/ulms_mail/classes" />
+        <directory name="local/ulms_mail/db" />
+        <directory name="local/ulms_mail/lang" />
+    </projectFiles>
+    <fileExtensions>
+        <extension name=".php" />
+    </fileExtensions>
+    <requireFileExtensions>
+        <extension name=".php" />
+    </requireFileExtensions>
+    <autoloadFiles>
+        <file name="config.php" />
+    </autoloadFiles>
+    <stubs>
+        <file name="vendor/phpunit/phpunit/phpunit.xsd" />
+    </stubs>
+    <issueHandlers>
+        <UndefinedConstant errorLevel="suppress" />
+        <UndefinedFunction errorLevel="suppress" />
+        <UndefinedClass errorLevel="suppress" />
+        <UndefinedDocblockClass errorLevel="suppress" />
+        <UndefinedGlobalVariable errorLevel="suppress" />
+        <PropertyTypeCoercion errorLevel="suppress" />
+        <ArgumentTypeCoercion errorLevel="suppress" />
+        <ReturnTypeCoercion errorLevel="suppress" />
+        <LessSpecificReturnStatement errorLevel="suppress" />
+        <LessSpecificReturnType errorLevel="suppress" />
+        <MixedArgument errorLevel="suppress" />
+        <MixedArrayAccess errorLevel="suppress" />
+        <MixedArrayOffset errorLevel="suppress" />
+        <MixedAssignment errorLevel="suppress" />
+        <MixedCall errorLevel="suppress" />
+        <MixedMethodCall errorLevel="suppress" />
+        <MixedOperand errorLevel="suppress" />
+        <MixedPropertyFetch errorLevel="suppress" />
+        <MixedReturnStatement errorLevel="suppress" />
+        <MixedInferredReturnType errorLevel="suppress" />
+        <MixedStringOffsetAssignment errorLevel="suppress" />
+        <RawObjectIteration errorLevel="suppress" />
+        <InvalidPropertyAssignmentValue errorLevel="suppress" />
+        <InvalidScalarArgument errorLevel="suppress" />
+        <TypeDoesNotContainType errorLevel="suppress" />
+        <TypeDoesNotContainNull errorLevel="suppress" />
+        <DocblockTypeContradiction errorLevel="suppress" />
+        <RedundantConditionGivenDocblockType errorLevel="suppress" />
+        <RedundantCastGivenDocblockType errorLevel="suppress" />
+        <TypeCoercionFromLiteral errorLevel="suppress" />
+        <FalsableReturnStatement errorLevel="suppress" />
+        <FalsableReturnStatement2 errorLevel="suppress" />
+        <NullReference errorLevel="suppress" />
+        <FailedTypeResolution errorLevel="suppress" />
+    </issueHandlers>
+</psalm>

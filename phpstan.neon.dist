@@ -1,0 +1,80 @@
+parameters:
+    level: 3
+    paths:
+        - local/ulms_dashboard/classes
+        - local/ulms_dashboard/cli
+        - local/ulms_auth/classes
+        - local/ulms_academics/classes
+        - local/ulms_exam/classes
+        - local/ulms_kortext/classes
+        - local/ulms_mail/classes
+    tmpDir: moodledata-local/tmp/phpstan
+    bootstrapFiles:
+        - config.php
+    reportUnmatchedIgnoredErrors: false
+    parallel:
+        maximumNumberOfProcesses: 2
+        minimumNumberOfJobsPerProcess: 20
+    excludePaths:
+        analyse:
+            - vendor
+            - node_modules
+            - moodledata-local
+            - lib
+            - theme
+            - mod
+            - admin
+            - course
+            - user
+            - grade
+            - enrol
+            - blocks
+            - badges
+            - cache
+            - calendar
+            - cohort
+            - comment
+            - competency
+            - dataformat
+            - db
+            - event
+            - filepicker
+            - filter
+            - form
+            - group
+            - h5p
+            - install
+            - io
+            - license
+            - media
+            - message
+            - mlbackend
+            - plagiarism
+            - portfolio
+            - qbank
+            - question
+            - rating
+            - report
+            - repository
+            - search
+            - tag
+            - customfield
+            - privacy
+            - availability
+            - webservice
+    ignoreErrors:
+        - '#^Constant MOODLE_INTERNAL not found\.$#'
+        - '#^Constant [A-Z0-9_]+ not found\.$#'
+        - '#^Function [a-zA-Z_][a-zA-Z0-9_]* not found\.$#'
+        - '#^Class [a-zA-Z_][a-zA-Z0-9_]* not found\.$#'
+        - '#^Undefined variable: \$(DB|CFG|USER|PAGE|OUTPUT|SESSION)\b#'
+        - '#^Call to an undefined static method [a-zA-Z0-9_\\]+::#'
+        - '#^Call to undefined method [a-zA-Z0-9_\\]+::#'
+        - '#^Cannot access property \$\w+ on [a-zA-Z0-9_\\]+|stdClass\b#'
+        - '#^Parameter #1 \$\w+ \(.*\) of function [a-zA-Z_][a-zA-Z0-9_]* expects .*, .* given\.$#'
+        - '#^Offset '\''\w+'\'' on array<array-key, mixed> does not exist\.#'
+        - '#^Result of && is always false\.$#'
+        - '#^If condition is always true\.$#'
+        - '#^Unreachable statement - code above always (returns|terminates)\.$#'
+        - '#^Property [a-zA-Z0-9_\\]+::\$\w+ \(.*\) does not accept (stdClass|object)#'
+        - '#^Template type T is not declared\.$#'

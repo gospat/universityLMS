@@ -1127,7 +1127,7 @@ body.theme-ulms-university {
 }
 
 .theme-ulms-university.ulms-custom-page .main-inner {
-    max-width: 1360px;
+    max-width: 1200px;
 }
 
 .theme-ulms-university.ulms-custom-page .drawer-toggles {
@@ -1683,8 +1683,8 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 .theme-ulms-university *,.theme-ulms-university *::before,.theme-ulms-university *::after{box-sizing:border-box}
 .theme-ulms-university html,.theme-ulms-university body{max-width:100%;overflow-x:hidden}
 .theme-ulms-university #page-wrapper{overflow-x:hidden;max-width:100%}
-@media (max-width:849.98px){.theme-ulms-university .ulms-shell{grid-template-columns:minmax(0,1fr)!important;display:block!important}.theme-ulms-university .ulms-shell-content{margin-left:0!important;padding:1rem .85rem 1.75rem!important}}
-@media (min-width:850px) and (max-width:1199.98px){.theme-ulms-university .ulms-shell-content{margin-left:5.5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-content{margin-left:0!important}}
+@media (max-width:991.98px){.theme-ulms-university .ulms-shell{grid-template-columns:minmax(0,1fr)!important;display:block!important}.theme-ulms-university .ulms-shell-content{margin-left:0!important;padding:1rem .85rem 1.75rem!important}}
+@media (min-width:992px) and (max-width:1199.98px){.theme-ulms-university .ulms-shell-content{margin-left:5.5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-content{margin-left:0!important}}
 .theme-ulms-university .ulms-dashboard-primary{grid-template-columns:minmax(0,1.7fr) minmax(320px,.95fr);gap:1.25rem}
 @media (max-width:991.98px){.theme-ulms-university .ulms-dashboard-primary{grid-template-columns:1fr;gap:1rem}.theme-ulms-university .ulms-dashboard-sections,.theme-ulms-university .ulms-dashboard-support{grid-template-columns:1fr}}
 .theme-ulms-university .ulms-kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:.9rem}
@@ -5290,6 +5290,48 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > div:first-
         padding: 1rem 1.1rem !important;
     }
 }
+
+/* ====================================================================
+   ULMS SSoT Cookie Banner Styles (UIUX P0-2)
+   ==================================================================== */
+#ulms-cookie-banner { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 720px; z-index: 99999; padding: 20px 24px; border-radius: 12px; background: #ffffff; box-shadow: 0 12px 40px rgba(15,23,42,0.18); border: 1px solid #e2e8f0; }
+@media (max-width: 767px) { #ulms-cookie-banner { bottom: 8px; padding: 16px; } }
+.ulms-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.ulms-banner-actions button { min-height: 44px; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+.ulms-banner-actions button.ulms-banner-accept-all { background: #0f4c81; color: #fff; border: 1px solid #0f4c81; }
+.ulms-banner-actions button.ulms-banner-save-preferences { background: transparent; color: #0f4c81; border: 1px solid #0f4c81; }
+.ulms-banner-actions button.ulms-banner-reject-nonessential { background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; }
+
+/* ====================================================================
+   Stat Card Grid Responsive Tiers (UIUX P0-5)
+   ==================================================================== */
+@media (min-width: 1200px) { .ulms-dashboard-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 992px) and (max-width: 1199px) { .ulms-dashboard-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 768px) and (max-width: 991px) { .ulms-dashboard-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 767px) { .ulms-dashboard-grid { grid-template-columns: 1fr; } }
+
+/* ====================================================================
+   Sidebar Sizes / Topbar / Active State / Button Radius / Nav Icon (UIUX P1)
+   ==================================================================== */
+.ulms-sidebar-expand { width: 260px; }
+.ulms-sidebar-collapse { width: 72px; }
+@media (max-width: 991px) {
+    .ulms-sidebar-expand, .ulms-sidebar-collapse {
+        transform: translateX(-100%);
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100dvh;
+        transition: transform .24s ease-in-out;
+        z-index: 9999;
+    }
+    .ulms-sidebar-open .ulms-sidebar-expand,
+    .ulms-sidebar-open .ulms-sidebar-collapse { transform: translateX(0); }
+}
+.ulms-appshell-topbar { height: 64px; }
+.ulms-sidebar-item.is-active { background-color: rgba(15, 76, 129, 0.10); border-left: 3px solid #0f4c81; color: #0f4c81; }
+.btn, button, .ulms-action-btn { border-radius: 8px !important; }
+.ulms-sidebar-nav-icon, .ulms-menu-icon { width: 24px; height: 24px; flex: 0 0 24px; }
 
 /* ====================================================================
    prefers-reduced-motion: disable ALL transitions for users who

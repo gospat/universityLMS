@@ -27,5 +27,15 @@ function xmldb_local_ulms_auth_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026062200, 'local', 'ulms_auth');
     }
 
+    if ($oldversion < 2026091601) {
+        // 2026091601: Version parity savepoint; refreshes access.php capabilities and lang.
+        upgrade_plugin_savepoint(true, 2026091601, 'local', 'ulms_auth');
+    }
+
+    if ($oldversion < 2026100100) {
+        // 2026100100: Professional audit batch version stamp parity.
+        upgrade_plugin_savepoint(true, 2026100100, 'local', 'ulms_auth');
+    }
+
     return true;
 }

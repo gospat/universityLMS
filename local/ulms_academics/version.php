@@ -26,3 +26,6 @@ $plugin->version = 2026091601;
 $plugin->requires = 2024042200;
 $plugin->maturity = MATURITY_ALPHA;
 $plugin->release = '0.3.1';
+$plugin->dependencies = [
+    'local_ulms_dashboard' => 2026091703,
+];

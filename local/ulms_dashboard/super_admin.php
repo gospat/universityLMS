@@ -21,6 +21,9 @@ require_once($CFG->dirroot . '/local/ulms_dashboard/lib.php');
 /** @var core_renderer $OUTPUT */
 global $PAGE, $OUTPUT, $USER;
 
+local_ulms_dashboard_mark_request_start();
+local_ulms_dashboard_register_x_render_time_shutdown();
+
 require_login();
 
 $routingservice = new \local_ulms_auth\local\service\landing_page_service();

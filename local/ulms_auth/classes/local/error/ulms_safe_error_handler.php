@@ -549,12 +549,9 @@ HTML;
 <body>
 <div class="wrap">
   <header class="hd">
-    <div class="hd-in">
+    <div class="hd-inner" style="display:flex;align-items:center;gap:12px;max-width:1100px;margin:0 auto">
       <div class="logo" aria-hidden="true">{$brand_short_html}</div>
-      <div class="brand">
-        {$brand_name_html}
-        <small>Learning Management System</small>
-      </div>
+      <div class="brand"><a href="/" style="color:inherit;text-decoration:none" aria-label="Return to Bells University LMS homepage">{$brand_name_html}<small>Learning Management System</small></a></div>
     </div>
   </header>
   <main class="mn">

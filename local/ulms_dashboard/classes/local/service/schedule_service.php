@@ -221,6 +221,11 @@ class schedule_service {
                 }
             }
         } catch (\Throwable $_e) {
+            if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                local_ulms_dashboard_log_operational_error($_e, 'schedule_service::resolve_allocated_courseids::kortext_adoption', ['actor_userid' => $actor_userid ?? 0]);
+            } else {
+                error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::resolve_allocated_courseids::kortext_adoption','type'=>get_class($_e),'message'=>$_e->getMessage(),'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+            }
         }
         $fallback = [];
         foreach (enrol_get_all_users_courses($actor_userid, false, ['id']) as $rec) {
@@ -385,6 +390,11 @@ class schedule_service {
         try {
             $this->sync_calendar_event($id);
         } catch (\Throwable $_e) {
+            if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                local_ulms_dashboard_log_operational_error($_e, 'schedule_service::save_session::sync_calendar_event', ['sessionid' => $id]);
+            } else {
+                error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::save_session::sync_calendar_event','type'=>get_class($_e),'message'=>$_e->getMessage(),'sessionid'=>$id,'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+            }
         }
 
         return ['success' => true, 'id' => $id, 'message' => 'ok'];
@@ -409,6 +419,11 @@ class schedule_service {
                     $event = \calendar_event::load((int)$session->eventid);
                     $event->delete();
                 } catch (\Throwable $_e) {
+                    if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                        local_ulms_dashboard_log_operational_error($_e, 'schedule_service::sync_calendar_event::cancel_delete_event', ['sessionid' => $sessionid, 'eventid' => $session->eventid]);
+                    } else {
+                        error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::sync_calendar_event::cancel_delete_event','type'=>get_class($_e),'message'=>$_e->getMessage(),'sessionid'=>$sessionid,'eventid'=>$session->eventid,'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+                    }
                 }
             }
             $DB->set_field(self::SESSION_TABLE, 'eventid', null, ['id' => (int)$session->id]);
@@ -498,9 +513,19 @@ class schedule_service {
                     $event = \calendar_event::load((int)$session->eventid);
                     $event->delete();
                 } catch (\Throwable $_e) {
+                    if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                        local_ulms_dashboard_log_operational_error($_e, 'schedule_service::delete_session::delete_event_inner', ['sessionid' => $sessionid, 'eventid' => $session->eventid]);
+                    } else {
+                        error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::delete_session::delete_event_inner','type'=>get_class($_e),'message'=>$_e->getMessage(),'sessionid'=>$sessionid,'eventid'=>$session->eventid,'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+                    }
                 }
             }
         } catch (\Throwable $_e) {
+            if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                local_ulms_dashboard_log_operational_error($_e, 'schedule_service::delete_session::delete_event_outer', ['sessionid' => $sessionid]);
+            } else {
+                error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::delete_session::delete_event_outer','type'=>get_class($_e),'message'=>$_e->getMessage(),'sessionid'=>$sessionid,'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+            }
         }
         return $DB->delete_records(self::SESSION_TABLE, ['id' => (int)$sessionid]);
     }
@@ -557,6 +582,11 @@ class schedule_service {
                         $params = array_merge($params, $inparams);
                     }
                 } catch (\Throwable $_e) {
+                    if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                        local_ulms_dashboard_log_operational_error($_e, 'schedule_service::get_timetable_cells_for_user::enrolment_scan', ['userid' => $userid, 'role' => $roleshortname]);
+                    } else {
+                        error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::get_timetable_cells_for_user::enrolment_scan','type'=>get_class($_e),'message'=>$_e->getMessage(),'userid'=>$userid,'role'=>$roleshortname,'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+                    }
                 }
             } else {
                 $mycourses = $this->resolve_allocated_courseids($userid);
@@ -692,6 +722,11 @@ class schedule_service {
                             $needs = true;
                         }
                     } catch (\Throwable $_e) {
+                        if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                            local_ulms_dashboard_log_operational_error($_e, 'schedule_service::resolve_join_url::ensure_bbb_course_module', ['sessionid' => $sessionid, 'moodlecourseid' => $s->moodlecourseid ?? 0, 'title' => (string)$s->title]);
+                        } else {
+                            error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'schedule_service::resolve_join_url::ensure_bbb_course_module','type'=>get_class($_e),'message'=>$_e->getMessage(),'sessionid'=>$sessionid,'courseid'=>$s->moodlecourseid ?? 0,'line'=>$_e->getLine(),'file'=>$_e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+                        }
                     }
                     if ($url === '') {
                         $url = (string)(new \moodle_url('/course/view.php', ['id' => (int)$s->moodlecourseid]));
@@ -902,13 +937,22 @@ class schedule_service {
         $newly = 0;
         $skipped = 0;
         $total = count($students);
+        $stuIds = array_map(static fn($s) => (int)$s->id, $students);
+        [$insql, $inparams] = $DB->get_in_or_equal($stuIds, SQL_PARAMS_NAMED, 'uid');
+        $existingMap = [];
+        if (!empty($stuIds)) {
+            $allAttendance = $DB->get_records_select(
+                self::ATTENDANCE_TABLE,
+                "sessionid = :sid AND session_occurrence_date = :sdate AND userid $insql",
+                array_merge(['sid' => $sessionid, 'sdate' => $session_occurrence_date], $inparams)
+            );
+            foreach ($allAttendance as $arec) {
+                $existingMap[(int)$arec->userid] = $arec;
+            }
+        }
         foreach ($students as $stu) {
             $uid = (int)$stu->id;
-            $existing = $DB->get_record(self::ATTENDANCE_TABLE, [
-                'sessionid' => $sessionid,
-                'userid' => $uid,
-                'session_occurrence_date' => $session_occurrence_date,
-            ]);
+            $existing = $existingMap[$uid] ?? false;
             if ($existing && in_array((string)$existing->status, ['absent','excused'], true)) {
                 $skipped++;
                 continue;
