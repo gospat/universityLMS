@@ -1,0 +1,91 @@
+# ============================================================
+# ULMS Apache .htaccess — production deployment hardening layer
+# ============================================================
+# Also see theme/ulms_university/classes/output/core_renderer.php
+# method inject_http_security_headers() which duplicates these
+# security headers at PHP renderer level so they are emitted
+# regardless of webserver (Apache / Nginx / PHP dev server).
+
+# ---- 1. Default deny for sensitive paths & directory listing ----
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+AllowOverride None
+
+# ---- 2. Mod Rewrite for ULMS clean entrypoints ----
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Deny direct access to dataroot contents if mistakenly inside docroot
+    RewriteRule ^moodledata/ - [R=403,L,NC]
+    RewriteRule ^moodledata-local/ - [R=403,L,NC]
+
+    # ULMS clean role routes (<role>/<page>/ => <role>/<page>/index.php)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(student|lecturer|management|super-admin|sign-in)/([A-Za-z0-9_\-/]*)$ $1/$2/index.php [L,PT]
+
+    # Moodle standard frontcontroller
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^([^\.]+)$ index.php [L,PT]
+</IfModule>
+
+# ---- 3. Security headers (Apache-level fallback) ----
+# Sync content with inject_http_security_headers() method.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin"
+    Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), interest-cohort=(), fullscreen=(self)"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Cross-Origin-Embedder-Policy "require-corp"
+    Header always set Cross-Origin-Resource-Policy "same-origin"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
+    Header always unset X-Powered-By
+</IfModule>
+
+# ---- 4. Deny sensitive files & directories ----
+# Never serve these files even if they exist inside DOCROOT.
+<FilesMatch "(^\.|^config\.php$|composer\.(json|lock)$|\.ini$|\.bak$|\.sql$|\.log$|\.phar$|\.env$|~$|\.swp$|\.orig$|newrelic\.js$|\.pem$|\.key$|\.crt$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<DirectoryMatch "^(/.git/|/vendor/|/node_modules/|/tests?/|/db/|/local/.+/db/|/backup/|/dataroot/|/moodledata/|/moodledata-local/|/uploads/.*private)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</DirectoryMatch>
+
+# ---- 5. Default Charset & MIME safety ----
+AddDefaultCharset UTF-8
+<IfModule mod_mime.c>
+    AddType image/svg+xml svg svgz
+    AddType application/manifest+json webmanifest
+    AddType image/x-icon ico
+    AddType text/cache-manifest appcache manifest
+</IfModule>
+
+# ---- 6. PHP-specific protections (PHP deployed as mod_php or FPM) ----
+<IfModule mod_php.c>
+    php_flag session.cookie_httponly 1
+    php_flag session.cookie_secure 0
+    php_flag session.use_strict_mode 1
+    php_flag expose_php 0
+    php_value memory_limit 512M
+    php_value upload_max_filesize 64M
+    php_value post_max_size 96M
+    php_value max_execution_time 120
+</IfModule>

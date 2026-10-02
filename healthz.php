@@ -37,7 +37,7 @@ $ts = microtime(true);
 try {
     $cache = \cache::make('core', 'string');
     $k = 'ulms_health_probe_' . bin2hex(random_bytes(4));
-    $cache->set($k, '1', 2);
+    $cache->set($k, '1');
     $got = $cache->get($k);
     $cache->delete($k);
     $checks[] = ['name' => 'cache', 'status' => ($got === '1') ? 'pass' : 'fail', 'time_ms' => (int)round((microtime(true)-$ts)*1000)];

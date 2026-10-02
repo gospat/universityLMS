@@ -502,10 +502,87 @@ $CFG->release = '4.5+ (ULMS)';
 
 define('CFG_DIRROOT_CONST', __DIR__);
 
+$CFG_vendor_autoload = __DIR__ . '/vendor/autoload.php';
+if (is_file($CFG_vendor_autoload) && is_readable($CFG_vendor_autoload)) {
+    require_once($CFG_vendor_autoload);
+}
+unset($CFG_vendor_autoload);
+
 require_once(__DIR__ . '/lib/setup.php');
 
 ///////////////////////////////////////////////////////////////////////////
-// 7. ULMS SAFE ERROR HANDLER INSTALLATION (FINAL LAYER — overrides any moodle
+// 7. ULMS INSTITUTIONAL BRANDING OVERRIDES (post setup.php — runs after
+// mdl_config is loaded so DB values can be overridden by env).  Wrapped
+// in a defensive try/catch so any undefined-property edge case can never
+// break the bootstrap (the default site names are an acceptable fallback).
+///////////////////////////////////////////////////////////////////////////
+
+try {
+    $ULMS_GET = static function (string $key, $default = '') {
+        global $CFG;
+        if (is_array($CFG)) {
+            return $CFG[$key] ?? $default;
+        }
+        if (is_object($CFG)) {
+            if (property_exists($CFG, $key) || isset($CFG->{$key})) {
+                return $CFG->{$key};
+            }
+            // Magic CFG access: trigger default via isset/read only if supported.
+            $val = $CFG->{$key} ?? null;
+            return $val ?? $default;
+        }
+        return $default;
+    };
+    $ULMS_SET = static function (string $key, $value): void {
+        global $CFG;
+        if (is_array($CFG)) {
+            $CFG[$key] = $value;
+        } elseif (is_object($CFG)) {
+            $CFG->{$key} = $value;
+        }
+    };
+    $ULMS_MATCHES_DEFAULT = static function ($value): bool {
+        $value = (string)$value;
+        if ($value === '') {
+            return true;
+        }
+        if (stripos($value, 'ULMS') === 0) {
+            return true;
+        }
+        if (stripos($value, 'your university') !== false) {
+            return true;
+        }
+        return false;
+    };
+
+    $ULMS_INST_NAME = trim((string)ulms_institution_cascade(
+        'NAME',
+        ['BELLS_INSTITUTION_NAME', 'ULMS_SITENAME'],
+        'BELLS UNIVERSITY OF TECHNOLOGY'
+    ));
+    if ($ULMS_INST_NAME !== '') {
+        if ($ULMS_MATCHES_DEFAULT($ULMS_GET('sitename'))) {
+            $ULMS_SET('sitename', $ULMS_INST_NAME);
+        }
+        if ($ULMS_MATCHES_DEFAULT($ULMS_GET('fullname'))) {
+            $ULMS_SET('fullname', $ULMS_INST_NAME);
+        }
+    }
+    $ULMS_INST_SHORT = trim((string)ulms_institution_cascade(
+        'SHORT_NAME',
+        ['BELLS_INSTITUTION_SHORT', 'ULMS_SHORTNAME'],
+        ulms_institution_short_code($ULMS_INST_NAME)
+    ));
+    if ($ULMS_INST_SHORT !== '' && $ULMS_MATCHES_DEFAULT($ULMS_GET('shortname'))) {
+        $ULMS_SET('shortname', $ULMS_INST_SHORT);
+    }
+    unset($ULMS_GET, $ULMS_SET, $ULMS_MATCHES_DEFAULT, $ULMS_INST_NAME, $ULMS_INST_SHORT);
+} catch (\Throwable $e) {
+    @error_log('[ULMS-BRANDING-OVERRIDE-SKIP] ' . $e->getMessage());
+}
+
+///////////////////////////////////////////////////////////////////////////
+// 8. ULMS SAFE ERROR HANDLER INSTALLATION (FINAL LAYER — overrides any moodle
 // default handlers. Executes AFTER setup.php so psr-4 autoloader is live.
 ///////////////////////////////////////////////////////////////////////////
 

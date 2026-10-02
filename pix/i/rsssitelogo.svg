@@ -1,1 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" preserveAspectRatio="xMinYMid meet"><!--!Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2024 Fonticons, Inc.--><path d="M320 32c-8.1 0-16.1 1.4-23.7 4.1L15.8 137.4C6.3 140.9 0 149.9 0 160s6.3 19.1 15.8 22.6l57.9 20.9C57.3 229.3 48 259.8 48 291.9v28.1c0 28.4-10.8 57.7-22.3 80.8c-6.5 13-13.9 25.8-22.5 37.6C0 442.7-.9 448.3 .9 453.4s6 8.9 11.2 10.2l64 16c4.2 1.1 8.7 .3 12.4-2s6.3-6.1 7.1-10.4c8.6-42.8 4.3-81.2-2.1-108.7C90.3 344.3 86 329.8 80 316.5V291.9c0-30.2 10.2-58.7 27.9-81.5c12.9-15.5 29.6-28 49.2-35.7l157-61.7c8.2-3.2 17.5 .8 20.7 9s-.8 17.5-9 20.7l-157 61.7c-12.4 4.9-23.3 12.4-32.2 21.6l159.6 57.6c7.6 2.7 15.6 4.1 23.7 4.1s16.1-1.4 23.7-4.1L624.2 182.6c9.5-3.4 15.8-12.5 15.8-22.6s-6.3-19.1-15.8-22.6L343.7 36.1C336.1 33.4 328.1 32 320 32zM128 408c0 35.3 86 72 192 72s192-36.7 192-72L496.7 262.6 354.5 314c-11.1 4-22.8 6-34.5 6s-23.5-2-34.5-6L143.3 262.6 128 408z"/></svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 40" width="144" height="40" role="img" aria-labelledby="rsstitle rssdesc">
+  <title id="rsstitle">Bell's University RSS Site Logo</title>
+  <desc id="rssdesc">Horizontal site brand logo for RSS feeds: small Bell's University seal followed by the institutional wordmark.</desc>
+  <defs>
+    <linearGradient id="rssNavy" x1="0" y1="0" x2="0" y2="100%">
+      <stop offset="0" stop-color="#0a2540"/>
+      <stop offset="1" stop-color="#1a3a65"/>
+    </linearGradient>
+    <linearGradient id="rssGold" x1="0" y1="0" x2="0" y2="100%">
+      <stop offset="0" stop-color="#f7d774"/>
+      <stop offset="0.5" stop-color="#e0a422"/>
+      <stop offset="1" stop-color="#b07d12"/>
+    </linearGradient>
+    <linearGradient id="rssGreen" x1="0" y1="0" x2="0" y2="100%">
+      <stop offset="0" stop-color="#3d8b43"/>
+      <stop offset="1" stop-color="#2a6130"/>
+    </linearGradient>
+    <radialGradient id="rssCream" cx="50%" cy="40%" r="70%">
+      <stop offset="0" stop-color="#fff8e4"/>
+      <stop offset="1" stop-color="#f2e4bc"/>
+    </radialGradient>
+  </defs>
+  <!-- Seal left side -->
+  <g transform="translate(20 20) scale(0.555)">
+    <circle r="36" fill="url(#rssNavy)"/>
+    <circle r="36" fill="none" stroke="url(#rssGold)" stroke-width="0.8"/>
+    <circle r="26" fill="url(#rssCream)"/>
+    <circle r="26" fill="none" stroke="url(#rssGold)" stroke-width="0.8"/>
+    <path id="rssArc" d="M -32 -4 A 30 30 0 0 1 32 -4" fill="none"/>
+    <text font-family="'Georgia', serif" font-size="5.2" font-weight="700" fill="#fff8e4">
+      <textPath href="#rssArc" startOffset="50%" text-anchor="middle">BELLS UNIVERSITY</textPath>
+    </text>
+    <path d="M -20 16 Q 0 28 20 16 L 18 24 Q 0 32 -18 24 Z" fill="url(#rssGreen)"/>
+    <path d="M -16 19 Q 0 26 16 19" fill="none" id="rssRib"/>
+    <text font-family="'Georgia', serif" font-size="4.2" font-style="italic" font-weight="700" fill="#fff8e4">
+      <textPath href="#rssRib" startOffset="50%" text-anchor="middle">CHORDS</textPath>
+    </text>
+    <circle cx="-8" cy="-2" r="3.2" fill="none" stroke="url(#rssGold)" stroke-width="1.2"/>
+    <rect x="-4" y="-3" width="16" height="2.4" fill="url(#rssGold)"/>
+    <path d="M -6 -14 C -11 -14 -14 -8 -14 -2 L -11 2 A 6 6 0 0 0 11 2 L 14 -2 C 14 -8 11 -14 6 -14 Z" transform="translate(4 -4)" fill="url(#rssGold)"/>
+  </g>
+  <!-- Wordmark right side -->
+  <text x="48" y="18" font-family="'Georgia', serif" font-size="12" font-weight="700" fill="#0a2540">BELLS UNIVERSITY</text>
+  <text x="48" y="31" font-family="'Georgia', serif" font-size="8" font-style="italic" fill="#2a6130">Chords of Knowledge</text>
+</svg>

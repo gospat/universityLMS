@@ -724,6 +724,63 @@ class core_renderer extends \theme_boost\output\core_renderer {
     }
 
     /**
+     * Overrides the core renderer get_compact_logo_url() so the Bells
+     * University full banner logo URL is always served for ULMS portal
+     * templates (navbar non-collapsed, sidebar brand, footer, login hero,
+     * brand banner seal).  Parameters match the parent signature exactly
+     * to avoid LSP inheritance fatals.
+     *
+     * @param int|null $maxwidth  Maximum acceptable width (ignored — PNG is
+     *                            rasterized at final 600×200, CSS handles resizing).
+     * @param int|null $maxheight Maximum acceptable height (same note).
+     * @return \moodle_url|string Always returns our theme logo URL (string form
+     *                            so Mustache direct src attribute use works).
+     */
+    public function get_compact_logo_url($maxwidth = 300, $maxheight = 300) {
+        try {
+            return (string)$this->image_url('logo', 'theme_ulms_university');
+        } catch (\Throwable $_unused) {
+            global $CFG;
+            return ($CFG->wwwroot ?? '') . '/theme/ulms_university/pix/logo.png';
+        }
+    }
+
+    /**
+     * ULMS portal pages always display the branded navbar logo to the left
+     * of the institution sitename text.  Falls back to the parent check if
+     * the current page is a non-portal Moodle admin page.
+     *
+     * @return bool
+     */
+    public function should_display_navbar_logo() {
+        return true;
+    }
+
+    /**
+     * Overrides the core renderer image_url() so that the 0-argument form
+     * (invoked by Mustache {{output.image_url}} property access) returns
+     * the standalone Bells circular seal URL used by collapsed-sidebar
+     * mini-logo state and responsive compact headers.
+     *
+     * Normal 1-2 argument calls are delegated unchanged to the parent.
+     *
+     * @param string|null $imagename
+     * @param string $component
+     * @return \moodle_url|string
+     */
+    public function image_url($imagename = null, $component = 'moodle') {
+        if ($imagename === null || $imagename === '') {
+            try {
+                return (string)parent::image_url('logo-mini', 'theme_ulms_university');
+            } catch (\Throwable $_unused) {
+                global $CFG;
+                return ($CFG->wwwroot ?? '') . '/theme/ulms_university/pix/logo-mini.png';
+            }
+        }
+        return parent::image_url($imagename, $component);
+    }
+
+    /**
      * Returns the student portal service when available.
      *
      * @return \local_ulms_dashboard\local\service\student_portal_service|null

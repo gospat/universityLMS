@@ -16,27 +16,52 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-global $CFG;
-@include_once($CFG->dirroot . '/local/ulms_privacy/lib.php');
+global $ULMS_REQUEST_START_MICROTIME;
+if (!isset($ULMS_REQUEST_START_MICROTIME)) {
+    $ULMS_REQUEST_START_MICROTIME = microtime(true);
+}
 
-// OQ-4 Production Boot Guard. MUST execute as EARLY as possible after $CFG populated.
-// Prevents ANY production boot that still uses MySQL root account (minimum-privilege violation).
-$dbuser = $CFG->dbuser ?? $_ENV['DB_USER'] ?? getenv('DB_USER') ?: '';
-$appenv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'local';
-if ((defined('APP_ENV') ? APP_ENV === 'production' : (stripos((string)$appenv, 'prod') !== false))
-    && (strcasecmp((string)$dbuser, 'root') === 0)) {
-    http_response_code(500);
-    if (PHP_SAPI !== 'cli') {
-        header('Content-Type: text/plain; charset=utf-8');
+if (!function_exists('local_ulms_dashboard_mark_request_start')) {
+    function local_ulms_dashboard_mark_request_start(): void {
+        global $ULMS_REQUEST_START_MICROTIME;
+        if (!isset($ULMS_REQUEST_START_MICROTIME) || $ULMS_REQUEST_START_MICROTIME === null) {
+            $ULMS_REQUEST_START_MICROTIME = microtime(true);
+        }
     }
-    $msg = "ULMS-SAFETY-P0: Production environment detected but DB_USER='root' in active configuration. "
-         . "Create a dedicated minimum-privilege user (ulms_rw) per .env.example L64-68, update .env DB_USER/DB_PASS, "
-         . "then retry. ULMS refuses to boot in production with root MySQL account. See: SECURITY.md / deployment checklist.";
-    if (PHP_SAPI === 'cli') {
-        fwrite(STDERR, "ERROR [OQ-4]: " . $msg . PHP_EOL);
-        exit(2);
-    } else {
-        die($msg);
+}
+
+if (!function_exists('local_ulms_dashboard_register_x_render_time_shutdown')) {
+    function local_ulms_dashboard_register_x_render_time_shutdown(): void {
+        static $registered = false;
+        if ($registered) {
+            return;
+        }
+        $registered = true;
+        if (PHP_SAPI === 'cli' || headers_sent()) {
+            return;
+        }
+        register_shutdown_function(static function (): void {
+            global $ULMS_REQUEST_START_MICROTIME;
+            if (!isset($ULMS_REQUEST_START_MICROTIME) || !is_numeric($ULMS_REQUEST_START_MICROTIME)) {
+                return;
+            }
+            $durationMs = (int)round((microtime(true) - (float)$ULMS_REQUEST_START_MICROTIME) * 1000);
+            @header('X-ULMS-Render-Time: ' . $durationMs . 'ms');
+        });
+    }
+}
+
+if (!function_exists('local_ulms_dashboard_emit_x_render_time')) {
+    function local_ulms_dashboard_emit_x_render_time(): void {
+        global $ULMS_REQUEST_START_MICROTIME;
+        if (PHP_SAPI === 'cli' || headers_sent()) {
+            return;
+        }
+        if (!isset($ULMS_REQUEST_START_MICROTIME) || !is_numeric($ULMS_REQUEST_START_MICROTIME)) {
+            return;
+        }
+        $durationMs = (int)round((microtime(true) - (float)$ULMS_REQUEST_START_MICROTIME) * 1000);
+        @header('X-ULMS-Render-Time: ' . $durationMs . 'ms');
     }
 }
 
@@ -56,10 +81,6 @@ function local_ulms_dashboard_prepare_page(\context $context, \moodle_url $url, 
     $PAGE->set_title($title);
     $PAGE->set_heading($title);
     $PAGE->set_pagelayout('ulmsdashboard');
-
-    if (function_exists('local_ulms_privacy_extend_navigation')) {
-        local_ulms_privacy_extend_navigation(null);
-    }
 }
 
 /**
@@ -472,7 +493,7 @@ function local_ulms_dashboard_render_panel(array $panel): string {
                 : '';
             $header = html_writer::div($headerleft . $headerright, 'ulms-course-group__header');
             if (!empty($item['url'])) {
-                $header = html_writer::link($item['url'], $header, ['class' => 'ulms-course-group__toplink']);
+                $header = html_writer::link($item['url'], $header, ['class' => 'ulms-course-group__toplink', 'aria-label' => $title]);
             }
 
             $subrows = [];
@@ -619,8 +640,8 @@ function local_ulms_dashboard_render_role_portal_page(
     $portalservice = new $portalserviceclass();
     $data = $datafetcher();
 
-    local_ulms_dashboard_emit_x_render_time();
     echo $OUTPUT->header();
+
     $headercontext = $portalservice->get_header_context_for_section($view);
     if ($headermapper !== null) {
         $headercontext = $headermapper($headercontext);
@@ -697,82 +718,6 @@ function local_ulms_dashboard_emit_security_headers(): void {
 }
 
 /**
- * Records the bootstrap timestamp for X-Render-Time calculations on portal entry
- * pages. The first successful call sets the start; subsequent calls are no-op.
- *
- * Also initialises $GLOBALS['ULMS_TRACE_ID'] so both the Monolog trace_id
- * processor and the X-Trace-Id response header agree on one stable request ID.
- *
- * @return float  The microtime(true) value stored as the request start.
- */
-function local_ulms_dashboard_mark_request_start(): float {
-    static $start = null;
-    if ($start === null) {
-        $start = microtime(true);
-    }
-    if (empty($GLOBALS['ULMS_TRACE_ID'] ?? null)) {
-        $GLOBALS['ULMS_TRACE_ID'] = substr(bin2hex(random_bytes(12)), 0, 12);
-    }
-    return $start;
-}
-
-/**
- * Emits the X-Render-Time HTTP response header reporting wall-clock
- * milliseconds since {@see local_ulms_dashboard_mark_request_start()} was
- * invoked. If the start marker was never recorded the header is suppressed.
- *
- * Also emits an X-Trace-Id response header so load balancers and frontend
- * probes can correlate every rendered page with its ULMS log stream.
- *
- * The headers are emitted at most once per request and are a no-op if headers
- * have already been sent (e.g. a view has already flushed output).
- *
- * @return void
- */
-function local_ulms_dashboard_emit_x_render_time(): void {
-    $start = local_ulms_dashboard_mark_request_start();
-    $ms = (int)round((microtime(true) - $start) * 1000);
-    static $emitted = false;
-    if ($emitted) {
-        return;
-    }
-    $emitted = true;
-    if (headers_sent()) {
-        return;
-    }
-    if (!empty($GLOBALS['ULMS_TRACE_ID'])) {
-        header(sprintf('X-Trace-Id: %s', (string)$GLOBALS['ULMS_TRACE_ID']));
-    }
-    header(sprintf('X-Render-Time: %d ms', $ms));
-}
-
-/**
- * Registers a PHP shutdown function that emits X-Render-Time right before
- * response headers are finalized so portal entry pages do not need to track
- * a stopwatch manually around $OUTPUT->header() / $OUTPUT->footer().
- *
- * Safe to call multiple times (only registers one shutdown handler).
- *
- * @return void
- */
-function local_ulms_dashboard_register_x_render_time_shutdown(): void {
-    static $registered = false;
-    if ($registered) {
-        return;
-    }
-    $registered = true;
-    if (function_exists('header_register_callback')) {
-        header_register_callback(static function (): void {
-            local_ulms_dashboard_emit_x_render_time();
-        });
-    } else {
-        register_shutdown_function(static function (): void {
-            local_ulms_dashboard_emit_x_render_time();
-        });
-    }
-}
-
-/**
  * Logs a full operational error payload for developer review.
  * SCRUBS all PII/sensitive data (passwords, tokens, API keys, emails,
  * idnumbers etc.) from the extra payload and from exception context via
@@ -800,17 +745,7 @@ function local_ulms_dashboard_log_operational_error(\Throwable $exception, strin
     ];
 
     $payload = local_ulms_dashboard_scrub_sensitive_details($payload);
-    $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-    try {
-        $monologclass = '\\local_ulms_dashboard\\local\\log\\logger';
-        if (class_exists($monologclass) && is_callable([$monologclass, 'dashboard'])) {
-            $monologclass::dashboard()->error('[ULMS_PORTAL_ERROR] ' . $location, $payload);
-        }
-    } catch (\Throwable) {
-    }
-
-    error_log('[ULMS_PORTAL_ERROR] ' . $encoded);
+    error_log('[ULMS_PORTAL_ERROR] ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 }
 
 /**
@@ -824,7 +759,6 @@ function local_ulms_dashboard_log_operational_error(\Throwable $exception, strin
 function local_ulms_dashboard_render_operational_error(string $title, string $message, ?\moodle_url $returnurl = null): void {
     global $OUTPUT;
 
-    local_ulms_dashboard_emit_x_render_time();
     echo $OUTPUT->header();
     echo html_writer::start_div('ulms-page');
     echo html_writer::start_div('ulms-panel ulms-panel--soft');

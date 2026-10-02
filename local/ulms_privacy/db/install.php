@@ -4,7 +4,6 @@ defined('MOODLE_INTERNAL') || die();
 function xmldb_local_ulms_privacy_install(): void {
     global $DB;
 
-    $categoryshortname = 'ulms_gdpr_privacy';
     $categoryname = 'GDPR & Privacy';
     $sortorder = (int)$DB->get_field_sql(
         "SELECT COALESCE(MAX(sortorder), 0) + 1 FROM {user_info_category}"
@@ -13,13 +12,12 @@ function xmldb_local_ulms_privacy_install(): void {
     $categoryid = (int)$DB->get_field(
         'user_info_category',
         'id',
-        ['shortname' => $categoryshortname],
+        ['name' => $categoryname],
         IGNORE_MISSING
     );
     if ($categoryid <= 0) {
         $categoryid = (int)$DB->insert_record('user_info_category', (object)[
             'name'      => $categoryname,
-            'shortname' => $categoryshortname,
             'sortorder' => $sortorder,
         ]);
     }

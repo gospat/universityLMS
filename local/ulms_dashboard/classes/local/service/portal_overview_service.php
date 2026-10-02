@@ -662,60 +662,13 @@ class portal_overview_service {
                   ORDER BY pc.semesterid ASC, pc.iscore DESC, c.shortname ASC";
             $rows = $DB->get_records_sql($sql, $sqlparams);
             $programmetotal = count($rows);
-            $courseids = [];
-            foreach ($rows as $r) {
-                $cid = (int)$r->id;
-                if ($cid > 0) {
-                    $courseids[] = $cid;
-                }
-            }
-            $enrolledmap = [];
-            if ($userid > 0 && !empty($courseids)) {
-                [$cineq, $cparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'catpre');
-                $enrolsql = "SELECT DISTINCT e.courseid
-                               FROM {enrol} e
-                               JOIN {user_enrolments} ue ON ue.enrolid = e.id
-                              WHERE e.courseid {$cineq}
-                                AND ue.userid = :catuid
-                                AND ue.status = 0";
-                $cparams['catuid'] = $userid;
-                $enrolledrows = $DB->get_records_sql($enrolsql, $cparams);
-                foreach ($enrolledrows as $er) {
-                    $enrolledmap[(int)$er->courseid] = true;
-                }
-            }
-            $ctxmap = [];
-            if (!empty($courseids) && method_exists(\context_helper::class, 'preload_course_contexts')) {
-                \context_helper::preload_course_contexts($courseids);
-            } elseif (!empty($courseids)) {
-                [$cineq2, $cparams2] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'ctxpre');
-                $ctxrows = $DB->get_records_sql(
-                    "SELECT instanceid, id FROM {context} WHERE contextlevel = " . CONTEXT_COURSE . " AND instanceid {$cineq2}",
-                    $cparams2
-                );
-                foreach ($ctxrows as $cr) {
-                    $cid = (int)$cr->instanceid;
-                    try {
-                        $ctxmap[$cid] = \context_course::instance($cid, IGNORE_MISSING);
-                    } catch (\Throwable) {
-                        $ctxmap[$cid] = null;
-                    }
-                }
-            }
             foreach ($rows as $row) {
-                $cid = (int)$row->id;
-                $coursectx = $ctxmap[$cid] ?? null;
-                if ($coursectx === null && isset($courseids[0])) {
-                    try {
-                        $coursectx = \context_course::instance($cid, IGNORE_MISSING);
-                    } catch (\Throwable) {
-                        $coursectx = null;
-                    }
+                try {
+                    $coursectx = \context_course::instance((int)$row->id, IGNORE_MISSING);
+                } catch (\Throwable) {
+                    $coursectx = null;
                 }
-                $isenrolled = isset($enrolledmap[$cid]);
-                if (!$isenrolled && $coursectx instanceof \context) {
-                    $isenrolled = is_enrolled($coursectx, $userid, null, true);
-                }
+                $isenrolled = $coursectx instanceof \context && is_enrolled($coursectx, $userid, null, true);
                 if ($isenrolled) {
                     $enrolledcount++;
                 }
@@ -1751,8 +1704,7 @@ class portal_overview_service {
 
         $html .= '<h3 style="margin:16px 0 8px;font-size:1rem;font-weight:700;color:#0f4c81;">Weekly Timetable</h3>';
         $html .= '<table class="ulms-timetable-grid" data-ulms-timetable="true">';
-        $html .= '<caption style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">Student weekly timetable grid — time slots and days of the week with scheduled classes</caption>';
-        $html .= '<thead><tr><th scope="col" data-label="Time">Time</th><th scope="col" data-label="Mon">Mon</th><th scope="col" data-label="Tue">Tue</th><th scope="col" data-label="Wed">Wed</th><th scope="col" data-label="Thu">Thu</th><th scope="col" data-label="Fri">Fri</th></tr></thead>';
+        $html .= '<thead><tr><th data-label="Time">Time</th><th data-label="Mon">Mon</th><th data-label="Tue">Tue</th><th data-label="Wed">Wed</th><th data-label="Thu">Thu</th><th data-label="Fri">Fri</th></tr></thead>';
         $html .= '<tbody>';
 
         $_daysmap = [1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 => 5];
@@ -3688,8 +3640,7 @@ class portal_overview_service {
             }
 
             $html .= '<div style="overflow-x:auto;"><table class="ulms-attendance-register" data-ulms-attendance="true" data-ulms-attendance-marks="true">';
-            $html .= '<caption style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">Attendance register — student list with current status, comments and quick mark controls</caption>';
-            $html .= '<thead><tr><th scope="col" data-label="Student ID">Student ID</th><th scope="col" data-label="Name">Name</th><th scope="col" data-label="Status">Status</th><th scope="col" data-label="Comment">Comment</th><th scope="col" data-label="Marked At">Marked At</th><th scope="col" data-label="Marked By">Marked By</th><th scope="col" data-label="Quick Mark">Quick Mark (P / A / L / E)</th></tr></thead><tbody>';
+            $html .= '<thead><tr><th data-label="Student ID">Student ID</th><th data-label="Name">Name</th><th data-label="Status">Status</th><th data-label="Comment">Comment</th><th data-label="Marked At">Marked At</th><th data-label="Marked By">Marked By</th><th data-label="Quick Mark">Quick Mark (P / A / L / E)</th></tr></thead><tbody>';
 
             $marks = [];
             $rs = $DB->get_records('local_ulms_dashboard_attendance', ['sessionid' => $selected_sessionid, 'session_occurrence_date' => $occurrence_ts]);
@@ -3938,8 +3889,7 @@ FASTMARKSCRIPT;
         }
 
         $html .= '<table class="ulms-attendance-register">';
-        $html .= '<caption style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">Attendance summary by course and lecturer — percentages and drill-down links</caption>';
-        $html .= '<thead><tr><th scope="col" data-label="Course">Course</th><th scope="col" data-label="Lecturer">Lecturer</th><th scope="col" data-label="Sessions">Sessions</th><th scope="col" data-label="Attendance %">Attendance %</th><th scope="col" data-label="Actions">Actions</th></tr></thead><tbody>';
+        $html .= '<thead><tr><th data-label="Course">Course</th><th data-label="Lecturer">Lecturer</th><th data-label="Sessions">Sessions</th><th data-label="Attendance %">Attendance %</th><th data-label="Actions">Actions</th></tr></thead><tbody>';
 
         foreach ($course_lecturer_rows as $row) {
             $session_ids = array_keys($row['sessions']);
@@ -4083,14 +4033,7 @@ FASTMARKSCRIPT;
                     );
                 } catch (\Throwable $e) {
                     if (isset($transaction)) {
-                        try { $transaction->rollback($e); } catch (\Throwable $rb) {
-                            if (function_exists('local_ulms_dashboard_log_operational_error')) {
-                                local_ulms_dashboard_log_operational_error($rb, 'portal_overview_service::admin_lecturers_handler::rollback_failure::form', ['courseid' => $course->id ?? 0]);
-                            } else {
-                                error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'portal_overview_service::admin_lecturers_handler::rollback_failure::form','type'=>get_class($rb),'message'=>$rb->getMessage(),'courseid'=>$course->id ?? 0,'line'=>$rb->getLine(),'file'=>$rb->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
-                            }
-                            trigger_error('ULMS: Admin lecturers transaction rollback failed. DB connection pool may contain dangling uncommitted sessions.', E_USER_WARNING);
-                        }
+                        try { $transaction->rollback($e); } catch (\Throwable) {}
                     }
                     $emsg = dashboard_commons::safe_lang_string('adminlecturerssavefail',
                         'Failed to save allocations: {$a}',
@@ -4142,14 +4085,7 @@ FASTMARKSCRIPT;
                             }
                             $transaction->allow_commit();
                         } catch (\Throwable $e) {
-                            try { $transaction->rollback($e); } catch (\Throwable $rb) {
-                                if (function_exists('local_ulms_dashboard_log_operational_error')) {
-                                    local_ulms_dashboard_log_operational_error($rb, 'portal_overview_service::admin_lecturers_handler::rollback_failure::csv', []);
-                                } else {
-                                    error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'portal_overview_service::admin_lecturers_handler::rollback_failure::csv','type'=>get_class($rb),'message'=>$rb->getMessage(),'line'=>$rb->getLine(),'file'=>$rb->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
-                                }
-                                trigger_error('ULMS: Admin lecturers CSV transaction rollback failed. DB connection pool may contain dangling uncommitted sessions.', E_USER_WARNING);
-                            }
+                            try { $transaction->rollback($e); } catch (\Throwable) {}
                             $errors++;
                         }
                         fclose($fh);
@@ -4330,14 +4266,13 @@ FASTMARKSCRIPT;
         $html .= '</div>';
 
         $html .= '<div style="overflow-x:auto;"><table class="table table-hover table-sm" style="width:100%;border-collapse:separate;border-spacing:0;">';
-        $html .= '<caption style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">Lecturer allocations — courses, student counts, assigned lecturers and primary contacts</caption>';
         $html .= '<thead><tr style="background:#eaf2fb;">';
-        $html .= '<th scope="col" style="padding:10px 12px;text-align:left;">' . s(dashboard_commons::safe_lang_string('adminlecturerscoursename', 'Course')) . '</th>';
-        $html .= '<th scope="col" style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersstudents', 'Students')) . '</th>';
-        $html .= '<th scope="col" style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturerslecturercount', 'Lecturers')) . '</th>';
-        $html .= '<th scope="col" style="padding:10px 12px;text-align:left;">' . s(dashboard_commons::safe_lang_string('adminlecturerslecturers', 'Assigned lecturers')) . '</th>';
-        $html .= '<th scope="col" style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersprimary', 'Primary')) . '</th>';
-        $html .= '<th scope="col" style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersassign', 'Action')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(dashboard_commons::safe_lang_string('adminlecturerscoursename', 'Course')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersstudents', 'Students')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturerslecturercount', 'Lecturers')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:left;">' . s(dashboard_commons::safe_lang_string('adminlecturerslecturers', 'Assigned lecturers')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersprimary', 'Primary')) . '</th>';
+        $html .= '<th style="padding:10px 12px;text-align:center;">' . s(dashboard_commons::safe_lang_string('adminlecturersassign', 'Action')) . '</th>';
         $html .= '</tr></thead><tbody>';
 
         foreach ($courserows as $r) {

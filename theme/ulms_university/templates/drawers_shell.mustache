@@ -21,11 +21,10 @@
                         <span class="sr-only">Toggle navigation</span>
                     </button>
                 {{/portalnav}}
-                <a href="{{{ config.homeurl }}}" class="navbar-brand d-flex align-items-center m-0 p-0 aabtn">
-                    {{# output.should_display_navbar_logo }}
-                        <img src="{{output.get_compact_logo_url}}" class="logo me-2" alt="{{sitename}}">
-                    {{/ output.should_display_navbar_logo }}
-                    <span>{{{ sitename }}}</span>
+                <a href="{{{ config.homeurl }}}" class="navbar-brand d-flex align-items-center m-0 p-0 aabtn" aria-label="Bell's University of Technology home">
+                    <img src="{{output.get_compact_logo_url}}" class="logo logo--full me-2" alt="" aria-hidden="true">
+                    <img src="{{output.image_url}}" class="logo logo--mini me-2 d-none" alt="Bell's University of Technology" loading="lazy">
+                    <span class="ulms-brand__name">{{{ sitename }}}</span>
                 </a>
             </div>
 
@@ -126,8 +125,11 @@
                     <aside id="ulms-shell-sidebar" class="ulms-shell-sidebar" aria-label="{{navigationaria}}">
                         <div class="ulms-shell-sidebar__inner">
                             <div class="ulms-shell-sidebar__brand">
-                                <div class="ulms-shell-sidebar__eyebrow">{{eyebrow}}</div>
-                                <div class="ulms-shell-sidebar__title">{{portalname}}</div>
+                                <img src="{{output.image_url}}" class="ulms-shell-sidebar__seal" alt="" aria-hidden="true">
+                                <div>
+                                    <div class="ulms-shell-sidebar__eyebrow">{{eyebrow}}</div>
+                                    <div class="ulms-shell-sidebar__title">{{portalname}}</div>
+                                </div>
                             </div>
                             <nav class="ulms-shell-sidebar__nav">
                                 {{#navgroups}}
@@ -197,6 +199,7 @@
         <footer id="page-footer" class="ulms-portal-footer">
             <div class="ulms-portal-footer__inner">
                 <div class="ulms-portal-footer__meta">
+                    <img src="{{output.image_url}}" class="ulms-portal-footer__seal" alt="" aria-hidden="true">
                     <span class="ulms-portal-footer__brand">{{{ sitename }}}</span>
                     <span class="ulms-portal-footer__login">{{{ output.login_info }}}</span>
                 </div>

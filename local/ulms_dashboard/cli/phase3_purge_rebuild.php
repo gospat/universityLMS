@@ -119,7 +119,7 @@ if ($production_env) {
     cli_writeln('[INFO] Starting moodledata cache/session purge + theme rebuild.');
 }
 
-function ulms_recursive_rm_contents($dir, $keeplist = []) {
+function ulms_recursive_rm_contents(string $dir, array $keeplist = []) {
     if (!is_dir($dir)) {
         return;
     }
@@ -245,7 +245,7 @@ foreach ($urls as $name => $url) {
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         $r = curl_exec($ch);
         $code = $r === false ? 0 : curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $ch = null;
     } else {
         $code = -1;
     }

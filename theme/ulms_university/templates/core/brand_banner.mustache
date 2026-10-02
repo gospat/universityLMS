@@ -1,10 +1,15 @@
 <section class="ulms-brand-banner">
     <div class="ulms-brand-banner__inner">
-        <p class="ulms-brand-banner__eyebrow">ULMS Experience</p>
-        <div class="ulms-brand-banner__title">{{brandtitle}}</div>
-        {{#supports_darkmode}}
-            <p class="ulms-brand-banner__meta">{{#str}} enabledarkmode, theme_ulms_university {{/str}}</p>
-        {{/supports_darkmode}}
+        <div class="ulms-brand-banner__identity">
+            <img src="{{output.image_url}}" class="ulms-brand-banner__seal" alt="" aria-hidden="true">
+            <div class="ulms-brand-banner__identity-copy">
+                <p class="ulms-brand-banner__eyebrow">ULMS Experience</p>
+                <div class="ulms-brand-banner__title">{{brandtitle}}</div>
+                {{#supports_darkmode}}
+                    <p class="ulms-brand-banner__meta">{{#str}} enabledarkmode, theme_ulms_university {{/str}}</p>
+                {{/supports_darkmode}}
+            </div>
+        </div>
     </div>
     {{#showportalcards}}
         <div class="ulms-brand-banner__portal-grid" aria-label="Portal login links">

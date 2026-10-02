@@ -24,7 +24,7 @@ class logger {
         'cli',
     ];
 
-    private const DEFAULT_LEVEL = MonologLogger::INFO;
+    private const DEFAULT_LEVEL = 200;
 
     private static ?string $traceid = null;
 
@@ -82,45 +82,73 @@ class logger {
 
         $level = self::DEFAULT_LEVEL;
         if (!empty($CFG->debug) && (int)$CFG->debug >= DEBUG_DEVELOPER) {
-            $level = MonologLogger::DEBUG;
+            $level = 100;
         }
 
-        $logger->pushProcessor(new UidProcessor(12, 'uid'));
+        $logger->pushProcessor(new UidProcessor(12));
         $logger->pushProcessor(new ProcessIdProcessor());
         if (PHP_SAPI !== 'cli') {
             $logger->pushProcessor(new WebProcessor());
         }
         // HMAC audit-trail integrity processor (REQUIRED per project rules / compliance P1-3)
         // Each log line gets an extra.integrity field: HMAC-SHA256 of canonical payload + static secret + per-line salt.
-        $logger->pushProcessor(static function (array $record): array {
+        $logger->pushProcessor(static function ($record) {
             try {
                 global $CFG;
                 $secret = (string)($CFG->local_ulms_log_secret ?? $_ENV['ULMS_LOG_HMAC_SECRET'] ?? getenv('ULMS_LOG_HMAC_SECRET') ?: '__ULMS_INTERNAL_LOG_SALT__REPLACE_IN_ENV__');
+                $isRecord = ($record instanceof \Monolog\LogRecord);
+                $datetime = $isRecord ? $record->datetime : ($record['datetime'] ?? new \DateTimeImmutable('now'));
+                $channel  = $isRecord ? $record->channel  : ($record['channel'] ?? '');
+                $level    = $isRecord ? $record->level->value : ($record['level'] ?? 0);
+                $message  = $isRecord ? $record->message  : ($record['message'] ?? '');
+                $context  = $isRecord ? $record->context  : ($record['context'] ?? new \stdClass());
+                $extraArr = $isRecord ? $record->extra    : ($record['extra'] ?? []);
                 $canonical = json_encode([
-                    'ts'  => ($record['datetime'] ?? new \DateTimeImmutable('now'))->format('c'),
-                    'ch'  => $record['channel'] ?? '',
-                    'lv'  => $record['level'] ?? 0,
-                    'msg' => $record['message'] ?? '',
-                    'ctx' => $record['context'] ?? new \stdClass(),
-                    'uid' => $record['extra']['uid'] ?? '',
+                    'ts'  => $datetime->format('c'),
+                    'ch'  => $channel,
+                    'lv'  => $level,
+                    'msg' => $message,
+                    'ctx' => $context,
+                    'uid' => $extraArr['uid'] ?? '',
                 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 $salt = bin2hex(random_bytes(6));
                 $hmac = hash_hmac('sha256', $salt . '.' . $canonical, $secret);
-                $record['extra']['integrity'] = sprintf('v1:%s:%s', $salt, $hmac);
-                // Also inject actor_userid if $USER present
-                if (!empty($GLOBALS['USER']) && is_object($GLOBALS['USER']) && !empty($GLOBALS['USER']->id)) {
-                    $record['extra']['actor_userid'] = (int)$GLOBALS['USER']->id;
+                if ($isRecord) {
+                    $newExtra = $record->extra;
+                    $newExtra['integrity'] = sprintf('v1:%s:%s', $salt, $hmac);
+                    if (!empty($GLOBALS['USER']) && is_object($GLOBALS['USER']) && !empty($GLOBALS['USER']->id)) {
+                        $newExtra['actor_userid'] = (int)$GLOBALS['USER']->id;
+                    }
+                    $record = $record->with(extra: $newExtra);
+                } else {
+                    $record['extra']['integrity'] = sprintf('v1:%s:%s', $salt, $hmac);
+                    if (!empty($GLOBALS['USER']) && is_object($GLOBALS['USER']) && !empty($GLOBALS['USER']->id)) {
+                        $record['extra']['actor_userid'] = (int)$GLOBALS['USER']->id;
+                    }
                 }
             } catch (\Throwable) { /* never break logging */ }
             return $record;
         });
-        $logger->pushProcessor(function (array $record): array {
-            $record['extra']['trace_id'] = self::trace_id();
-            if (!empty($GLOBALS['USER']) && is_object($GLOBALS['USER']) && !empty($GLOBALS['USER']->id)) {
-                $record['extra']['actor_userid'] = (int)$GLOBALS['USER']->id;
-            }
-            if (!empty($GLOBALS['SITE']) && is_object($GLOBALS['SITE']) && !empty($GLOBALS['SITE']->shortname)) {
-                $record['extra']['site'] = (string)$GLOBALS['SITE']->shortname;
+        $logger->pushProcessor(function ($record) {
+            $isRecord = ($record instanceof \Monolog\LogRecord);
+            if ($isRecord) {
+                $newExtra = $record->extra;
+                $newExtra['trace_id'] = self::trace_id();
+                if (!empty($GLOBALS['USER']) && is_object($GLOBALS['USER']) && !empty($GLOBALS['USER']->id)) {
+                    $newExtra['actor_userid'] = (int)$GLOBALS['USER']->id;
+                }
+                if (!empty($GLOBALS['SITE']) && is_object($GLOBALS['SITE']) && !empty($GLOBALS['SITE']->shortname)) {
+                    $newExtra['site'] = (string)$GLOBALS['SITE']->shortname;
+                }
+                $record = $record->with(extra: $newExtra);
+            } else {
+                $record['extra']['trace_id'] = self::trace_id();
+                if (!empty($GLOBALS['USER']) && is_object($GLOBALS['USER']) && !empty($GLOBALS['USER']->id)) {
+                    $record['extra']['actor_userid'] = (int)$GLOBALS['USER']->id;
+                }
+                if (!empty($GLOBALS['SITE']) && is_object($GLOBALS['SITE']) && !empty($GLOBALS['SITE']->shortname)) {
+                    $record['extra']['site'] = (string)$GLOBALS['SITE']->shortname;
+                }
             }
             return $record;
         });

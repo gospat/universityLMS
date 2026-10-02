@@ -1,18 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" width="256" height="256">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="sealtitle sealdesc">
+  <title id="sealtitle">Bell's University of Technology Seal</title>
+  <desc id="sealdesc">Circular navy institutional seal of Bell's University of Technology: navy ring with top arc text "BELLS UNIVERSITY OF TECHNOLOGY", green "CHORDS OF KNOWLEDGE" bottom ribbon, cream disc interior, three gold bells on a key, an open book, and a small globe.</desc>
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0f4d84"/>
-      <stop offset="100%" stop-color="#0f3d67"/>
+    <linearGradient id="navyGrad" x1="0" y1="0" x2="0" y2="100%">
+      <stop offset="0" stop-color="#0a2540"/>
+      <stop offset="1" stop-color="#1a3a65"/>
     </linearGradient>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="100%">
+      <stop offset="0" stop-color="#f7d774"/>
+      <stop offset="0.5" stop-color="#e0a422"/>
+      <stop offset="1" stop-color="#b07d12"/>
+    </linearGradient>
+    <linearGradient id="greenGrad" x1="0" y1="0" x2="0" y2="100%">
+      <stop offset="0" stop-color="#3d8b43"/>
+      <stop offset="1" stop-color="#2a6130"/>
+    </linearGradient>
+    <radialGradient id="creamGrad" cx="50%" cy="40%" r="70%">
+      <stop offset="0" stop-color="#fff8e4"/>
+      <stop offset="1" stop-color="#f2e4bc"/>
+    </radialGradient>
   </defs>
-  <circle cx="128" cy="128" r="31" fill="#0f7d3f"/>
-  <circle cx="128" cy="128" r="27" fill="url(#g)"/>
-  <g fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-weight="700" text-anchor="middle" aria-label="B">
-    <rect x="19" y="16" width="10" height="32" rx="6"/>
-    <rect x="19" y="16" width="22" height="6" rx="6"/>
-    <rect x="19" y="30" width="22" height="5" rx="6"/>
-    <rect x="19" y="44" width="22" height="6" rx="6"/>
-    <rect x="35" y="21" width="8" height="7" rx="8"/>
-    <rect x="35" y="37" width="8" height="7" rx="8"/>
+  <!-- Outer navy ring -->
+  <circle cx="60" cy="60" r="58" fill="url(#navyGrad)"/>
+  <!-- Cream interior disc -->
+  <circle cx="60" cy="60" r="44" fill="url(#creamGrad)"/>
+  <!-- Thin gold highlight -->
+  <circle cx="60" cy="60" r="44" fill="none" stroke="url(#goldGrad)" stroke-width="1.2"/>
+  <circle cx="60" cy="60" r="58" fill="none" stroke="url(#goldGrad)" stroke-width="0.8"/>
+  <!-- Top arc text: BELLS UNIVERSITY OF TECHNOLOGY -->
+  <path id="topArcMini" d="M 16 54 A 46 46 0 0 1 104 54" fill="none"/>
+  <text font-family="'Georgia', serif" font-size="6.2" font-weight="700" fill="#fff8e4" letter-spacing="0.3">
+    <textPath href="#topArcMini" startOffset="50%" text-anchor="middle">BELLS UNIVERSITY OF TECHNOLOGY</textPath>
+  </text>
+  <!-- Green bottom ribbon -->
+  <path d="M 22 78 Q 60 102 98 78 L 95 88 Q 60 108 25 88 Z" fill="url(#greenGrad)"/>
+  <path id="ribbonArcMini" d="M 26 82 Q 60 100 94 82" fill="none"/>
+  <text font-family="'Georgia', serif" font-size="6" font-style="italic" font-weight="700" fill="#fff8e4" letter-spacing="0.2">
+    <textPath href="#ribbonArcMini" startOffset="50%" text-anchor="middle">CHORDS OF KNOWLEDGE</textPath>
+  </text>
+  <!-- Gold key bow + shaft -->
+  <circle cx="46" cy="54" r="7" fill="none" stroke="url(#goldGrad)" stroke-width="2.2"/>
+  <rect x="50" y="52.4" width="22" height="3.2" fill="url(#goldGrad)" rx="1"/>
+  <!-- Key teeth -->
+  <rect x="67.5" y="51.5" width="1.6" height="5" fill="url(#goldGrad)"/>
+  <rect x="70.2" y="53" width="1.6" height="3.6" fill="url(#goldGrad)"/>
+  <!-- Three bells on top of key shaft -->
+  <!-- Bell 1 left, smaller -->
+  <g transform="translate(48 41)">
+    <path d="M 0 0 C -4 0 -6 4 -6 8 L -5 10 A 5 5 0 0 0 5 10 L 6 8 C 6 4 4 0 0 0 Z" fill="url(#goldGrad)"/>
+    <circle cx="0" cy="-1.6" r="1.2" fill="#6b4c0a"/>
+    <circle cx="0" cy="11" r="1" fill="#6b4c0a"/>
+    <path d="M -1 11 L 0 13 L 1 11" stroke="#b07d12" stroke-width="0.6" fill="none"/>
+  </g>
+  <!-- Bell 2 center, largest -->
+  <g transform="translate(60 34)">
+    <path d="M 0 0 C -6 0 -9 6 -9 12 L -7.5 15 A 7.5 7.5 0 0 0 7.5 15 L 9 12 C 9 6 6 0 0 0 Z" fill="url(#goldGrad)"/>
+    <circle cx="0" cy="-2.2" r="1.6" fill="#6b4c0a"/>
+    <circle cx="0" cy="16.5" r="1.3" fill="#6b4c0a"/>
+    <path d="M -1.4 16.5 L 0 19.5 L 1.4 16.5" stroke="#b07d12" stroke-width="0.7" fill="none"/>
+  </g>
+  <!-- Bell 3 right, medium -->
+  <g transform="translate(72 41)">
+    <path d="M 0 0 C -5 0 -7 5 -7 9 L -5.8 11.3 A 5.8 5.8 0 0 0 5.8 11.3 L 7 9 C 7 5 5 0 0 0 Z" fill="url(#goldGrad)"/>
+    <circle cx="0" cy="-1.8" r="1.3" fill="#6b4c0a"/>
+    <circle cx="0" cy="12.5" r="1.1" fill="#6b4c0a"/>
+    <path d="M -1.1 12.5 L 0 14.8 L 1.1 12.5" stroke="#b07d12" stroke-width="0.6" fill="none"/>
+  </g>
+  <!-- Open book base -->
+  <g transform="translate(60 74)">
+    <path d="M -22 0 Q -16 -6 0 -6 Q 16 -6 22 0 L 22 7 Q 16 1 0 1 Q -16 1 -22 7 Z" fill="#fff8e4" stroke="#b07d12" stroke-width="0.8"/>
+    <path d="M 0 -6 L 0 7" stroke="#b07d12" stroke-width="0.6"/>
+    <line x1="-18" y1="-2" x2="-6" y2="-2" stroke="#b07d12" stroke-width="0.5"/>
+    <line x1="-18" y1="1" x2="-6" y2="1" stroke="#b07d12" stroke-width="0.5"/>
+    <line x1="6" y1="-2" x2="18" y2="-2" stroke="#b07d12" stroke-width="0.5"/>
+    <line x1="6" y1="1" x2="18" y2="1" stroke="#b07d12" stroke-width="0.5"/>
+  </g>
+  <!-- Small globe accent -->
+  <g transform="translate(82 72)">
+    <circle r="3.8" fill="#3c6eb4" stroke="#0a2540" stroke-width="0.5"/>
+    <path d="M -3.8 0 A 3.8 3.8 0 0 0 3.8 0" fill="none" stroke="#fff8e4" stroke-width="0.4"/>
+    <path d="M -2 -2 Q 0 -0.5 1.5 -1.5 Q 2 0 1 1 Q -0.5 1.5 -2 0.5 Z" fill="#3d8b43"/>
+    <line x1="0" y1="-3.8" x2="0" y2="3.8" stroke="#fff8e4" stroke-width="0.3"/>
   </g>
 </svg>
