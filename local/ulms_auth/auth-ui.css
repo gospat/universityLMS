@@ -75,3 +75,85 @@
         padding-right: 3.3rem !important;
     }
 }
+
+/* ============================================================
+   ULMS Brand Seals — Option A (Blend + Round + Bold)
+   Eliminates the "white disc eye" bug: transparent bg,
+   cover-crop of the circular crest, larger bold sizes,
+   soft ring + elevation shadow.  Loaded LAST so wins over
+   the Moodle styles.php aggregator cache.
+   ============================================================ */
+:root, body.theme-ulms-university {
+    --ulms-logo-max-height: 48px !important;
+    --ulms-logo-max-width:  260px !important;
+    --ulms-logo-mini-size:  44px !important;
+}
+@media (min-width: 768px) and (max-width: 1199.98px) {
+    :root, body.theme-ulms-university {
+        --ulms-logo-max-height: 38px !important;
+        --ulms-logo-max-width:  220px !important;
+        --ulms-logo-mini-size:  38px !important;
+    }
+}
+@media (max-width: 767.98px) {
+    :root, body.theme-ulms-university {
+        --ulms-logo-max-height: 32px !important;
+        --ulms-logo-max-width:  200px !important;
+        --ulms-logo-mini-size:  32px !important;
+    }
+}
+
+/* Navbar brand logo — blend (no white eye), subtle border ring */
+.theme-ulms-university .ulms-portal-navbar .navbar-brand .logo {
+    background: transparent !important;
+    box-shadow: 0 0 0 1px rgba(15, 61, 103, 0.10), 0 1px 3px rgba(15, 61, 103, 0.10) !important;
+}
+
+/* Sidebar header seal — transparent, crest cover-crop, soft ring on dark sidebar */
+.theme-ulms-university .ulms-shell-sidebar__seal {
+    object-fit: cover !important;
+    object-position: 50% 40% !important;
+    background: transparent !important;
+    box-shadow: 0 0 0 2px rgba(200, 224, 248, 0.18), 0 2px 6px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Portal footer seal — bigger (32 from 24), crest cover, transparent */
+.theme-ulms-university .ulms-portal-footer__seal {
+    width: 32px !important;
+    height: 32px !important;
+    object-fit: cover !important;
+    object-position: 50% 40% !important;
+    background: transparent !important;
+}
+
+/* Brand banner seal (sign-in landing) — bold 96 from 56, no white disc */
+.theme-ulms-university .ulms-brand-banner__seal {
+    width: 96px !important;
+    height: 96px !important;
+    object-fit: cover !important;
+    object-position: 50% 38% !important;
+    background: transparent !important;
+    box-shadow: 0 0 0 2px rgba(15, 61, 103, 0.12), 0 4px 14px rgba(15, 61, 103, 0.18) !important;
+}
+@media (min-width: 768px) and (max-width: 1199.98px) {
+    .theme-ulms-university .ulms-brand-banner__seal { width: 80px !important; height: 80px !important; }
+}
+@media (max-width: 767.98px) {
+    .theme-ulms-university .ulms-brand-banner__seal { width: 68px !important; height: 68px !important; }
+}
+
+/* Login page seal (boost layout) — bold 120 from 72, no white "eye" disc */
+.ulms-login-brand__seal {
+    width: 120px !important;
+    height: 120px !important;
+    object-fit: cover !important;
+    object-position: 50% 38% !important;
+    background: transparent !important;
+    box-shadow: 0 0 0 2px rgba(15, 61, 103, 0.12), 0 4px 16px rgba(15, 61, 103, 0.18) !important;
+}
+@media (min-width: 768px) and (max-width: 1199.98px) {
+    .ulms-login-brand__seal { width: 96px !important; height: 96px !important; }
+}
+@media (max-width: 767.98px) {
+    .ulms-login-brand__seal { width: 80px !important; height: 80px !important; }
+}
