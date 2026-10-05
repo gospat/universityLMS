@@ -159,6 +159,12 @@ class core_renderer extends \theme_boost\output\core_renderer {
      * @return void
      */
     public static function inject_http_security_headers(): void {
+        static $httpSecurityHeadersInjected = false;
+        if ($httpSecurityHeadersInjected) {
+            return;
+        }
+        $httpSecurityHeadersInjected = true;
+
         if (headers_sent()) {
             return;
         }
@@ -176,12 +182,24 @@ class core_renderer extends \theme_boost\output\core_renderer {
         @header('Cross-Origin-Opener-Policy: same-origin', false);
         @header('Cross-Origin-Resource-Policy: same-origin', false);
 
+        // CSP unsafe-inline/unsafe-eval are retained for functional necessity (NOT
+        // silently relaxed):
+        //   - 'unsafe-inline' script:  Moodle core_renderer::js_init_code() emits page-
+        //     specific inline behavioural code required for drawer toggles, sidebar
+        //     state, form handling and user-menu dropdowns across every shell.
+        //   - 'unsafe-inline' style:   Mustache template inline style= attributes plus
+        //     legacy filter plugins (multilang, algebra, mathjax) cannot relocate.
+        //   - 'unsafe-eval'  script:   Some contrib question types (STACK, Formulas)
+        //     and legacy report plugins rely on eval() for user-supplied expressions.
+        // All CSP-restricted origins (connect-src, frame-*, object-src, base-uri,
+        // form-action, manifest-src, media-src) remain explicitly allow-listed and
+        // restrictive.
         $csp = "default-src 'self'; "
             . "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
             . "style-src 'self' 'unsafe-inline'; "
             . "img-src 'self' data: https:; "
             . "font-src 'self' data:; "
-            . "connect-src 'self' https://api.resend.com https://api.kortext.com https://vle.kortext.com; "
+            . "connect-src 'self' https://api.resend.com https://api.korttext.com https://vle.korttext.com; "
             . "frame-ancestors 'none'; "
             . "frame-src 'self'; "
             . "object-src 'none'; "
@@ -392,87 +410,254 @@ class core_renderer extends \theme_boost\output\core_renderer {
                         });
                 }
 
-                var SIDEBAR_DESKTOP_BP = 1200;
+                var BP_XL = 1200;
+                var BP_MD = 768;
+                var STORAGE_KEY = 'ulms_sidebar_state_v2';
+                var DRAWER_TRANSITION_MS = 300;
                 var portalShell = document.querySelector('.ulms-shell');
                 var sidebar = document.getElementById('ulms-shell-sidebar');
-                var sidebarToggle = document.querySelector('[data-ulms-sidebar-toggle=\"true\"]');
-                var sidebarDismiss = document.querySelector('[data-ulms-sidebar-dismiss=\"true\"]');
-                var sidebarStorageKey = 'ulms-sidebar-collapsed';
+                var sidebarToggles = document.querySelectorAll('[data-ulms-sidebar-toggle=\"true\"]');
+                var sidebarDismissers = document.querySelectorAll('[data-ulms-sidebar-dismiss=\"true\"]');
                 var sidebarTransitionLock = 0;
+                var lastToggleSource = null;
+                var focusReturnTarget = null;
+                var bodyScrollRestoreY = 0;
+                var resizeRAF = 0;
+                var lastViewMode = null;
+
                 var sidebarUnlock = function() {
                     sidebarTransitionLock = 0;
                     if (document.body && document.body.style.pointerEvents !== '') {
                         document.body.style.pointerEvents = '';
                     }
                 };
-                var closeSidebar = function() {
-                    if (!portalShell || !sidebar) {
-                        return;
+                var readState = function() {
+                    try {
+                        var raw = window.localStorage.getItem(STORAGE_KEY);
+                        if (!raw) return { collapsed: false, open: false };
+                        var parsed = JSON.parse(raw);
+                        return { collapsed: !!parsed.collapsed, open: !!parsed.open };
+                    } catch (e) { return { collapsed: false, open: false }; }
+                };
+                var writeState = function(overrides) {
+                    try {
+                        var base = readState();
+                        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                            collapsed: overrides && typeof overrides.collapsed === 'boolean' ? overrides.collapsed : base.collapsed,
+                            open: overrides && typeof overrides.open === 'boolean' ? overrides.open : base.open
+                        }));
+                    } catch (e) {}
+                };
+                var setAllTogglesExpanded = function(expanded) {
+                    sidebarToggles.forEach(function(t) { t.setAttribute('aria-expanded', expanded ? 'true' : 'false'); });
+                };
+                var viewportMode = function(w) {
+                    if (w == null) w = window.innerWidth;
+                    if (w >= BP_XL) return 'xl';
+                    if (w >= BP_MD) return 'md';
+                    return 'sm';
+                };
+                var lockBodyScroll = function(on) {
+                    if (!document.body) return;
+                    var htmlEl = document.documentElement;
+                    if (on) {
+                        bodyScrollRestoreY = window.scrollY || window.pageYOffset || 0;
+                        document.body.style.position = 'fixed';
+                        document.body.style.top = '-' + bodyScrollRestoreY + 'px';
+                        document.body.style.left = '0';
+                        document.body.style.right = '0';
+                        document.body.style.width = '100%';
+                        if (htmlEl) htmlEl.style.overflowY = 'scroll';
+                    } else {
+                        var restoreY = bodyScrollRestoreY;
+                        document.body.style.position = '';
+                        document.body.style.top = '';
+                        document.body.style.left = '';
+                        document.body.style.right = '';
+                        document.body.style.width = '';
+                        document.body.style.overflow = '';
+                        if (htmlEl) htmlEl.style.overflowY = '';
+                        if (restoreY) window.scrollTo(0, restoreY);
                     }
+                };
+                var getDrawerFocusables = function() {
+                    if (!sidebar) return [];
+                    var sel = 'a[href], area[href], input:not([disabled]):not([type=\"hidden\"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, object, embed, [contenteditable], [tabindex]:not([tabindex=\"-1\"])';
+                    return Array.prototype.filter.call(sidebar.querySelectorAll(sel), function(el) {
+                        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+                    });
+                };
+                var trapTabWithinDrawer = function(ev) {
+                    if (!portalShell || !portalShell.classList.contains('is-sidebar-open')) return;
+                    if (ev.key !== 'Tab') return;
+                    var focusables = getDrawerFocusables();
+                    if (!focusables.length) return;
+                    var first = focusables[0];
+                    var last = focusables[focusables.length - 1];
+                    var active = document.activeElement;
+                    if (ev.shiftKey && active === first) {
+                        ev.preventDefault(); last.focus();
+                    } else if (!ev.shiftKey && active === last) {
+                        ev.preventDefault(); first.focus();
+                    }
+                };
+                var drawerKeydown = function(ev) {
+                    if (!portalShell || !portalShell.classList.contains('is-sidebar-open')) return;
+                    if (ev.key === 'Escape') {
+                        ev.stopPropagation();
+                        ev.preventDefault();
+                        closeSidebar(true);
+                    }
+                };
+                var closeSidebar = function(restoreFocus) {
+                    if (!portalShell || !sidebar) return;
+                    var wasOpen = portalShell.classList.contains('is-sidebar-open');
                     portalShell.classList.remove('is-sidebar-open');
-                    if (sidebarToggle) {
-                        sidebarToggle.setAttribute('aria-expanded', 'false');
+                    setAllTogglesExpanded(!portalShell.classList.contains('is-sidebar-collapsed'));
+                    sidebar.setAttribute('aria-hidden', 'true');
+                    if (wasOpen) {
+                        (function removeInert() {
+                            try {
+                                var inertTargets = document.querySelectorAll('.ulms-shell-content, #page, .app-main, [role=\"main\"]');
+                                inertTargets.forEach(function (el) { if (el.removeAttribute) el.removeAttribute('inert'); });
+                            } catch (e) {}
+                        })();
+                        lockBodyScroll(false);
+                        document.removeEventListener('keydown', trapTabWithinDrawer, true);
+                        document.removeEventListener('keydown', drawerKeydown, true);
+                        writeState({ open: false });
+                    }
+                    if (restoreFocus && focusReturnTarget && typeof focusReturnTarget.focus === 'function') {
+                        try { focusReturnTarget.focus(); } catch (e) {}
                     }
                 };
-                var openSidebar = function() {
-                    if (!portalShell || !sidebar) {
-                        return;
-                    }
+                var openSidebar = function(triggerEl) {
+                    if (!portalShell || !sidebar) return;
+                    focusReturnTarget = triggerEl && typeof triggerEl.focus === 'function' ? triggerEl : (sidebarToggles[0] || null);
                     portalShell.classList.add('is-sidebar-open');
-                    if (sidebarToggle) {
-                        sidebarToggle.setAttribute('aria-expanded', 'true');
+                    portalShell.classList.remove('is-sidebar-collapsed');
+                    setAllTogglesExpanded('true');
+                    sidebar.setAttribute('aria-hidden', 'false');
+                    (function applyInert() {
+                        try {
+                            var inertTargets = document.querySelectorAll('.ulms-shell-content, #page, .app-main, [role=\"main\"]');
+                            inertTargets.forEach(function (el) { if (el.setAttribute) el.setAttribute('inert', ''); });
+                        } catch (e) {}
+                    })();
+                    lockBodyScroll(true);
+                    writeState({ open: true });
+                    document.addEventListener('keydown', trapTabWithinDrawer, true);
+                    document.addEventListener('keydown', drawerKeydown, true);
+                    window.setTimeout(function() {
+                        var focusables = getDrawerFocusables();
+                        if (focusables.length) { try { focusables[0].focus(); } catch (e) {} }
+                        else {
+                            sidebar.setAttribute('tabindex', '-1');
+                            try { sidebar.focus(); } catch (e) {}
+                        }
+                    }, 50);
+                };
+                var applyStateForMode = function(mode) {
+                    if (!portalShell || !sidebar) return;
+                    var stored = readState();
+                    closeSidebar(false);
+                    if (mode === 'xl') {
+                        portalShell.classList.toggle('is-sidebar-collapsed', !!stored.collapsed);
+                        setAllTogglesExpanded(!stored.collapsed);
+                    } else if (mode === 'md') {
+                        portalShell.classList.add('is-sidebar-collapsed');
+                        setAllTogglesExpanded('false');
+                    } else {
+                        portalShell.classList.remove('is-sidebar-collapsed');
+                        setAllTogglesExpanded('false');
                     }
                 };
-                var applyDesktopSidebarState = function() {
-                    if (!portalShell || !sidebar || window.innerWidth < SIDEBAR_DESKTOP_BP) {
+                var toggleFromUser = function(ev) {
+                    ev.preventDefault();
+                    if (sidebarTransitionLock) return;
+                    var trigger = ev.currentTarget || sidebarToggles[0] || null;
+                    var mode = viewportMode();
+                    if (mode === 'sm') {
+                        lastToggleSource = 'drawer';
+                        if (portalShell.classList.contains('is-sidebar-open')) {
+                            closeSidebar(true);
+                        } else {
+                            openSidebar(trigger);
+                        }
                         return;
                     }
-                    var isCollapsed = window.localStorage.getItem(sidebarStorageKey) === '1';
-                    portalShell.classList.toggle('is-sidebar-collapsed', isCollapsed);
+                    lastToggleSource = 'rail';
+                    var nextCollapsed = !portalShell.classList.contains('is-sidebar-collapsed');
+                    sidebarTransitionLock = 1;
+                    if (document.body) document.body.style.pointerEvents = 'none';
+                    window.setTimeout(sidebarUnlock, DRAWER_TRANSITION_MS + 80);
+                    portalShell.classList.toggle('is-sidebar-collapsed', nextCollapsed);
+                    setAllTogglesExpanded(!nextCollapsed);
+                    writeState({ collapsed: nextCollapsed });
                 };
+                var scheduleResizeApply = function() {
+                    if (resizeRAF) return;
+                    resizeRAF = window.requestAnimationFrame ? window.requestAnimationFrame(function() {
+                        resizeRAF = 0;
+                        var mode = viewportMode();
+                        if (mode === lastViewMode) return;
+                        lastViewMode = mode;
+                        applyStateForMode(mode);
+                    }) : (window.setTimeout(function() { resizeRAF = 0; applyStateForMode(viewportMode()); lastViewMode = viewportMode(); }, 60) || 1);
+                };
+
                 if (portalShell && sidebar) {
-                    applyDesktopSidebarState();
-                    if (sidebarToggle) {
-                        sidebarToggle.addEventListener('click', function(event) {
-                            event.preventDefault();
-                            if (sidebarTransitionLock) {
-                                return;
-                            }
-                            if (window.innerWidth < SIDEBAR_DESKTOP_BP) {
-                                if (portalShell.classList.contains('is-sidebar-open')) {
-                                    closeSidebar();
-                                } else {
-                                    openSidebar();
+                    lastViewMode = viewportMode();
+                    applyStateForMode(lastViewMode);
+                    sidebarToggles.forEach(function(t) {
+                        t.addEventListener('click', toggleFromUser);
+                    });
+                    sidebarDismissers.forEach(function(d) {
+                        d.addEventListener('click', function() { closeSidebar(true); });
+                    });
+                    sidebar.addEventListener('click', function(ev) {
+                        var a = ev.target;
+                        while (a && a !== sidebar) {
+                            if (a instanceof Element && a.tagName === 'A' && a.getAttribute('href')) {
+                                if (viewportMode() === 'sm') {
+                                    setTimeout(function() { closeSidebar(false); }, 100);
                                 }
                                 return;
                             }
-
-                            var nextCollapsed = !portalShell.classList.contains('is-sidebar-collapsed');
-                            sidebarTransitionLock = 1;
-                            if (document.body) {
-                                document.body.style.pointerEvents = 'none';
-                            }
-                            window.setTimeout(sidebarUnlock, 400);
-                            portalShell.classList.toggle('is-sidebar-collapsed', nextCollapsed);
-                            window.localStorage.setItem(sidebarStorageKey, nextCollapsed ? '1' : '0');
+                            a = a.parentNode;
+                        }
+                    }, true);
+                    var startX = null;
+                    sidebar.addEventListener('touchstart', function(e) {
+                        if (!e.touches || !e.touches.length) return;
+                        startX = e.touches[0].clientX;
+                    }, { passive: true });
+                    sidebar.addEventListener('touchend', function(e) {
+                        if (startX == null || !e.changedTouches || !e.changedTouches.length) return;
+                        if (e.changedTouches[0].clientX - startX <= -55) closeSidebar(true);
+                        startX = null;
+                    }, { passive: true });
+                    window.addEventListener('resize', scheduleResizeApply);
+                    if (window.matchMedia) {
+                        var mqXL = window.matchMedia('(min-width: ' + BP_XL + 'px)');
+                        var mqMD = window.matchMedia('(min-width: ' + BP_MD + 'px) and (max-width: ' + (BP_XL - 0.02) + 'px)');
+                        var onBP = function() { scheduleResizeApply(); };
+                        [mqXL, mqMD].forEach(function(m) {
+                            if (typeof m.addEventListener === 'function') m.addEventListener('change', onBP);
+                            else if (typeof m.addListener === 'function') m.addListener(onBP);
                         });
                     }
-                    if (sidebarDismiss) {
-                        sidebarDismiss.addEventListener('click', closeSidebar);
-                    }
-                    window.addEventListener('resize', function() {
-                        if (window.innerWidth >= SIDEBAR_DESKTOP_BP) {
-                            closeSidebar();
-                            applyDesktopSidebarState();
-                        } else {
-                            portalShell.classList.remove('is-sidebar-collapsed');
+                    document.addEventListener('click', function(ev) {
+                        if (!portalShell.classList.contains('is-sidebar-open')) return;
+                        if (viewportMode() !== 'sm') return;
+                        var node = ev.target;
+                        while (node && node !== document.body) {
+                            if (node === sidebar) return;
+                            if (node instanceof Element && node.closest && node.closest('[data-ulms-sidebar-toggle=\"true\"]')) return;
+                            node = node.parentNode;
                         }
-                    });
-                    document.addEventListener('keydown', function(event) {
-                        if (event.key === 'Escape') {
-                            closeSidebar();
-                        }
-                    });
+                        closeSidebar(true);
+                    }, true);
                 }
 
 
@@ -511,6 +696,39 @@ class core_renderer extends \theme_boost\output\core_renderer {
                         }
                     });
                 }
+
+                (function wrapOrphanTables() {
+                    try {
+                        if (!document.querySelectorAll) return;
+                        var tables = document.querySelectorAll('table');
+                        if (!tables || !tables.length) return;
+                        for (var i = 0; i < tables.length; i++) {
+                            var t = tables[i];
+                            if (!t) continue;
+                            if (t.classList && t.classList.contains('ulms-native-table')) continue;
+                            var p = t.parentNode;
+                            var guard = 6;
+                            var alreadyWrapped = false;
+                            while (p && guard-- > 0) {
+                                if (p.classList && (
+                                    p.classList.contains('ulms-table-scroll') ||
+                                    p.classList.contains('table-wrap') ||
+                                    p.classList.contains('no-overflow')
+                                )) { alreadyWrapped = true; break; }
+                                if (p.tagName && p.tagName === 'TD') { alreadyWrapped = true; break; }
+                                p = p.parentNode;
+                            }
+                            if (alreadyWrapped) continue;
+                            var wrapper = document.createElement('div');
+                            wrapper.className = 'ulms-table-scroll';
+                            wrapper.setAttribute('data-ulms-table-wrap', '1');
+                            var parent = t.parentNode;
+                            if (!parent) continue;
+                            parent.insertBefore(wrapper, t);
+                            wrapper.appendChild(t);
+                        }
+                    } catch (e) {}
+                })();
 
                 document.querySelectorAll('[data-ulms-history-back=\"true\"]').forEach(function(link) {
                     link.addEventListener('click', function(event) {
@@ -585,7 +803,8 @@ class core_renderer extends \theme_boost\output\core_renderer {
      */
     public function standard_top_of_body_html(): string {
         $this->register_ulms_interface_behaviour();
-        return parent::standard_top_of_body_html();
+        $ariaLive = '<div id="ulms-a11y-announcements" role="status" aria-live="polite" aria-atomic="true" class="sr-only" aria-relevant="additions"></div>';
+        return $ariaLive . parent::standard_top_of_body_html();
     }
 
     /**
@@ -879,7 +1098,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
         $cssclass = $levelmap[$type] ?? 'ulms-notice ulms-notice--info';
 
         return sprintf(
-            '<div class="%s" role="status" aria-live="polite"><div class="ulms-notice__message">%s</div></div>',
+            '<div class="%s"><div class="ulms-notice__message">%s</div></div>',
             $cssclass,
             $message
         );

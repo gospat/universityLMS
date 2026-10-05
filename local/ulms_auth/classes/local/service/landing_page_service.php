@@ -717,6 +717,16 @@ class landing_page_service {
         $currentpath = $this->normalise_path((string)($_SERVER['REQUEST_URI'] ?? '/'));
         $targetpath = $this->normalise_path($target->get_path());
 
+        if (is_array($_GET)) {
+            $existing = $target->params();
+            foreach ($_GET as $k => $v) {
+                if (!is_string($k) || $k === '' || array_key_exists($k, $existing) || is_array($v)) {
+                    continue;
+                }
+                $target->param($k, (string)$v);
+            }
+        }
+
         if ($currentpath === $targetpath) {
             return;
         }

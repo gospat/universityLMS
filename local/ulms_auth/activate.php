@@ -28,6 +28,12 @@ global $OUTPUT, $PAGE;
 $token = optional_param('token', '', PARAM_ALPHANUM);
 $service = new \local_ulms_auth\local\service\landing_page_service();
 
+$legacyparams = [];
+if ($token !== '') {
+    $legacyparams['token'] = $token;
+}
+$service->maybe_redirect_legacy_request('public.activate', $legacyparams);
+
 if (isloggedin() && !isguestuser()) {
     $service->redirect_to_current_user_dashboard(
         get_string('alreadyauthenticatedredirect', 'local_ulms_auth'),

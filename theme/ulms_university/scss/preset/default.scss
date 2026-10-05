@@ -8,7 +8,19 @@ $ulms-text: #1d2733;
 $ulms-text-muted: #5c6f82;
 $ulms-text-strong: #0f1a25;
 $ulms-primary: #0f4c81 !default;
+$ulms-primary-600: #0d4272;
+$ulms-primary-700: #0a355d;
 $ulms-primary-soft: rgba($ulms-primary, 0.08);
+$ulms-accent-green: #0f7d3f;
+$ulms-accent-green-soft: rgba(#0f7d3f, 0.10);
+$ulms-accent-gold: #c49a3a;
+$ulms-accent-gold-soft: rgba(#c49a3a, 0.10);
+$ulms-danger: #b42318;
+$ulms-danger-soft: rgba(#b42318, 0.08);
+$ulms-warning: #b54708;
+$ulms-warning-soft: rgba(#b54708, 0.08);
+$ulms-success: #027a48;
+$ulms-success-soft: rgba(#027a48, 0.08);
 $ulms-shadow: none;
 $ulms-shadow-hover: none;
 $ulms-radius-lg: 1.25rem;
@@ -64,8 +76,8 @@ body.theme-ulms-university {
 .theme-ulms-university select:focus,
 .theme-ulms-university textarea:focus,
 .theme-ulms-university .btn:focus {
-    outline: 3px solid rgba(15, 76, 129, 0.28);
-    outline-offset: 2px;
+    outline: var(--ulms-focus-outline);
+    outline-offset: var(--ulms-focus-offset);
     box-shadow: none;
 }
 
@@ -75,9 +87,94 @@ body.theme-ulms-university {
 .theme-ulms-university select:focus-visible,
 .theme-ulms-university textarea:focus-visible,
 .theme-ulms-university .btn:focus-visible {
-    outline: 3px solid rgba(15, 76, 129, 0.28);
-    outline-offset: 2px;
+    outline: var(--ulms-focus-outline);
+    outline-offset: var(--ulms-focus-offset);
     box-shadow: none;
+}
+
+/* WCAG G1 skip-link + sr-only (single a11y announcements live region) */
+.theme-ulms-university .skip-link,
+body.theme-ulms-university .skip-link {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    z-index: calc(var(--ulms-z-topbar, 1030) + 2);
+}
+.theme-ulms-university .skip-link:focus-visible,
+body.theme-ulms-university .skip-link:focus-visible {
+    top: 0.5rem;
+    left: 0.75rem;
+    width: auto;
+    height: auto;
+    padding: 0.65rem 1rem;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    opacity: 1;
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    color: $ulms-primary;
+    border: 1px solid rgba(15, 76, 129, 0.22);
+    border-radius: 0.625rem;
+    box-shadow: 0 10px 30px rgba(10, 29, 48, 0.18);
+    font-weight: 700;
+    font-size: 0.875rem;
+    line-height: 1.2;
+    text-decoration: none;
+    outline: var(--ulms-focus-outline);
+    outline-offset: var(--ulms-focus-offset);
+}
+.theme-ulms-university .visually-hidden-focusable {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+.theme-ulms-university .visually-hidden-focusable:focus-visible {
+    top: 0.5rem;
+    left: 0.75rem;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 0.85rem;
+    background: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 8px 24px rgba(10,29,48,.18);
+    outline: var(--ulms-focus-outline);
+    outline-offset: var(--ulms-focus-offset);
+}
+.theme-ulms-university .sr-only,
+body.theme-ulms-university .sr-only,
+#ulms-a11y-announcements {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
 }
 
 .theme-ulms-university .navbar,
@@ -570,6 +667,21 @@ body.theme-ulms-university {
     gap: 0.85rem;
     min-width: 0;
 }
+@media (max-width: 1199.98px) {
+    .theme-ulms-university .ulms-shell-topbar__actions .btn > .btn-label,
+    .theme-ulms-university .ulms-shell-topbar__actions .ulms-action-btn > span:not(.icon),
+    .theme-ulms-university .ulms-shell-topbar__actions [role="button"] > span:not([class*="icon"]),
+    .theme-ulms-university .ulms-shell-topbar__actions button > span.btn-label,
+    .theme-ulms-university .ulms-shell-topbar__actions a.btn .ml-1,
+    .theme-ulms-university .ulms-shell-topbar__actions a.btn .ml-2 {
+        display: none !important;
+    }
+    .theme-ulms-university .ulms-shell-topbar__actions .btn,
+    .theme-ulms-university .ulms-shell-topbar__actions .ulms-action-btn {
+        padding-inline: 0.55rem !important;
+        gap: 0 !important;
+    }
+}
 
 .theme-ulms-university .ulms-shell-topbar__context {
     display: flex;
@@ -650,6 +762,9 @@ body.theme-ulms-university {
 }
 
 .theme-ulms-university .ulms-portal-navbar .navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
     gap: 0.75rem;
     color: $ulms-text;
     @include ulms-fluid-font(1.15rem, 1.6rem);
@@ -657,6 +772,7 @@ body.theme-ulms-university {
     letter-spacing: -0.03em;
     min-width: 0;
     flex: 0 1 auto;
+    vertical-align: middle;
 }
 
 .theme-ulms-university .ulms-portal-navbar .navbar-brand:hover,
@@ -666,9 +782,13 @@ body.theme-ulms-university {
 }
 
 .theme-ulms-university .ulms-portal-navbar .logo {
-    max-height: clamp(1.7rem, 2.4vw, 2.15rem);
+    display: block;
     max-width: 100%;
+    width: auto;
     height: auto;
+    object-fit: contain;
+    object-position: 50% 50%;
+    aspect-ratio: 1 / 1;
 }
 
 .theme-ulms-university img,
@@ -711,11 +831,18 @@ body.theme-ulms-university {
     --ulms-nav-icon: 20px;
     --ulms-sidebar-bg: #0f3d67;
     --ulms-sidebar-border: rgba(10, 29, 48, 0.68);
-    --ulms-sidebar-divider: rgba(200, 224, 248, 0.14);
-    --ulms-sidebar-muted: rgba(200, 224, 248, 0.62);
-    --ulms-sidebar-text: rgba(200, 224, 248, 0.72);
+    --ulms-sidebar-divider: rgba(200, 224, 248, 0.16);
+    --ulms-sidebar-muted: rgba(220, 236, 255, 0.82);
+    --ulms-sidebar-text: rgba(230, 242, 255, 0.92);
     --ulms-sidebar-strong: #ffffff;
+    --ulms-primary: #0f4c81;
+    --ulms-primary-600: #0d4272;
+    --ulms-primary-700: #0a355d;
     --ulms-accent-green: #0f7d3f;
+    --ulms-accent-gold: #c49a3a;
+    --ulms-accent-danger: #b42318;
+    --ulms-accent-warning: #b54708;
+    --ulms-accent-success: #027a48;
     --ulms-transition-ms: 0.28s;
     --ulms-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
     --ulms-fast-ms: 0.18s;
@@ -734,17 +861,135 @@ body.theme-ulms-university {
     --ulms-radius-button: 10px;
     --ulms-radius-pill: 999px;
     --ulms-border-subtle: 1px solid #eef2f7;
-    --ulms-border-strong: 1px solid #dde4ef;
-    --ulms-card-shadow-sm: 0 1px 2px rgba(15, 50, 30, 0.06), 0 1px 3px rgba(15, 50, 30, 0.08);
-    --ulms-card-shadow-md: 0 4px 12px rgba(15, 50, 30, 0.08), 0 1px 3px rgba(15, 50, 30, 0.06);
-    --ulms-card-shadow-lg: 0 12px 32px rgba(15, 50, 30, 0.12), 0 2px 6px rgba(15, 50, 30, 0.08);
-    --ulms-kpi-card-height: 112px;
+    --ulms-border-strong-token: 1px solid #dde4ef;
+    --ulms-card-shadow-sm: 0 1px 2px rgba(15, 26, 37, 0.06), 0 1px 3px rgba(15, 26, 37, 0.08);
+    --ulms-card-shadow-md: 0 4px 12px rgba(15, 26, 37, 0.08), 0 1px 3px rgba(15, 26, 37, 0.06);
+    --ulms-card-shadow-lg: 0 12px 32px rgba(15, 26, 37, 0.12), 0 2px 6px rgba(15, 26, 37, 0.08);
     --ulms-surface-soft: #f8fbff;
     /* Logo sizing: desktop / tablet / mobile  (+~10% bolder heights) */
     --ulms-logo-max-height: 48px;
     --ulms-logo-max-width: 260px;
     --ulms-logo-mini-size: 44px;
     --ulms-logo-radius: 50%;
+    /* Breakpoints (SSOT numeric mirror of T1 JS BP_XL=1200 / BP_MD=768) */
+    --ulms-bp-xs: 414.98px;
+    --ulms-bp-sm: 767.98px;
+    --ulms-bp-md: 768px;
+    --ulms-bp-lg: 1199.98px;
+    --ulms-bp-xl: 1200px;
+    /* Z-index ladder (from content → global overlays) */
+    --ulms-z-content: 1;
+    --ulms-z-sticky: 10;
+    --ulms-z-topbar: 1030;
+    --ulms-z-sidebar-rail: 1020;
+    --ulms-z-overlay: 1050;
+    --ulms-z-sidebar-drawer: 1100;
+    --ulms-z-modal: 1200;
+    --ulms-z-toast: 1300;
+    --ulms-z-tooltip: 1310;
+    /* Focus ring (≥3:1 contrast vs white) */
+    --ulms-focus-ring: 0 0 0 3px rgba(15, 76, 129, 0.72);
+    --ulms-focus-ring-green: 0 0 0 3px rgba(15, 125, 63, 0.72);
+    --ulms-focus-outline: 3px solid rgba(15, 76, 129, 0.72);
+    --ulms-focus-offset: 2px;
+    /* Spacing step ladder (0 → 16 = 0 → 64px) */
+    --ulms-space-0: 0;
+    --ulms-space-1: 0.25rem;
+    --ulms-space-2: 0.5rem;
+    --ulms-space-3: 0.75rem;
+    --ulms-space-4: 1rem;
+    --ulms-space-5: 1.25rem;
+    --ulms-space-6: 1.5rem;
+    --ulms-space-8: 2rem;
+    --ulms-space-10: 2.5rem;
+    --ulms-space-12: 3rem;
+    --ulms-space-16: 4rem;
+}
+
+.theme-ulms-university .ulms-h1 {
+    @include ulms-fluid-font(24px, 40px);
+    font-weight: 800;
+    line-height: 1.1;
+    color: $ulms-text-strong;
+    margin: 0;
+}
+.theme-ulms-university .ulms-h2 {
+    @include ulms-fluid-font(20px, 32px);
+    font-weight: 700;
+    line-height: 1.15;
+    color: $ulms-text-strong;
+    margin: 0;
+}
+.theme-ulms-university .ulms-h3 {
+    @include ulms-fluid-font(18px, 28px);
+    font-weight: 700;
+    line-height: 1.2;
+    color: $ulms-text-strong;
+    margin: 0;
+}
+.theme-ulms-university .ulms-h4 {
+    @include ulms-fluid-font(16px, 22px);
+    font-weight: 600;
+    line-height: 1.25;
+    color: $ulms-text-strong;
+    margin: 0;
+}
+.theme-ulms-university .ulms-h5 {
+    @include ulms-fluid-font(14px, 18px);
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 0;
+}
+.theme-ulms-university .ulms-h6 {
+    @include ulms-fluid-font(13px, 16px);
+    font-weight: 600;
+    line-height: 1.35;
+    margin: 0;
+}
+.theme-ulms-university .ulms-body-lg {
+    @include ulms-fluid-font(14px, 17px);
+    font-weight: 500;
+    line-height: 1.6;
+    color: $ulms-text;
+    margin: 0;
+}
+.theme-ulms-university .ulms-body-md {
+    @include ulms-fluid-font(13px, 16px);
+    font-weight: 400;
+    line-height: 1.55;
+    color: $ulms-text;
+    margin: 0;
+}
+.theme-ulms-university .ulms-body-sm {
+    @include ulms-fluid-font(12px, 14px);
+    font-weight: 400;
+    line-height: 1.5;
+    color: $ulms-text-muted;
+    margin: 0;
+}
+.theme-ulms-university .ulms-eyebrow {
+    @include ulms-fluid-font(11px, 12px);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: $ulms-primary;
+    margin: 0;
+}
+.theme-ulms-university .ulms-label {
+    @include ulms-fluid-font(12px, 13px);
+    font-weight: 600;
+    line-height: 1.3;
+    color: $ulms-text-strong;
+    margin: 0;
+}
+.theme-ulms-university .ulms-caption {
+    @include ulms-fluid-font(11px, 12px);
+    font-weight: 400;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: $ulms-text-muted;
+    margin: 0;
 }
 
 @media (min-width: 768px) and (max-width: 1199.98px) {
@@ -762,7 +1007,8 @@ body.theme-ulms-university {
     }
 }
 
-/* Brand navbar logo: consistent object-fit, circular, max-height from CSS vars — blend (no white eye) */
+/* Brand navbar logo: consistent object-fit, circular, max-height from CSS vars — blend (no white eye).
+   Max frame:logo aspect ratio guarantee ≤ 1.25 (3.5% tolerance of nominal 1.0 square; never stretches) */
 .theme-ulms-university .ulms-portal-navbar .navbar-brand .logo {
     display: block;
     height: var(--ulms-logo-max-height);
@@ -770,22 +1016,30 @@ body.theme-ulms-university {
     max-width: var(--ulms-logo-max-width);
     width: auto;
     object-fit: contain;
+    object-position: 50% 50%;
+    aspect-ratio: 1 / 1;
+    max-aspect-ratio: 1.25;
     border-radius: var(--ulms-logo-radius);
     background: transparent;
     box-shadow: 0 0 0 1px rgba(15, 61, 103, 0.10), 0 1px 3px rgba(15, 61, 103, 0.10);
 }
 .theme-ulms-university .ulms-portal-navbar .navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
     text-decoration: none;
     white-space: nowrap;
     min-width: 0;
 }
 .theme-ulms-university .ulms-portal-navbar .navbar-brand .ulms-brand__name {
+    display: block;
     color: $ulms-text;
     font-weight: 700;
     letter-spacing: 0.01em;
     max-width: min(52vw, 420px);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 /* Sidebar collapsed: swap to logo-mini alone, hide full logo + sitename text */
 .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-portal-navbar .navbar-brand .logo--full,
@@ -1699,28 +1953,42 @@ body.ulms-dashboard-shell .ulms-welcome-banner__cta{display:inline-flex;align-it
 body.ulms-dashboard-shell .ulms-welcome-banner__cta--primary{background:#fff;color:$ulms-primary!important}
 body.ulms-dashboard-shell .ulms-welcome-banner__cta--outline{background:transparent;color:#fff!important;border-color:rgba(255,255,255,.45)}
 body.ulms-dashboard-shell .ulms-summary-cards{margin-bottom:1.25rem}
-body.ulms-dashboard-shell .ulms-summary-cards__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
-body.ulms-dashboard-shell .ulms-summary-card{background:$ulms-panel;border:1px solid $ulms-border;border-radius:16px}
+body.ulms-dashboard-shell .ulms-summary-cards__grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;align-items:start}
+body.ulms-dashboard-shell .ulms-summary-card{background:$ulms-panel;border:1px solid $ulms-border;border-radius:16px;min-width:0}
 body.ulms-dashboard-shell .ulms-summary-card__body{padding:1rem 1.25rem}
-body.ulms-dashboard-shell .ulms-summary-card__eyebrow{font-size:.66rem;font-weight:700;text-transform:uppercase;color:$ulms-text-muted;margin-bottom:.5rem}
+body.ulms-dashboard-shell .ulms-summary-card__eyebrow{display:block;font-size:.66rem;font-weight:700;text-transform:uppercase;color:$ulms-text-muted;margin:0 0 .5rem 0;line-height:1.3}
 body.ulms-dashboard-shell .ulms-summary-card__row{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem}
-body.ulms-dashboard-shell .ulms-summary-card__col{flex:auto}
-body.ulms-dashboard-shell .ulms-summary-card__number{font-size:1.7rem;font-weight:800;color:$ulms-text-strong;margin-bottom:.25rem}
-body.ulms-dashboard-shell .ulms-summary-card__desc{font-size:.8rem;color:$ulms-text-muted}
+body.ulms-dashboard-shell .ulms-summary-card__col{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+body.ulms-dashboard-shell .ulms-summary-card__number{display:block;font-size:1.7rem;font-weight:800;color:$ulms-text-strong;margin:0 0 .25rem 0;line-height:1.15}
+body.ulms-dashboard-shell .ulms-summary-card__desc{display:block;font-size:.8rem;color:$ulms-text-muted;margin:0;line-height:1.45}
 body.ulms-dashboard-shell .ulms-summary-card__icon{flex:none;width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba($ulms-primary,.08);color:$ulms-primary}
 body.ulms-dashboard-shell .ulms-quick-access{margin-bottom:1.5rem}
 body.ulms-dashboard-shell .ulms-quick-access__heading{font-size:.78rem;font-weight:700;text-transform:uppercase;color:$ulms-text-muted;margin-bottom:.75rem;padding:0 .1rem}
-body.ulms-dashboard-shell .ulms-quick-access__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
-body.ulms-dashboard-shell .ulms-qa-card{display:block;text-decoration:none;background:$ulms-panel;border:1px solid $ulms-border;border-radius:16px}
+body.ulms-dashboard-shell .ulms-quick-access__grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;align-items:start}
+body.ulms-dashboard-shell .ulms-qa-card{display:block;text-decoration:none;background:$ulms-panel;border:1px solid $ulms-border;border-radius:16px;min-width:0}
 body.ulms-dashboard-shell .ulms-qa-card:focus-visible{outline:2px solid $ulms-primary!important;outline-offset:2px!important}
 body.ulms-dashboard-shell .ulms-qa-card__inner{padding:1rem 1rem;display:flex;align-items:flex-start;gap:.75rem}
 body.ulms-dashboard-shell .ulms-qa-card__icon{flex:none;width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba($ulms-primary,.08);color:$ulms-primary}
-body.ulms-dashboard-shell .ulms-qa-card__body{flex:auto}
-body.ulms-dashboard-shell .ulms-qa-card__title{font-size:.92rem;font-weight:700;color:$ulms-text-strong;margin-bottom:.25rem}
-body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-text-muted}
-@media (max-width:1199.98px) and (min-width:768px){body.ulms-dashboard-shell .ulms-summary-cards__grid,body.ulms-dashboard-shell .ulms-quick-access__grid{grid-template-columns:repeat(2,1fr)}}
+body.ulms-dashboard-shell .ulms-qa-card__body{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+body.ulms-dashboard-shell .ulms-qa-card__title{display:block;font-size:.92rem;font-weight:700;color:$ulms-text-strong;margin:0 0 .25rem 0;line-height:1.3}
+body.ulms-dashboard-shell .ulms-qa-card__subtitle{display:block;font-size:.76rem;color:$ulms-text-muted;margin:0;line-height:1.45}
+@media (max-width:1199.98px) and (min-width:768px){body.ulms-dashboard-shell .ulms-summary-cards__grid,body.ulms-dashboard-shell .ulms-quick-access__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:767.98px){body.ulms-dashboard-shell .ulms-shell-content{padding:1rem .85rem 1.5rem!important}body.ulms-dashboard-shell .ulms-welcome-banner__inner{padding:1.1rem 1.15rem 1.2rem}body.ulms-dashboard-shell .ulms-welcome-banner__title{font-size:1.2rem}body.ulms-dashboard-shell .ulms-summary-cards__grid,body.ulms-dashboard-shell .ulms-quick-access__grid{grid-template-columns:1fr}}
-@media (min-width:1200px){body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar{width:5.5rem!important;flex:0 0 5.5rem!important}body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner>*+*{margin-top:1.25rem!important}body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__brand{padding:0 0 1rem!important}body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__eyebrow,body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__title,body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group__title,body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h2,body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h3,body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label{display:none!important}body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link{padding:0!important;justify-content:center!important}body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__icon{margin-right:0!important}}
+@media (min-width:1200px){
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed{grid-template-columns:minmax(0,var(--ulms-sidebar-w-collapsed)) minmax(0,1fr)!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar{width:var(--ulms-sidebar-w-collapsed)!important;flex:0 0 var(--ulms-sidebar-w-collapsed)!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner>*+*{margin-top:1.25rem!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__brand{padding:0 0 1rem!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__eyebrow,
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__title,
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group__title,
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h2,
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h3,
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label{display:none!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link{padding:0!important;justify-content:center!important}
+  body.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__icon{margin-right:0!important}
+}
 
 .ulms-dashboard-shell .message-app__drawer{border-right:1px solid $ulms-border;background:#fff}
 .ulms-dashboard-shell .message-app__content,.ulms-dashboard-shell .message-drawer-container{background:#fff;border-radius:16px;border:1px solid $ulms-border;padding:1rem}
@@ -1741,12 +2009,9 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 .ulms-dashboard-shell table thead th{border-bottom:2px solid $ulms-border;background:rgba(15,76,129,.06);text-align:left;padding:.75rem 1rem;color:$ulms-primary;font-weight:700}
 .ulms-dashboard-shell table tbody td{padding:.75rem 1rem;border-top:1px solid $ulms-border}
 
-.theme-ulms-university.ulms-dashboard-shell #page.drawers{padding:0!important;margin:60px 0 0 0!important}
+.theme-ulms-university.ulms-dashboard-shell #page.drawers{padding:0!important;margin:0!important}
 .theme-ulms-university.ulms-dashboard-shell #page.drawers .main-inner{max-width:100%!important;width:100%!important;padding:0!important;margin:0!important}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell{display:flex!important;flex-direction:row!important;grid-template-columns:none!important;width:100%!important;max-width:100%!important;margin:0!important;padding:0!important;position:static!important;gap:0!important}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar{position:fixed!important;top:60px!important;left:0!important;right:auto!important;bottom:0!important;width:280px!important;max-width:280px!important;margin:0!important;padding:0!important;height:calc(100vh - 60px)!important;min-height:calc(100vh - 60px)!important;z-index:1050!important;align-self:auto!important}
-.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content{flex:auto!important;padding:1.25rem 1.5rem 2rem!important;margin-left:280px!important}
-.theme-ulms-university.ulms-dashboard-shell .ulms-welcome-banner{background:rgba(15,76,129,.94)!important;color:#fff!important;padding:1.5rem 1.75rem!important}
+.theme-ulms-university.ulms-dashboard-shell .ulms-welcome-banner{background:rgba(15,76,129,.94)!important;color:#fff!important;padding:var(--ulms-space-6) var(--ulms-space-8)!important}
 .ulms-badge{display:inline-flex;align-items:center;padding:.25rem .625rem;border-radius:8px;font-size:.7rem;font-weight:700;line-height:1.1}
 .ulms-badge--notenrolled{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}
 .ulms-badge--draft{background:#fff7ed;color:#9a3412;border:1px solid #fdba74}
@@ -1821,19 +2086,26 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 .theme-ulms-university *,.theme-ulms-university *::before,.theme-ulms-university *::after{box-sizing:border-box}
 .theme-ulms-university html,.theme-ulms-university body{max-width:100%;overflow-x:hidden}
 .theme-ulms-university #page-wrapper{overflow-x:hidden;max-width:100%}
-@media (max-width:991.98px){.theme-ulms-university .ulms-shell{grid-template-columns:minmax(0,1fr)!important;display:block!important}.theme-ulms-university .ulms-shell-content{margin-left:0!important;padding:1rem .85rem 1.75rem!important}}
-@media (min-width:992px) and (max-width:1199.98px){.theme-ulms-university .ulms-shell-content{margin-left:5.5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-content{margin-left:0!important}}
+@media (max-width:767.98px){
+  .theme-ulms-university .ulms-shell{grid-template-columns:minmax(0,1fr)!important}
+  .theme-ulms-university .ulms-shell-content{margin-left:0!important;padding:1rem .85rem 1.75rem!important}
+}
+@media (min-width:768px) and (max-width:1199.98px){
+  .theme-ulms-university .ulms-shell{grid-template-columns:minmax(0,var(--ulms-sidebar-w-collapsed)) minmax(0,1fr)!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-open{grid-template-columns:minmax(0,var(--ulms-sidebar-w)) minmax(0,1fr)!important}
+  .theme-ulms-university .ulms-shell-content{margin-left:0!important;padding:1rem 1.25rem 1.75rem!important}
+}
 .theme-ulms-university .ulms-dashboard-primary{grid-template-columns:minmax(0,1.7fr) minmax(320px,.95fr);gap:1.25rem}
 @media (max-width:991.98px){.theme-ulms-university .ulms-dashboard-primary{grid-template-columns:1fr;gap:1rem}.theme-ulms-university .ulms-dashboard-sections,.theme-ulms-university .ulms-dashboard-support{grid-template-columns:1fr}}
-.theme-ulms-university .ulms-kpi-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:.9rem}
+.theme-ulms-university .ulms-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.9rem;align-items:start}
 @media (max-width:1199.98px){.theme-ulms-university .ulms-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:479.98px){.theme-ulms-university .ulms-kpi-grid{grid-template-columns:1fr}}
+@media (max-width:767.98px){.theme-ulms-university .ulms-kpi-grid{grid-template-columns:1fr}}
 .theme-ulms-university .ulms-filter-grid{grid-template-columns:repeat(12,minmax(0,1fr));gap:1rem}
 .theme-ulms-university .ulms-filter-field{grid-column:span 3;min-width:0}
 .theme-ulms-university .ulms-filter-field--wide{grid-column:span 6;min-width:0}
 @media (max-width:1199.98px){.theme-ulms-university .ulms-filter-field{grid-column:span 4}.theme-ulms-university .ulms-filter-field--wide{grid-column:span 8}}
 @media (max-width:849.98px){.theme-ulms-university .ulms-filter-field{grid-column:span 6}.theme-ulms-university .ulms-filter-field--wide{grid-column:span 12}}
-@media (max-width:479.98px){.theme-ulms-university .ulms-filter-field,.theme-ulms-university .ulms-filter-field--wide{grid-column:span 12}}
+@media (max-width:767.98px){.theme-ulms-university .ulms-filter-field,.theme-ulms-university .ulms-filter-field--wide{grid-column:span 12}}
 @media (max-width:767.98px){.theme-ulms-university .form-group.row .col-md-4{max-width:100%;flex:0 0 100%;text-align:left!important}
 .theme-ulms-university .form-group.row .col-md-8{max-width:100%;flex:0 0 100%;margin-top:.25rem}
 .theme-ulms-university .form-group.row .col-md-4.col-form-label{padding-bottom:.15rem}}
@@ -1846,9 +2118,75 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 @media (max-width:767.98px){.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table:not(.ulms-desktop-table),.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable:not(.ulms-desktop-table),.theme-ulms-university table.generaltable:not(.ulms-desktop-table):not(table.generaltable table){display:block;width:100%;border:0;background:transparent}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table thead,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table tbody,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable tbody{display:block}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table tr,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable tr{display:block;margin:0 0 1rem;padding:0;border:1px solid $ulms-border;border-radius:$ulms-radius-md;background:$ulms-panel}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table tr:last-child,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable tr:last-child{margin-bottom:0}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table td,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable td{display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.5rem .85rem;text-align:left;padding:.75rem 1rem;border-top:1px dashed rgba($ulms-border-strong,.55);vertical-align:baseline;min-height:0}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table td::before,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable td::before{content:attr(data-label);flex:0 0 45%;max-width:45%;text-align:left;font-weight:700;font-size:.82rem;color:$ulms-text-muted;letter-spacing:.02em;text-transform:uppercase}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table td:first-child,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable td:first-child{border-top:0}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table th,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable th{display:none}.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) .table tr:hover,.theme-ulms-university .ulms-table-wrap:not(.ulms-keep-table) table.generaltable tbody tr:hover{background:inherit}}
 @media (max-width:767.98px){.theme-ulms-university .ulms-page-header{padding:.85rem .95rem}.theme-ulms-university .ulms-panel__header,.theme-ulms-university .ulms-panel__body,.theme-ulms-university .ulms-panel__footer{padding:.9rem 1rem}.theme-ulms-university .ulms-page-header__content{flex-direction:column;align-items:flex-start;gap:.75rem}.theme-ulms-university .ulms-page-header__title{font-size:1.35rem}.theme-ulms-university .ulms-breadcrumbs{margin-bottom:.75rem}.theme-ulms-university .ulms-breadcrumbs__item{font-size:.82rem}.theme-ulms-university .ulms-welcome-banner__inner{padding:1rem 1.05rem 1.1rem}.theme-ulms-university .ulms-welcome-banner__ctas{flex-direction:column}.theme-ulms-university .ulms-welcome-banner__cta{width:100%;justify-content:center}}
 @media (max-width:479.98px){.theme-ulms-university .ulms-shell-topbar{gap:.5rem}.theme-ulms-university .ulms-portal-navbar .navbar-brand{font-size:1.15rem}.theme-ulms-university .ulms-shell-topbar__role{font-size:.7rem;padding:.2rem .5rem}.theme-ulms-university .ulms-shell-toggle{width:40px;height:40px;min-width:40px;min-height:40px}.theme-ulms-university .ulms-kpi-card{padding:.95rem}.theme-ulms-university .ulms-kpi-card__value{font-size:1.45rem}.theme-ulms-university .ulms-summary-card{padding:.75rem}.theme-ulms-university .ulms-summary-card__number{font-size:1.35rem}.theme-ulms-university .ulms-qa-card__inner{padding:.85rem}.theme-ulms-university .ulms-qa-card__icon{width:2rem;height:2rem}.theme-ulms-university .ulms-qa-card__title{font-size:.88rem}.theme-ulms-university .ulms-shell-topbar__context{order:99;width:100%;padding:.25rem 0 0;justify-content:space-between}.theme-ulms-university .usermenu-container .userbutton{padding:.15rem}.theme-ulms-university .navbar.fixed-top{backdrop-filter:saturate(140%) blur(6px);-webkit-backdrop-filter:saturate(140%) blur(6px)}.theme-ulms-university .ulms-portal-navbar{min-height:4.2rem}.theme-ulms-university.ulms-dashboard-page #page.drawers .main-inner{padding-top:4.7rem}.theme-ulms-university.pagelayout-login .login-container{max-width:calc(100vw - 1rem)}.theme-ulms-university.ulms-role-login-page .login-wrapper{padding:.75rem}}
-@media (min-width:0px) and (max-width:849.98px){.theme-ulms-university .ulms-shell-sidebar{position:fixed!important;top:0;left:0;z-index:1100;height:100vh!important;min-height:100vh!important;width:20rem!important;max-width:calc(100vw - 2.5rem)!important;transform:translateX(-103%)!important;transition:transform .28s cubic-bezier(.2,.7,.2,1)!important;border-right:1px solid rgba(10,29,48,.68)!important;background:#0f3d67!important;box-shadow:0 20px 50px -12px rgba(0,0,0,.4)}.theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-sidebar{transform:translateX(0)!important}.theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-overlay{opacity:1;pointer-events:auto;transition:opacity .2s ease!important}.theme-ulms-university{overflow-x:hidden!important}}
-@media (min-width:850px) and (max-width:1199.98px){.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar{width:5.5rem!important;flex:0 0 5.5rem!important;padding:0!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar__eyebrow,.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar__title,.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-group__title,.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-group>h2,.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-group>h3,.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-link__label{display:none!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-link{padding:0!important;justify-content:center!important;height:52px!important;min-height:52px!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-link__icon{margin-right:0!important;width:26px;height:26px;flex:0 0 26px}}
-@media (min-width:1200px){.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar{width:5.5rem!important;flex:0 0 5.5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner>*+*{margin-top:1.25rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__brand{padding:0 0 1rem!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__eyebrow,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__title,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group__title,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h2,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h3,.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label{display:none!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link{padding:0!important;justify-content:center!important}.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__icon{margin-right:0!important}}
+@media (max-width:767.98px){
+  .theme-ulms-university .ulms-shell-sidebar{
+    position:fixed!important;
+    top:0!important;
+    left:0!important;
+    z-index:1100!important;
+    height:100vh!important;
+    height:100dvh!important;
+    min-height:100vh!important;
+    width:var(--ulms-drawer-w)!important;
+    max-width:min(86vw, 320px)!important;
+    transform:translateX(-103%)!important;
+    transition:transform .28s cubic-bezier(.2,.7,.2,1)!important;
+    border-right:1px solid rgba(10,29,48,.68)!important;
+    background:var(--ulms-sidebar-bg)!important;
+    box-shadow:0 20px 50px -12px rgba(0,0,0,.4)!important;
+  }
+  .theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-sidebar{transform:translateX(0)!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-open + .ulms-shell-overlay,
+  .theme-ulms-university .ulms-shell .ulms-shell-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1050;background:var(--ulms-overlay-bg);backdrop-filter:blur(var(--ulms-overlay-blur));-webkit-backdrop-filter:blur(var(--ulms-overlay-blur));opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s ease, visibility .2s ease!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-overlay{opacity:1;visibility:visible;pointer-events:auto!important}
+  .theme-ulms-university{overflow-x:hidden!important}
+}
+@media (min-width:768px) and (max-width:1199.98px){
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar{
+    width:var(--ulms-sidebar-w-collapsed)!important;
+    flex:0 0 var(--ulms-sidebar-w-collapsed)!important;
+    padding:0!important;
+  }
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar__eyebrow,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-sidebar__title,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-group__title,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-group>h2,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-group>h3,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-link__label{display:none!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-link{
+    padding:0!important;
+    justify-content:center!important;
+    height:52px!important;
+    min-height:52px!important;
+  }
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed:not(.is-sidebar-open) .ulms-shell-nav-link__icon{
+    margin-right:0!important;
+    width:26px;
+    height:26px;
+    flex:0 0 26px;
+  }
+}
+@media (min-width:1200px){
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed{
+    grid-template-columns:minmax(0,var(--ulms-sidebar-w-collapsed)) minmax(0,1fr)!important;
+  }
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar{
+    width:var(--ulms-sidebar-w-collapsed)!important;
+    flex:0 0 var(--ulms-sidebar-w-collapsed)!important;
+  }
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner{padding:1.25rem .5rem!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__inner>*+*{margin-top:1.25rem!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__brand{padding:0 0 1rem!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__eyebrow,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar__title,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group__title,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h2,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-group>h3,
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label{display:none!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link{padding:0!important;justify-content:center!important}
+  .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__icon{margin-right:0!important}
+}
 .theme-ulms-university .badge.badge-primary,.theme-ulms-university .badge:not([class*="badge-"]){padding:.35rem .65rem;border-radius:999px;font-size:.72rem;font-weight:700;display:inline-flex;align-items:center;gap:.3rem}
 @media (prefers-reduced-motion:reduce){.theme-ulms-university *,.theme-ulms-university *::before,.theme-ulms-university *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 
@@ -2021,11 +2359,6 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ulms-status-badge,
-  .ulms-timetable-slot,
-  .ulms-btn { transition: none !important; animation: none !important; }
-}
 .theme-ulms-university .ulms-shell {
     position: relative;
     display: grid;
@@ -2045,9 +2378,10 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 }
 
 @media (min-width: 0px) {
-    .ulms-dashboard-shell .ulms-shell-sidebar {
+    body.ulms-dashboard-shell .ulms-shell-sidebar,
+    body.theme-ulms-university .ulms-shell-sidebar {
         position: sticky;
-        top: var(--ulms-topbar-h);
+        top: var(--ulms-topbar-h, 4.5rem);
         align-self: start;
         margin: 0;
         padding: 0;
@@ -2329,13 +2663,14 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
         align-items: center;
         justify-content: center;
     }
-    body.ulms-dashboard-shell .ulms-shell-overlay {
+    body.ulms-dashboard-shell .ulms-shell-overlay,
+    body.theme-ulms-university .ulms-shell .ulms-shell-overlay {
         position: fixed;
-        top: var(--ulms-topbar-h);
+        top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 49;
+        z-index: 1050;
         background-color: transparent;
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
@@ -2350,7 +2685,8 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
     }
     body.ulms-dashboard-shell .ulms-shell.is-sidebar-open .ulms-shell-overlay,
     body.ulms-dashboard-shell.ulms-sidebar-open .ulms-shell-overlay,
-    body.ulms-dashboard-shell.drawer-open-left .ulms-shell-overlay {
+    body.ulms-dashboard-shell.drawer-open-left .ulms-shell-overlay,
+    body.theme-ulms-university .ulms-shell.is-sidebar-open .ulms-shell-overlay {
         visibility: visible;
         opacity: 1;
         pointer-events: auto;
@@ -2889,7 +3225,7 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
 
 @media (max-width: 767.98px) {
     .theme-ulms-university .ulms-kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 1fr;
     }
     .theme-ulms-university .ulms-dashboard-sections,
     .theme-ulms-university .ulms-dashboard-support {
@@ -2995,24 +3331,6 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{font-size:.76rem;color:$ulms-t
     min-height: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .theme-ulms-university .ulms-shell,
-    .theme-ulms-university .ulms-shell *,
-    .theme-ulms-university .ulms-shell *::before,
-    .theme-ulms-university .ulms-shell *::after {
-        transition: none !important;
-        animation: none !important;
-        scroll-behavior: auto !important;
-    }
-    .theme-ulms-university .ulms-shell-sidebar {
-        transition-property: none !important;
-    }
-    .theme-ulms-university .ulms-shell-overlay {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-    }
-}
-
 /* ============================================================
    AUTHORITATIVE APP SHELL GRID + DASHBOARD CONTENT TARGET LAYOUT
    Single-source-of-truth (SSoT). 0,3,0 body.ulms-dashboard-shell
@@ -3049,7 +3367,7 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell > * {
 body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
     position: sticky !important;
     position: -webkit-sticky !important;
-    top: 0 !important;
+    top: var(--ulms-topbar-h, 4.5rem) !important;
     align-self: start !important;
     height: 100vh !important;
     height: 100dvh !important;
@@ -3065,6 +3383,11 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
         width var(--ulms-t-base) var(--ulms-ease-out),
         padding var(--ulms-t-base) var(--ulms-ease-out) !important;
     z-index: 1020 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__brand,
+body.ulms-dashboard-shell .ulms-shell-sidebar__brand,
+body.theme-ulms-university .ulms-shell-sidebar__brand {
+    display: none !important;
 }
 body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar::-webkit-scrollbar { width: 6px; }
 body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 3px; }
@@ -3115,6 +3438,88 @@ body.theme-ulms-university.ulms-dashboard-shell #region-main > div.container-flu
     grid-template-columns: minmax(0, 1fr) !important;
     gap: var(--ulms-content-gap) !important;
     background: transparent !important;
+}
+
+/* ---------- LAYER 1B: XL COLLAPSED (>= 1200, user toggled rail) ---------- */
+@media (min-width: 1200px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed {
+        grid-template-columns: minmax(0, var(--ulms-sidebar-w-collapsed)) minmax(0, 1fr) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar {
+        width: var(--ulms-sidebar-w-collapsed) !important;
+        flex: 0 0 var(--ulms-sidebar-w-collapsed) !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+}
+
+/* ---------- LAYER 1C: LG TABLET AUTO-COLLAPSE (768–1199.98) ---------- */
+@media (min-width: 768px) and (max-width: 1199.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
+        grid-template-columns: minmax(0, var(--ulms-sidebar-w-collapsed)) minmax(0, 1fr) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-open {
+        grid-template-columns: minmax(0, var(--ulms-sidebar-w)) minmax(0, 1fr) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+        width: var(--ulms-sidebar-w-collapsed) !important;
+        padding-left: 0.375rem !important;
+        padding-right: 0.375rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-open .ulms-shell-sidebar {
+        width: var(--ulms-sidebar-w) !important;
+        padding: 1.25rem 1.1rem 1.5rem 1.25rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
+        padding-inline: clamp(0.9rem, 1.8vw, 1.5rem) !important;
+    }
+}
+
+/* ---------- LAYER 1D: SM MOBILE OFF-CANVAS DRAWER (<= 767.98) ---------- */
+@media (max-width: 767.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 1100 !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        width: var(--ulms-drawer-w) !important;
+        max-width: min(86vw, 320px) !important;
+        transform: translateX(-103%) !important;
+        transition: transform 0.28s cubic-bezier(.2,.7,.2,1) !important;
+        box-shadow: 0 20px 50px -12px rgba(0,0,0,.4) !important;
+        overflow-y: auto !important;
+        padding: 1rem 0.9rem 1.25rem 1rem !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-open .ulms-shell-sidebar {
+        transform: translateX(0) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-overlay {
+        position: fixed !important;
+        top: 0 !important;
+        inset: 0 !important;
+        z-index: 1050 !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        background: var(--ulms-overlay-bg) !important;
+        backdrop-filter: blur(var(--ulms-overlay-blur)) !important;
+        -webkit-backdrop-filter: blur(var(--ulms-overlay-blur)) !important;
+        transition: opacity 0.2s ease, visibility 0.2s ease !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-open .ulms-shell-overlay {
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
+        padding-top: calc(var(--ulms-topbar-h) + 0.25rem) !important;
+        padding-inline: clamp(0.75rem, 3vw, 1rem) !important;
+    }
 }
 
 /* -------------- LAYER 2: SIDEBAR NAV STRUCTURE XL -------------- */
@@ -4392,6 +4797,17 @@ body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li:hover::afte
     }
 }
 
+/* -------------- ULTRAWIDE DENSITY WRAPPER: ≥2560px 4K, caps content at 1600px for readability -------------- */
+@media (min-width: 2560px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content,
+    body.theme-ulms-university .ulms-shell-content,
+    body.theme-ulms-university.ulms-dashboard-shell #page.drawers .main-inner,
+    body.theme-ulms-university #page.drawers .main-inner {
+        max-width: 1600px !important;
+        margin: 0 auto !important;
+    }
+}
+
 /* -------------- BREAKPOINT 4: XXS ≤414px phones tightest -------------- */
 @media (max-width: 414.98px) {
     body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content {
@@ -4516,33 +4932,6 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
     outline: none !important;
 }
 
-/* -------------- Shell prefers-reduced-motion local guard (HEADER ULTRA also has own PRM tail absolute last wins; fine both run) -------------- */
-@media (prefers-reduced-motion: reduce) {
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell,
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell *,
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell *::before,
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell *::after {
-        transition-duration: 0.001ms !important;
-        transition-property: none !important;
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        scroll-behavior: auto !important;
-    }
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
-        transition-property: none !important;
-    }
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar * {
-        transition-property: none !important;
-    }
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-overlay {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-    }
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header__date {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-    }
-}
 .ZZX_EOF_MARKER_20260929_VFLUSH { color: #ff00ff !important; }
 /* ====================================================================
    UX POLISH LAYER (non-breaking incremental, prefers-reduced-motion guarded)
@@ -5265,6 +5654,101 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
 }
 
 /* ====================================================================
+   TOPBAR ↔ SIDEBAR LEFT-FLUSH SYNC — ICON-PIXEL PRECISE (3 stacked
+   offset layers explicitly cancelled so the VISUAL 3-line hamburger
+   span flushes pixel-perfect to the sidebar column edge in BOTH
+   expanded (280) and collapsed (68) states).
+
+   Why this was "hard" before (3 offset layers stacked into a 33.2 px
+   gap when expanded, 13.2 px gap when collapsed, so you could never
+   visually flush the "three lines beside the logo"):
+     L1 = header.navbar padding-left = var(--ulms-sidebar-w)  [OK]
+     L2 = <inner flex-row> padding-left: 1.25rem / 20px       [CANCELLED]
+     L3 = toggle 44×44 box + justify-content:center →
+          icon centers at box mid-point, adding (44−17.6)/2 =
+          +13.2 px of centering offset                      [CANCELLED]
+
+   Fix strategy:
+     (a) Header.left still tracks sidebar width (unchanged from L5469
+         baseline, just explicit override in both states).
+     (b) ALWAYS zero the inner flex-row padding-left (both collapsed
+         and expanded) — L2 cancels.
+     (c) Hamburger button uses justify-content:flex-start instead of
+         center, so the 17.6 px `__icon` span now sits AT the LEFT
+         EDGE of the 44×44 hitbox, not its horizontal centre — L3
+         cancels.
+
+   Result: icon.left === inner.left === header.paddingLeft
+   === sidebar.width === sidebar.right → PERFECT FLUSH, pixel-exact,
+   regardless of sidebar state or viewport DPR zoom.
+   ==================================================================== */
+
+/* L1 header left pad tracks sidebar width in both states (expanded / collapsed). */
+body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell:not(.is-sidebar-collapsed)) header.ulms-portal-navbar.navbar.fixed-top,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top {
+    padding-left: var(--ulms-sidebar-w) !important; /* 280px expanded */
+    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell.is-sidebar-collapsed) header.ulms-portal-navbar.navbar.fixed-top {
+    padding-left: var(--ulms-sidebar-w-collapsed) !important; /* 68px rail */
+    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+}
+/* L2 cancellation: inner flex-row ALWAYS left-pad 0 (expanded + collapsed both)
+   so first flex child (hamburger) sits flush to header.padLeft inner edge. */
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > div,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > nav,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > .d-flex,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > :first-child {
+    padding-left: 0 !important;
+}
+/* L3 cancellation: hamburger 44×44 hitbox keeps its full click size, BUT
+   the visual 3-line icon is PINNED via absolute positioning to the TOP-LEFT
+   0,0 corner of the hitbox, regardless of preceding sr-only / text nodes.
+   Why this was needed: the button contains a first invisible flex child
+   <span class="sr-only">Toggle navigation</span> which still consumes ~2 px
+   in the flex-row layout, nudging the icon 2.07px right even after flex-start.
+   Absolute pinning removes that last ~2 px visual nudge → pixel flush. */
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .btn.btn-link.ulms-shell-toggle {
+    position: relative !important;          /* icon absolute anchor root */
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: 0 !important;
+    border: 0 !important;                   /* ⟸ kill 2.07px transparent btn-link
+                                                 border-left that was shifting
+                                                 absolute `left:0` inside the
+                                                 button away from its visual edge */
+    border-width: 0 !important;
+    box-shadow: none !important;
+}
+/* Absolute pin the 3-line icon so sr-only text node width in the button can
+   never nudge it.  Top 50% - half height = 2px stripe + 0.7rem before/after
+   pseudo stripes total height ~ 0.7+0.7+2px ≈ 16px so translate -50% centers. */
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle__icon {
+    position: absolute !important;
+    left: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 1.1rem !important;
+    height: 2px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle__icon::before,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle__icon::after {
+    position: absolute;
+    left: 0 !important;                          /* pseudo stripes inherit anchor */
+    width: 1.1rem !important;
+    height: 2px !important;
+    content: "" !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle__icon::before { top: -0.35rem; }
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle__icon::after  { top:  0.35rem; }
+
+/* ====================================================================
    T6 BP9 MATRIX HOTFIX: qa-card grid-column inner span + kpi/body min-width
    Bug: .ulms-qa-card grid 3-col 0px trapped __inner in col-1 (52px) →
         __body 11px wide → letter-by-letter vertical wrapping.
@@ -5430,10 +5914,151 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > div:first-
 }
 
 /* ====================================================================
+   T8: ULMS Responsive Table Wrapper
+   Horizontal contained scrolling for orphan <table> elements auto-wrapped by the
+   renderer IIFE.  iOS momentum scroll + focus ring on keyboard navigation tables,
+   border radii don't clip content.  Z-order below drawers/z-topbar, above shell.
+   ==================================================================== */
+.theme-ulms-university .ulms-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overflow-y: hidden;
+    border: 1px solid var(--ulms-border-subtle, rgba(15, 29, 48, 0.08));
+    border-radius: var(--ulms-radius-card, 0.875rem);
+    background: var(--ulms-surface, #ffffff);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 29, 48, 0.18) transparent;
+    box-shadow: 0 1px 2px rgba(15, 29, 48, 0.04);
+}
+.theme-ulms-university .ulms-table-scroll:focus-visible,
+body.theme-ulms-university .ulms-table-scroll:focus-within {
+    outline: var(--ulms-focus-outline);
+    outline-offset: var(--ulms-focus-offset);
+}
+.theme-ulms-university .ulms-table-scroll > table {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: 0 !important;
+    min-width: 100%;
+}
+.theme-ulms-university .ulms-table-scroll::-webkit-scrollbar {
+    height: 6px;
+}
+.theme-ulms-university .ulms-table-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+.theme-ulms-university .ulms-table-scroll::-webkit-scrollbar-thumb {
+    background: rgba(15, 29, 48, 0.14);
+    border-radius: 3px;
+}
+@media (max-width: 767.98px) {
+    .theme-ulms-university .ulms-table-scroll {
+        border-radius: var(--ulms-radius-md, 0.625rem);
+        -webkit-mask-image: -webkit-radial-gradient(white, black);
+    }
+}
+
+/* ====================================================================
+   T9b: Component State Rules (default / hover / focus-visible / active /
+        disabled / empty — ulms-summary-card / ulms-qa-card / quick-access.
+        Uses elevation +0/+2/-1 for press.  WCAG focus ring via design tokens.
+   ==================================================================== */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-card,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__item {
+    transition: transform 0.18s cubic-bezier(0.2, 0, 0.2, 1),
+                box-shadow 0.18s cubic-bezier(0.2, 0, 0.2, 1),
+                border-color 0.18s cubic-bezier(0.2, 0, 0.2, 1) !important;
+    will-change: transform;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-card:hover,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(10, 29, 48, 0.10) !important;
+    border-color: rgba(15, 76, 129, 0.18) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-card:active,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:active,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__item:active {
+    transform: translateY(1px) !important;
+    box-shadow: 0 2px 6px rgba(10, 29, 48, 0.08) !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-card:focus-visible,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:focus-visible,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__item:focus-visible,
+body.theme-ulms-university.ulms-dashboard-shell a.ulms-quick-access__item:focus-visible,
+body.theme-ulms-university.ulms-dashboard-shell a.ulms-summary-card:focus-visible {
+    outline: var(--ulms-focus-outline) !important;
+    outline-offset: var(--ulms-focus-offset) !important;
+    z-index: 2 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-card[aria-disabled="true"],
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[aria-disabled="true"],
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__item[aria-disabled="true"] {
+    opacity: 0.5 !important;
+    pointer-events: none !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-card.is-empty::after,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card.is-empty::after {
+    content: attr(data-empty-text);
+    display: block;
+    padding: 2rem 1.25rem;
+    text-align: center;
+    color: #5d6b80;
+    font-size: 0.875rem;
+}
+
+/* ====================================================================
+   T9c: Collapsed sidebar nav-link CSS tooltip (pure CSS, no JS tooltip
+   library).  Pulls label from title=/aria-label= on .ulms-shell-nav-link
+   (renderer should already set those a11y attrs on icon rails).
+   ==================================================================== */
+@media (min-width: 768px) {
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar a.ulms-shell-nav-link,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar a.ulms-shell-nav-link,
+    .theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link {
+        position: relative;
+    }
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar a.ulms-shell-nav-link:hover::after,
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar a.ulms-shell-nav-link:focus-visible::after,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link:hover::after,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link:focus-visible::after {
+        content: attr(title);
+        position: absolute;
+        left: calc(100% + 12px);
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: calc(var(--ulms-z-tooltip, 1800));
+        display: inline-block;
+        padding: 0.45rem 0.75rem;
+        min-width: max-content;
+        max-width: 260px;
+        background: #0b2a47;
+        color: #ffffff;
+        font-size: 0.8rem;
+        font-weight: 500;
+        line-height: 1.35;
+        border-radius: 0.5rem;
+        box-shadow: 0 8px 22px rgba(10, 29, 48, 0.28);
+        white-space: normal;
+        pointer-events: none;
+        opacity: 1;
+    }
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-sidebar a.ulms-shell-nav-link[title=""]:hover::after,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link[title=""]:hover::after {
+        content: none;
+    }
+}
+
+/* ====================================================================
    ULMS SSoT Cookie Banner Styles (UIUX P0-2)
    ==================================================================== */
 #ulms-cookie-banner { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 720px; z-index: 99999; padding: 20px 24px; border-radius: 12px; background: #ffffff; box-shadow: 0 12px 40px rgba(15,23,42,0.18); border: 1px solid #e2e8f0; }
-@media (max-width: 767px) { #ulms-cookie-banner { bottom: 8px; padding: 16px; } }
+@media (max-width: 767.98px) { #ulms-cookie-banner { bottom: 8px; padding: 16px; } }
 .ulms-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .ulms-banner-actions button { min-height: 44px; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; }
 .ulms-banner-actions button.ulms-banner-accept-all { background: #0f4c81; color: #fff; border: 1px solid #0f4c81; }
@@ -5441,19 +6066,21 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > div:first-
 .ulms-banner-actions button.ulms-banner-reject-nonessential { background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; }
 
 /* ====================================================================
-   Stat Card Grid Responsive Tiers (UIUX P0-5)
+   Stat Card Grid Responsive Tiers (UIUX P0-5) — tiers unified with
+   sidebar breakpoints: XL≥1200=4col, LG 768-1199.98=2col, SM≤767.98=1col
+   (matches ulms-summary-cards__grid / ulms-quick-access__grid tiers).
    ==================================================================== */
-@media (min-width: 1200px) { .ulms-dashboard-grid { grid-template-columns: repeat(4, 1fr); } }
-@media (min-width: 992px) and (max-width: 1199px) { .ulms-dashboard-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (min-width: 768px) and (max-width: 991px) { .ulms-dashboard-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 767px) { .ulms-dashboard-grid { grid-template-columns: 1fr; } }
+@media (min-width: 1200px) { .ulms-dashboard-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 768px) and (max-width: 1199.98px) { .ulms-dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767.98px) { .ulms-dashboard-grid { grid-template-columns: 1fr; } }
 
 /* ====================================================================
    Sidebar Sizes / Topbar / Active State / Button Radius / Nav Icon (UIUX P1)
+   BP fenceposts unified to shell SSOT: SM ≤767.98 off-canvas drawer.
    ==================================================================== */
 .ulms-sidebar-expand { width: 260px; }
 .ulms-sidebar-collapse { width: 72px; }
-@media (max-width: 991px) {
+@media (max-width: 767.98px) {
     .ulms-sidebar-expand, .ulms-sidebar-collapse {
         transform: translateX(-100%);
         position: fixed;
@@ -5472,14 +6099,16 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > div:first-
 .ulms-sidebar-nav-icon, .ulms-menu-icon { width: 24px; height: 24px; flex: 0 0 24px; }
 
 /* ====================================================================
-   prefers-reduced-motion: disable ALL transitions for users who
-   opted-out (respect OS/browser Accessibility settings).
-   Must be the last rule to ensure wins over equal specificity above.
+   prefers-reduced-motion: SINGLE high-specificity last-rule.  Disables
+   all transitions/animations across theme-ulms-university (not only
+   dashboard shell) for users who opted-out via OS/browser a11y settings.
+   Replaces 4 earlier duplicate PRM blocks deleted above (L2245, L3222,
+   L4826, L2074).  Maintains focus ring visibility via outline tokens.
    ==================================================================== */
 @media (prefers-reduced-motion: reduce) {
-    .theme-ulms-university.ulms-dashboard-shell *,
-    .theme-ulms-university.ulms-dashboard-shell *::before,
-    .theme-ulms-university.ulms-dashboard-shell *::after {
+    .theme-ulms-university *,
+    .theme-ulms-university *::before,
+    .theme-ulms-university *::after {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
@@ -5487,5 +6116,30 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content > div:first-
         scroll-behavior: auto !important;
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
+    }
+    .theme-ulms-university .ulms-status-badge,
+    .theme-ulms-university .ulms-timetable-slot,
+    .theme-ulms-university .ulms-btn,
+    .theme-ulms-university .ulms-shell,
+    .theme-ulms-university .ulms-shell-sidebar,
+    .theme-ulms-university .ulms-shell-sidebar *,
+    .theme-ulms-university .ulms-page-header__date {
+        transition: none !important;
+        animation: none !important;
+    }
+    .theme-ulms-university a:focus,
+    .theme-ulms-university button:focus,
+    .theme-ulms-university input:focus,
+    .theme-ulms-university select:focus,
+    .theme-ulms-university textarea:focus,
+    .theme-ulms-university .btn:focus,
+    .theme-ulms-university a:focus-visible,
+    .theme-ulms-university button:focus-visible,
+    .theme-ulms-university input:focus-visible,
+    .theme-ulms-university select:focus-visible,
+    .theme-ulms-university textarea:focus-visible,
+    .theme-ulms-university .btn:focus-visible {
+        outline: var(--ulms-focus-outline) !important;
+        outline-offset: var(--ulms-focus-offset) !important;
     }
 }

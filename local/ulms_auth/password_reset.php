@@ -36,7 +36,14 @@ $legacyroutekey = match ($portalkey) {
     'superadmin' => 'superadmin.passwordreset',
     default => 'public.passwordreset',
 };
-$service->maybe_redirect_legacy_request($legacyroutekey);
+$legacyparams = [];
+if ($token !== '') {
+    $legacyparams['token'] = $token;
+}
+if ($portalkey !== '') {
+    $legacyparams['portal'] = $portalkey;
+}
+$service->maybe_redirect_legacy_request($legacyroutekey, $legacyparams);
 $portal = null;
 
 if ($portalkey !== '') {
