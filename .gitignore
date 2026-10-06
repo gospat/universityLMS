@@ -44,6 +44,10 @@ build/
 *.sublime-project
 *.sublime-workspace
 .trae/
+!.trae/
+!.trae/specs/
+!.trae/specs/ulms-responsive-ui-architecture-20261006/
+!.trae/specs/ulms-responsive-ui-architecture-20261006/**
 .history/
 .composer-home-audit/
 

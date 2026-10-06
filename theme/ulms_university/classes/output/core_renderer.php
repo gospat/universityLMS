@@ -513,6 +513,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     if (!portalShell || !sidebar) return;
                     var wasOpen = portalShell.classList.contains('is-sidebar-open');
                     portalShell.classList.remove('is-sidebar-open');
+                    if (document.body) document.body.classList.remove('is-sidebar-open', 'ulms-sidebar-open');
                     setAllTogglesExpanded(!portalShell.classList.contains('is-sidebar-collapsed'));
                     sidebar.setAttribute('aria-hidden', 'true');
                     if (wasOpen) {
@@ -535,6 +536,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     if (!portalShell || !sidebar) return;
                     focusReturnTarget = triggerEl && typeof triggerEl.focus === 'function' ? triggerEl : (sidebarToggles[0] || null);
                     portalShell.classList.add('is-sidebar-open');
+                    if (document.body) document.body.classList.add('is-sidebar-open', 'ulms-sidebar-open');
                     portalShell.classList.remove('is-sidebar-collapsed');
                     setAllTogglesExpanded('true');
                     sidebar.setAttribute('aria-hidden', 'false');

@@ -5956,6 +5956,7 @@ body.theme-ulms-university .ulms-table-scroll:focus-within {
 @media (max-width: 767.98px) {
     .theme-ulms-university .ulms-table-scroll {
         border-radius: var(--ulms-radius-md, 0.625rem);
+        mask-image: radial-gradient(white, black);
         -webkit-mask-image: -webkit-radial-gradient(white, black);
     }
 }
@@ -6097,6 +6098,594 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card.is-empty::after {
 .ulms-sidebar-item.is-active { background-color: rgba(15, 76, 129, 0.10); border-left: 3px solid #0f4c81; color: #0f4c81; }
 .btn, button, .ulms-action-btn { border-radius: 8px !important; }
 .ulms-sidebar-nav-icon, .ulms-menu-icon { width: 24px; height: 24px; flex: 0 0 24px; }
+
+/* ====================================================================
+   PHASE 2 RESPONSIVE ARCHITECTURE OVERRIDES
+   Root-cause fixes for ultrawide tube island, sidebar truncation,
+   drawer breakpoint conflict, intrinsic grids, profile hero, header trim
+
+   SPECIFICITY STRATEGY (to win over any competing rule in file):
+   1. Wrap XL tier rules in the same @media (min-width:2560px) as L4800
+   2. Compound body classes: body.theme-ulms-university.ulms-dashboard-shell
+   3. Include #page.drawers for main-inner (matches L4804)
+   4. Wrap expanded-state sidebar rules in @media (min-width:1200px)
+   ==================================================================== */
+
+/* =========================================================
+   T1 XL CANCEL: @2560px — nullify L4800-4809 tube cap that
+   hardcodes 1600px with 0 auto margin.  EXACT same selectors
+   as L4802-4805 so cascade position (line 6100 > L4809) wins.
+   ========================================================= */
+@media (min-width: 2560px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content,
+    body.theme-ulms-university .ulms-shell-content,
+    body.theme-ulms-university.ulms-dashboard-shell #page.drawers .main-inner,
+    body.theme-ulms-university #page.drawers .main-inner {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content,
+    body.theme-ulms-university .ulms-shell-content {
+        padding-left:  clamp(1.5rem, 3vw, 3rem) !important;
+        padding-right: clamp(1.5rem, 3vw, 3rem) !important;
+    }
+    body.theme-ulms-university .ulms-content-wrap,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-content-wrap {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+    body.theme-ulms-university #page.drawers #topofscroll.main-inner,
+    body.theme-ulms-university.ulms-dashboard-shell #page.drawers #topofscroll.main-inner {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+}
+
+/* =========================================================
+   T1 GENERAL: SHELL FLUIDITY CAP REMOVAL
+   ========================================================= */
+body.theme-ulms-university .ulms-portal-navbar > .container-fluid,
+body.theme-ulms-university .ulms-portal-navbar > .container-fluid.ulms-shell-topbar,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-portal-navbar > .container-fluid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-portal-navbar > .container-fluid.ulms-shell-topbar,
+body.theme-ulms-university.ulms-standard-shell .ulms-portal-navbar > .container-fluid,
+body.theme-ulms-university.ulms-standard-shell .ulms-portal-navbar > .container-fluid.ulms-shell-topbar,
+body.theme-ulms-university.ulms-secure-shell .ulms-portal-navbar > .container-fluid,
+body.theme-ulms-university.ulms-secure-shell .ulms-portal-navbar > .container-fluid.ulms-shell-topbar,
+body.theme-ulms-university.ulms-drawers-shell .ulms-portal-navbar > .container-fluid,
+body.theme-ulms-university.ulms-drawers-shell .ulms-portal-navbar > .container-fluid.ulms-shell-topbar {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+body.theme-ulms-university .ulms-portal-footer,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-portal-footer,
+body.theme-ulms-university.ulms-standard-shell .ulms-portal-footer,
+body.theme-ulms-university.ulms-secure-shell .ulms-portal-footer,
+body.theme-ulms-university.ulms-drawers-shell .ulms-portal-footer {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding-left: clamp(1rem, 2vw, 2rem) !important;
+    padding-right: clamp(1rem, 2vw, 2rem) !important;
+}
+
+/* main-inner: include #page.drawers in selector to match L4804 specificity.
+   Also include #topofscroll id for Moodle's rendered main-inner element. */
+body.theme-ulms-university.ulms-custom-page .main-inner,
+body.theme-ulms-university.ulms-custom-page #page.drawers .main-inner,
+body.theme-ulms-university.ulms-custom-page #page.drawers #topofscroll.main-inner,
+body.theme-ulms-university.ulms-dashboard-shell .main-inner,
+body.theme-ulms-university.ulms-dashboard-shell #page.drawers .main-inner,
+body.theme-ulms-university.ulms-dashboard-shell #page.drawers #topofscroll.main-inner,
+body.theme-ulms-university.ulms-standard-shell .main-inner,
+body.theme-ulms-university.ulms-standard-shell #page.drawers .main-inner,
+body.theme-ulms-university.ulms-standard-shell #page.drawers #topofscroll.main-inner,
+body.theme-ulms-university.ulms-secure-shell .main-inner,
+body.theme-ulms-university.ulms-secure-shell #page.drawers .main-inner,
+body.theme-ulms-university.ulms-secure-shell #page.drawers #topofscroll.main-inner,
+body.theme-ulms-university.ulms-drawers-shell .main-inner,
+body.theme-ulms-university.ulms-drawers-shell #page.drawers .main-inner,
+body.theme-ulms-university.ulms-drawers-shell #page.drawers #topofscroll.main-inner,
+body.theme-ulms-university #page.drawers .main-inner,
+body.theme-ulms-university #page.drawers #topofscroll.main-inner {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+/* global ulms-content-wrap: prevent any 1600px hard-cap (found in stylesheets) */
+body.theme-ulms-university .ulms-content-wrap,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-content-wrap,
+body.theme-ulms-university.ulms-standard-shell .ulms-content-wrap,
+body.theme-ulms-university.ulms-secure-shell .ulms-content-wrap {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+/* Kill ulms-shell-content fixed-track grid → block 100% fluid.
+   Include body shell compounds for specificity parity. */
+body.theme-ulms-university .ulms-shell-content,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content,
+body.theme-ulms-university.ulms-standard-shell .ulms-shell-content,
+body.theme-ulms-university.ulms-secure-shell .ulms-shell-content,
+body.theme-ulms-university.ulms-drawers-shell .ulms-shell-content {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    padding-left: clamp(1.25rem, 2.5vw, 2.5rem) !important;
+    padding-right: clamp(1.25rem, 2.5vw, 2.5rem) !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+}
+
+#region-main-box,
+body.theme-ulms-university #region-main-box,
+body.theme-ulms-university.ulms-dashboard-shell #region-main-box,
+body.theme-ulms-university.ulms-standard-shell #region-main-box {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+}
+
+/* Leaf readable max-width: ONLY on text-heavy inner sections,
+   NEVER on shell ancestors.  Page hero copy, list card body,
+   prose blocks get max-w 80ch so they don't become 4000-px lines. */
+body.theme-ulms-university .ulms-page-header__copy,
+body.theme-ulms-university .ulms-prose,
+body.theme-ulms-university .user-description,
+body.theme-ulms-university .profile-desc {
+    max-width: 80ch !important;
+    margin-left: 0 !important;
+}
+
+/* =========================================================
+   T2: SIDEBAR WIDTHS + EXPANDED LABEL SLOT
+   Root cause: 280px outer sidebar minus (20+17.6) inner pad
+   minus (13.6+13.6) nav-link pad = only ~202px label slot.
+   Fix:  Slim pads → label slot ≥ 230px.
+   Vars: expanded 280, collapsed 76.
+   ========================================================= */
+:root,
+:root:root,
+body.theme-ulms-university {
+    --ulms-sidebar-w:            280px;
+    --ulms-sidebar-w-collapsed:   76px;
+    --ulms-drawer-w:             320px;
+    --ulms-topbar-h:              64px;
+}
+
+/* EXPANDED SIDEBAR LABEL SLOT (≥1200 desktop only)
+   Use body.ulms-dashboard-shell compound + @media ≥1200 to win. */
+@media (min-width: 1200px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell-sidebar,
+    body.theme-ulms-university.ulms-secure-shell .ulms-shell-sidebar,
+    body.theme-ulms-university .ulms-shell-sidebar {
+        padding-left:  0 !important;
+        padding-right: 0 !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell-sidebar__inner,
+    body.theme-ulms-university.ulms-secure-shell .ulms-shell-sidebar__inner,
+    body.theme-ulms-university .ulms-shell-sidebar__inner {
+        padding-left:  14px !important;
+        padding-right: 14px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__nav,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell-sidebar__nav,
+    body.theme-ulms-university.ulms-secure-shell .ulms-shell-sidebar__nav,
+    body.theme-ulms-university .ulms-shell-sidebar__nav {
+        width: 100% !important;
+        min-width: 0 !important;
+        align-items: stretch !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__nav > *,
+    body.theme-ulms-university .ulms-shell-sidebar__nav > * {
+        min-width: 0 !important;
+        width: 100% !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell-nav-link,
+    body.theme-ulms-university.ulms-secure-shell .ulms-shell-nav-link,
+    body.theme-ulms-university .ulms-shell-nav-link {
+        padding-left:  10px !important;
+        padding-right: 10px !important;
+        gap: 0.65rem !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        flex: 1 1 100% !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-link__label,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell-nav-link__label,
+    body.theme-ulms-university .ulms-shell-nav-link__label {
+        min-width: 0 !important;
+        max-width: none !important;
+        flex: 1 1 auto !important;
+    }
+}
+
+/* Collapsed state: ZERO label fragments (all widths ≥768) */
+@media (min-width: 768px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link > :not(.ulms-shell-nav-link__icon):not(i):not(svg):not(img),
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link span:not([class*="icon"]),
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-profile__text,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-profile__name,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-profile__role,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link > :not(.ulms-shell-nav-link__icon):not(i):not(svg):not(img),
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link span:not([class*="icon"]),
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link > :not(.ulms-shell-nav-link__icon):not(i):not(svg):not(img),
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link__label,
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link span:not([class*="icon"]),
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-profile__text,
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-profile__name,
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-profile__role {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
+        white-space: nowrap !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link,
+    body.theme-ulms-university .ulms-shell.is-sidebar-collapsed .ulms-shell-nav-link {
+        justify-content: center !important;
+        padding-left:  0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+/* =========================================================
+   T3: MOBILE DRAWER BREAKPOINT CONSISTENCY
+   Cancel conflicting dashboard-shell @992 offcanvas so 768 wins.
+   Drawer scrollable, ESC close handled in core_renderer.php.
+   Body scroll lock via JS body class.
+   ========================================================= */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+        position: sticky !important;
+        top: var(--ulms-topbar-h, 64px) !important;
+        transform: none !important;
+        translate: 0 !important;
+        box-shadow: none !important;
+        height: calc(100vh  - var(--ulms-topbar-h, 64px)) !important;
+        height: calc(100dvh - var(--ulms-topbar-h, 64px)) !important;
+    }
+}
+/* ARCH-1: Mirror sticky rail for 992–1023 gap (PRD Tablet upper bound = 1023px).
+   At 1024px iPad landscape user gets persistent 280px sidebar instead of drawer. */
+@media (min-width: 992px) and (max-width: 1023.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar,
+    body.theme-ulms-university.ulms-standard-shell .ulms-shell-sidebar {
+        position: sticky !important;
+        top: var(--ulms-topbar-h, 64px) !important;
+        transform: none !important;
+        translate: 0 !important;
+        box-shadow: none !important;
+        height: calc(100vh  - var(--ulms-topbar-h, 64px)) !important;
+        height: calc(100dvh - var(--ulms-topbar-h, 64px)) !important;
+    }
+}
+
+/* Drawer scrollable + overflow containment */
+body.theme-ulms-university.is-sidebar-open,
+body.theme-ulms-university.ulms-dashboard-shell.is-sidebar-open,
+body.theme-ulms-university.ulms-standard-shell.is-sidebar-open {
+    overflow: hidden !important;
+    touch-action: none !important;
+}
+body.theme-ulms-university .ulms-shell-sidebar,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar,
+body.theme-ulms-university.ulms-standard-shell .ulms-shell-sidebar {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
+body.theme-ulms-university .ulms-shell-sidebar::-webkit-scrollbar { width: 6px; }
+body.theme-ulms-university .ulms-shell-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.14);
+    border-radius: 3px;
+}
+
+/* =========================================================
+   T4: HEADER RESPONSIVE TRIM
+   DOM classes confirmed via live DOM:
+     .ulms-shell-topbar__context   = portal + role wrapper
+     .ulms-shell-topbar__portal    = "Student portal" label
+     .ulms-shell-topbar__role      = "STUDENT" role label
+   Collapse: @768-1023 secondary (role) first then @<768 also (portal).
+   ========================================================= */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+    body.theme-ulms-university .ulms-shell-topbar__role,
+    body.theme-ulms-university .ulms-shell-topbar__role-text,
+    body.theme-ulms-university .ulms-shell-topbar__portal-label {
+        display: none !important;
+    }
+    body.theme-ulms-university .ulms-shell-topbar__portal {
+        display: block !important;
+        max-width: 42vw !important;
+    }
+}
+@media (max-width: 767.98px) {
+    body.theme-ulms-university .ulms-shell-topbar__identity-full {
+        max-width: 40vw !important;
+    }
+    body.theme-ulms-university .ulms-shell-topbar__identity-full > span:last-child,
+    body.theme-ulms-university .ulms-shell-topbar__portal-label,
+    body.theme-ulms-university .ulms-shell-topbar__role-text,
+    body.theme-ulms-university .ulms-shell-topbar__role,
+    body.theme-ulms-university .ulms-shell-topbar__portal {
+        display: none !important;
+    }
+    body.theme-ulms-university .ulms-shell-topbar__context {
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+    }
+}
+body.theme-ulms-university header.ulms-portal-navbar,
+body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar {
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+}
+
+/* =========================================================
+   T5: PROFILE PAGE HERO + SECTIONS RESPONSIVE GRID
+   Profile routes use standard_shell → region-main raw HTML.
+   ========================================================= */
+body.theme-ulms-university#page-user-profile #region-main,
+body.theme-ulms-university.path-user-profile #region-main,
+body.theme-ulms-university.path-user #region-main,
+body.theme-ulms-university#page-student-profile #region-main,
+body.theme-ulms-university#page-lecturer-profile #region-main,
+body.theme-ulms-university.path-student-profile #region-main,
+body.theme-ulms-university.path-lecturer-profile #region-main {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+@media (min-width: 1440px) {
+    body.theme-ulms-university#page-user-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-user-profile .userprofile,
+    body.theme-ulms-university#page-student-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-student-profile .userprofile,
+    body.theme-ulms-university#page-lecturer-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-lecturer-profile .userprofile {
+        display: grid !important;
+        grid-template-columns: 280px minmax(0, 1fr) minmax(0, 1fr) !important;
+        gap: clamp(1.25rem, 2vw, 2rem) !important;
+        align-items: start !important;
+    }
+    body.theme-ulms-university#page-user-profile #region-main > .card:first-of-type > *,
+    body.theme-ulms-university#page-user-profile .userprofile > *,
+    body.theme-ulms-university#page-student-profile #region-main > .card:first-of-type > *,
+    body.theme-ulms-university#page-lecturer-profile #region-main > .card:first-of-type > * { min-width: 0 !important; }
+}
+@media (min-width: 768px) and (max-width: 1439.98px) {
+    body.theme-ulms-university#page-user-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-user-profile .userprofile,
+    body.theme-ulms-university#page-student-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-student-profile .userprofile,
+    body.theme-ulms-university#page-lecturer-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-lecturer-profile .userprofile {
+        display: grid !important;
+        grid-template-columns: 240px minmax(0, 1fr) !important;
+        gap: clamp(1rem, 1.8vw, 1.75rem) !important;
+        align-items: start !important;
+    }
+}
+@media (max-width: 767.98px) {
+    body.theme-ulms-university#page-user-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-user-profile .userprofile,
+    body.theme-ulms-university#page-student-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-student-profile .userprofile,
+    body.theme-ulms-university#page-lecturer-profile #region-main > .card:first-of-type,
+    body.theme-ulms-university#page-lecturer-profile .userprofile {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 1rem !important;
+    }
+}
+/* T5b: dl.row Bootstrap info grid responsive 3/2/1 — confirmed live DOM uses:
+   <dl class="row"> <dt class="col-sm-4">…</dt> <dd class="col-sm-8">…</dd>
+   @≥1440:   3-col grid layout  (label, value1, value2 via dl.row as grid 280 1fr 1fr)
+   @768-1440: 2-col label+value (dt 240px, dd 1fr; col-sm-4/8 overridden when inside profile dl.row)
+   @<768:    1-col stacked
+*/
+@media (min-width: 1440px) {
+    body.theme-ulms-university#page-student-profile #region-main dl.row,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row,
+    body.theme-ulms-university.path-student-profile #region-main dl.row,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row,
+    body.theme-ulms-university.path-user-profile #region-main dl.row {
+        display: grid !important;
+        grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1fr) !important;
+        gap: clamp(0.75rem, 1.6vw, 1.25rem) clamp(1.25rem, 2vw, 2rem) !important;
+    }
+    body.theme-ulms-university#page-student-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-student-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-user-profile #region-main dl.row > dt.col-sm-4 {
+        grid-column: 1 !important;
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        justify-self: start !important;
+    }
+    body.theme-ulms-university#page-student-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-student-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-user-profile #region-main dl.row > dd.col-sm-8 {
+        grid-column: 2 / span 2 !important;
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+}
+@media (min-width: 768px) and (max-width: 1439.98px) {
+    body.theme-ulms-university#page-student-profile #region-main dl.row,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row,
+    body.theme-ulms-university.path-student-profile #region-main dl.row,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row,
+    body.theme-ulms-university.path-user-profile #region-main dl.row {
+        display: grid !important;
+        grid-template-columns: 220px minmax(0, 1fr) !important;
+        gap: 0.5rem clamp(1rem, 1.8vw, 1.75rem) !important;
+    }
+    body.theme-ulms-university#page-student-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-student-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-user-profile #region-main dl.row > dt.col-sm-4 {
+        grid-column: 1 !important;
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+    body.theme-ulms-university#page-student-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-student-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-user-profile #region-main dl.row > dd.col-sm-8 {
+        grid-column: 2 !important;
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+}
+@media (max-width: 767.98px) {
+    body.theme-ulms-university#page-student-profile #region-main dl.row,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row,
+    body.theme-ulms-university.path-student-profile #region-main dl.row,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row,
+    body.theme-ulms-university.path-user-profile #region-main dl.row {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.25rem 0 !important;
+    }
+    body.theme-ulms-university#page-student-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-student-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row > dt.col-sm-4,
+    body.theme-ulms-university.path-user-profile #region-main dl.row > dt.col-sm-4 {
+        margin-top: 0.5rem !important;
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+    body.theme-ulms-university#page-student-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university#page-lecturer-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-student-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-lecturer-profile #region-main dl.row > dd.col-sm-8,
+    body.theme-ulms-university.path-user-profile #region-main dl.row > dd.col-sm-8 {
+        margin-left: 0 !important;
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+}
+
+/* =========================================================
+   T6: INTRINSIC AUTO-FIT GRIDS — Quick Access / KPI / Summary
+   Wrap with body shell compounds + @media ≥1200 to beat L1956/1967.
+   Below 1200 existing per-breakpoint overrides (2col / 1col) remain.
+   ========================================================= */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-summary-cards__grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-kpi-grid,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-action-grid,
+body.theme-ulms-university.ulms-standard-shell .ulms-summary-cards__grid,
+body.theme-ulms-university.ulms-standard-shell .ulms-quick-access__grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) !important;
+}
+
+body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: var(--ulms-content-gap, 1.25rem) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+@media (min-width: 1920px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary {
+        grid-template-columns: minmax(0, 1.8fr) minmax(320px, 380px) !important;
+    }
+}
+@media (min-width: 2560px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary {
+        grid-template-columns: minmax(0, 1.9fr) minmax(360px, 420px) !important;
+    }
+}
+
+/* =========================================================
+   T7: DENSITY + ZOOM SAFETY
+   ========================================================= */
+body.theme-ulms-university .ulms-page-header,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header,
+body.theme-ulms-university.ulms-standard-shell .ulms-page-header {
+    padding-top:    clamp(1rem, 2vh, 1.75rem) !important;
+    padding-bottom: clamp(1rem, 2vh, 1.75rem) !important;
+    margin-bottom:  clamp(1rem, 1.6vh, 1.5rem) !important;
+}
+body.theme-ulms-university section,
+body.theme-ulms-university section.ulms-quick-access,
+body.theme-ulms-university section.ulms-dashboard-primary,
+body.theme-ulms-university.ulms-dashboard-shell section,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access,
+body.theme-ulms-university.ulms-dashboard-shell section.ulms-dashboard-primary {
+    margin-top:    0 !important;
+    margin-bottom: clamp(1rem, 1.8vh, 1.75rem) !important;
+}
+
+/* Zoom 200% safety: no fixed widths that overflow, all min-width:0.
+   Use body + universal selectors with shell-class compounds for parity. */
+body.theme-ulms-university,
+body.theme-ulms-university.ulms-dashboard-shell,
+body.theme-ulms-university.ulms-standard-shell,
+body.theme-ulms-university *,
+body.theme-ulms-university *::before,
+body.theme-ulms-university *::after {
+    min-width: 0 !important;
+    max-width: none;
+    box-sizing: border-box !important;
+}
+body.theme-ulms-university img,
+body.theme-ulms-university video,
+body.theme-ulms-university svg,
+body.theme-ulms-university canvas {
+    max-width: 100% !important;
+    height: auto !important;
+}
+body.theme-ulms-university .ulms-shell-sidebar img,
+body.theme-ulms-university .ulms-shell-sidebar svg { width: auto; max-width: none; }
+
+
 
 /* ====================================================================
    prefers-reduced-motion: SINGLE high-specificity last-rule.  Disables

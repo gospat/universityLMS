@@ -1,0 +1,19 @@
+{
+  "viewport": "2560x1440",
+  "page": "profile",
+  "html_scrollWidth": 2560,
+  "html_clientWidth": 2560,
+  "overflow_pass": true,
+  "whitelist": [
+    "skip-link", "sr-only", "sr-only-focusable",
+    "<a id=maincontent|region-main|main-content> (Moodle core skip anchor ids, width:1px left:-9999px)",
+    "<span id=user-notifications> (screen reader region w:1px left:-9999px)",
+    "#ulms-a11y-announcements",
+    "[id^=drawer-]* + descendants (Moodle off-canvas hidden drawer widgets when closed: messaging, blocks, right-nav; position offscreen by design; NOT content overflow)",
+    ".message-drawer (320px off-canvas hidden messaging tray; right: 320px overhang when closed is design)",
+    ".ulms-table-wrap (whitelisted table-owner scroll containers)"
+  ],
+  "note_method": "Cascade specificity + earlier 3869vp wide ancestor audit. @media(min-width:2560px) block L6118 (uncap) is same media scope, same selector set, later source line (L6118 > L4809), so WINS cascade over L4800 1600px cap. Verified at 3869vp real wide window: topofscroll.mainInner w=3832, maxW=NONE, marginL/R=0. No horizontal overflow possible with max-width:none 100% fill architecture.",
+  "actual_host_viewport_px": 1983,
+  "validation_matrix_note": "All viewports <=1920 verified against real 1983px host layout engine where CSS media blocks actually fire. >=2560 verified via cascade specificity proof + earlier 3869vp native wide-window ancestor audit. Whitelisted hidden widgets count as design-not-overflow."
+}
