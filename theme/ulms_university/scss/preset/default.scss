@@ -6732,3 +6732,197 @@ body.theme-ulms-university .ulms-shell-sidebar svg { width: auto; max-width: non
         outline-offset: var(--ulms-focus-offset) !important;
     }
 }
+
+/* =========================================================
+   CONTRAST FIXES (USER REPORTED BLUE-ON-BLUE INVISIBLE TEXT
+   Scope line-position EOF cascade last-in-cascade line wins last.
+   WCAG 2.2 AA targets:
+   - Nav group labels on dark sidebar bg #0f3d67
+   - path-admin hero card left quick-nav sidebar links + register button
+   - deep primary banners + alerts/notification text #fff
+   Fixes 4 reported defects: DEF-CONTRAST-1..4
+   ========================================================= */
+
+/* DEF-CON-1: Sidebar group titles (h2/h3 + __title)
+   L2542 rgba(200,224,248,.62) → 9.3:1 AAA white.
+   Also boost to sidebar-text level opacity 0.94 against #0f3d67 bg. */
+body.theme-ulms-university .ulms-shell-nav-group__title,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group__title,
+body.theme-ulms-university .ulms-shell-nav-group > h2,
+body.theme-ulms-university .ulms-shell-nav-group > h3,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group > h2,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-nav-group > h3 {
+    color: rgba(230, 242, 255, 0.94) !important;
+}
+
+/* DEF-CON-1b: nav section labels (L3545 var sidebar-muted → sidebar-text) */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar nav .nav-section-label {
+    color: var(--ulms-sidebar-text, rgba(230,242,255,0.92)) !important;
+}
+
+/* DEF-CON-2: path-admin (admin/search hero + left quick-nav sidebar
+   (Settings card left column: Super admin / Advanced features / Plugins...)
+   Default L68 a{} uses browser link color → near invisible on light blue card BG.
+   Force text-strong 15.6:1 AAA + links text-strong underline accent underlined. */
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) {
+    color: $ulms-text;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:visited,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .list-group-item,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .list-group-item a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search #region-main > *,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > * {
+    color: $ulms-text-strong;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a {
+    text-decoration: underline;
+    text-decoration-color: rgba(15, 76, 129, 0.35);
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 0.08em;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:focus-visible {
+    color: $ulms-primary;
+    text-decoration-color: $ulms-primary;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search #region-main > :first-child,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > :first-child {
+    color: $ulms-text-strong;
+}
+/* hero card left quick-nav panel (vertical list-group list-group-item links
+   Super admin / Advanced settings / Plugins dashboard / Site admin presets) */
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search #region-main > :first-child a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > :first-child a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main ul.list-group a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main ol.list-group a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main nav.list-group a {
+    color: $ulms-text-strong !important;
+    text-decoration: none !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main ul.list-group a:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main ul.list-group a:focus-visible {
+    color: $ulms-primary !important;
+    text-decoration: underline !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .adminpagetitle,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main h1,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main h2,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main h3,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main h4 {
+    color: $ulms-text-strong !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .adminpagepath,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .text-muted,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main small,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main p.secondary {
+    color: $ulms-text-muted !important;
+}
+
+/* DEF-CON-3: Register your site button + light/secondary/outline contrast safe
+   Don't let $primary text on near-white 2:1 invisible bg → force dark text-strong with border and readable (contrast ratio > 6:1 */
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-outline-primary,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-outline-primary,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-secondary,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-secondary,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) button:not(.btn-primary):not(.btn-danger):not(.btn-success):not(.btn-warning):not([class*="danger"]):not([class*="primary"]):not([class*="success"]):not([class*="warning"]):not([class*="alert"]),
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a.btn:not(.btn-primary):not(.btn-danger):not(.btn-success):not(.btn-warning) {
+    background: #ffffff !important;
+    border-color: $ulms-border-strong !important;
+    color: $ulms-text-strong !important;
+    font-weight: 600 !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:focus-visible,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light:focus-visible,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-secondary:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-secondary:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-outline-primary:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-outline-primary:hover {
+    background: $ulms-panel-alt !important;
+    border-color: $primary !important;
+    color: $ulms-primary !important;
+}
+
+/* DEF-CON-4: deep primary (#0f3d67) banners/alerts/notifications
+   across page under hero or notifications.
+   Also global alert/notification + bg-primary style bootstrap alerts/notice cards.
+   Force #fff text + child inherit (buttons/text/icon children also bright white 12.3:1 AAA */
+body.theme-ulms-university .alert.bg-primary,
+body.theme-ulms-university .alert.alert-primary,
+body.theme-ulms-university .notification.bg-primary,
+body.theme-ulms-university div[style*="background: #0f3d67"],
+body.theme-ulms-university div[style*="background:#0f3d67"],
+body.theme-ulms-university div[style*="background-color: #0f3d67"],
+body.theme-ulms-university [class*="bg-primary"],
+body.theme-ulms-university [class*="bg-"][class*="-primary"] {
+    color: #ffffff !important;
+}
+body.theme-ulms-university .alert.bg-primary *,
+body.theme-ulms-university .alert.alert-primary *,
+body.theme-ulms-university .notification.bg-primary *,
+body.theme-ulms-university [class*="bg-primary"] *,
+body.theme-ulms-university [class*="bg-"][class*="-primary"] * {
+    color: inherit !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification {
+    color: $ulms-text-strong;
+    background: $ulms-panel-alt;
+    border-color: $ulms-border;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-primary {
+    background: rgba(15, 76, 129, 0.96) !important;
+    border-color: $primary !important;
+    color: #ffffff !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info *,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info *,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-primary * {
+    color: inherit !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info a {
+    color: #ffffff !important;
+    text-decoration: underline;
+    text-decoration-color: rgba(255, 255, 255, 0.6);
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-warning {
+    background: #fff8e6 !important;
+    border-color: #c49a3a !important;
+    color: #5a3d08 !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-warning * {
+    color: inherit !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-success {
+    background: #e9f7ef !important;
+    border-color: #0f7d3f !important;
+    color: #0a4b2a !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-success * {
+    color: inherit !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-danger {
+    background: #fdecea !important;
+    border-color: #b42318 !important;
+    color: #6d1b12 !important;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-danger * {
+    color: inherit !important;
+}
+
+/* Prevent page-admin-search hero card sidebar list menus (Bootstrap list-group left quick-nav inside hero card container (1st child of region-main)  — force inherit dark labels + contrast links text-strong (15:1 AAA) */
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search #region-main > div:first-child > div,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > div:first-child > div,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main [class*="card"] [class*="list-group"] > a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main [class*="card"] [class*="list-group"] > div {
+    color: $ulms-text-strong;
+}
+
+/* End contrast fixes.  ^EOF */
