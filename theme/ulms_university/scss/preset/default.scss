@@ -1690,7 +1690,13 @@ body.theme-ulms-university {
     padding-top: 1rem;
 }
 
-.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main-box .secondary-navigation,
+/* NOTE: the secondary navigation is rendered as a SIBLING placed BEFORE
+   #region-main-box (see templates/drawers_shell.mustache ~L164-171 and
+   standard_shell.mustache ~L97-104). A `#region-main-box .secondary-navigation`
+   descendant selector can therefore never match, which left the MoreMenu band
+   inheriting the global `.secondary-navigation { background-color: $primary }`
+   blue from L180. Target it by its own class instead. */
+.theme-ulms-university.path-admin:not(.ulms-custom-page) .secondary-navigation,
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main-settings-menu,
 .theme-ulms-university.path-admin:not(.ulms-custom-page) .tertiary-navigation {
     margin-bottom: 1rem;
@@ -1698,6 +1704,17 @@ body.theme-ulms-university {
     border: 1px solid $ulms-border;
     border-radius: $ulms-radius-md;
     background: rgba(255, 255, 255, 0.82);
+}
+
+/* Tinted surface (not solid $primary blue) so the white MoreMenu pills inside
+   stay clearly identifiable against their container. */
+.theme-ulms-university.path-admin:not(.ulms-custom-page) .secondary-navigation {
+    background: #eef3fb;
+}
+
+.theme-ulms-university.path-admin:not(.ulms-custom-page) .secondary-navigation .nav-link:focus-visible {
+    outline: var(--ulms-focus-outline);
+    outline-offset: var(--ulms-focus-offset);
 }
 
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main {
@@ -1719,6 +1736,18 @@ body.theme-ulms-university {
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #page-header .page-header-headings h1,
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #page-header .page-context-header .header-button-group,
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #page-header a {
+    color: inherit;
+}
+
+/* When #page-header merely wraps the ULMS portal-context header card
+   (breadcrumbs + title + description), keep the wrapper neutral so the
+   decorative card is not framed by a solid blue panel. */
+.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-header:has(.ulms-page-header) {
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     color: inherit;
 }
 
@@ -1896,7 +1925,7 @@ body.theme-ulms-university {
 }
 
 @media (max-width:1199.98px){.theme-ulms-university.ulms-role-login-page .login-container{max-width:min(960px,calc(100vw - 2rem))}.theme-ulms-university .ulms-role-login,.theme-ulms-university .ulms-role-login__layout{grid-template-columns:1fr}.theme-ulms-university .ulms-role-login__hero{position:static}.theme-ulms-university .ulms-role-login__alternates{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.theme-ulms-university .ulms-layout-grid--sidebar{grid-template-columns:1fr}.theme-ulms-university .ulms-filter-field,.theme-ulms-university .ulms-filter-field--wide{grid-column:span 6}}
-@media (max-width:767.98px){.theme-ulms-university .ulms-portal-navbar{min-height:4.4rem;padding:.65rem 0}.theme-ulms-university .ulms-portal-navbar .container-fluid,.theme-ulms-university .ulms-shell,.theme-ulms-university .ulms-portal-footer{width:calc(100% - 1rem);max-width:100%}.theme-ulms-university .ulms-portal-navbar .navbar-brand{font-size:1.35rem}.theme-ulms-university .ulms-shell-topbar{flex-wrap:wrap}.theme-ulms-university .ulms-shell-topbar__context{order:3;width:100%;padding-left:0;justify-content:space-between}.theme-ulms-university.ulms-dashboard-page #page.drawers .main-inner{padding-top:5.15rem}.theme-ulms-university .ulms-page{gap:1rem}.theme-ulms-university .ulms-brand-banner,.theme-ulms-university .ulms-page-header,.theme-ulms-university .ulms-panel__header,.theme-ulms-university .ulms-panel__body,.theme-ulms-university .ulms-panel__footer{padding:1rem}.theme-ulms-university .ulms-page-header__actions,.theme-ulms-university .ulms-filter-actions{width:100%}.theme-ulms-university .ulms-page-header__actions .btn,.theme-ulms-university .ulms-page-header__actions a,.theme-ulms-university .ulms-filter-actions .btn,.theme-ulms-university .ulms-filter-actions a{width:100%;justify-content:center}.theme-ulms-university .ulms-kpi-grid,.theme-ulms-university .ulms-filter-grid,.theme-ulms-university .ulms-action-grid,.theme-ulms-university .ulms-dashboard-sections,.theme-ulms-university .ulms-dashboard-support{grid-template-columns:1fr}.theme-ulms-university .ulms-portal-footer__meta,.theme-ulms-university .ulms-portal-footer__support{flex-direction:column;align-items:flex-start}.theme-ulms-university .ulms-brand-banner__portal-grid{grid-template-columns:1fr}.theme-ulms-university .ulms-brand-banner__portal-card .btn,.theme-ulms-university .ulms-role-login__alternate-card .btn{width:100%;justify-content:center}.theme-ulms-university.ulms-role-login-page .login-wrapper{padding:1rem}.theme-ulms-university.ulms-role-login-page .login-container{max-width:calc(100vw - 1rem)}.theme-ulms-university .ulms-role-login__hero{padding:1.2rem}.theme-ulms-university .ulms-role-login__alternates{grid-template-columns:1fr}.theme-ulms-university .ulms-role-login__password-wrap .form-control,.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .form-control{padding-right:3.4rem}.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-header,.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main,.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main-box .secondary-navigation,.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main-settings-menu,.theme-ulms-university.path-admin:not(.ulms-custom-page) .tertiary-navigation{padding:1rem}.theme-ulms-university.path-admin:not(.ulms-custom-page) #adminsettings .form-item.row{padding:1rem 0}.theme-ulms-university.path-admin:not(.ulms-custom-page) #adminsettings .form-label{padding-right:15px;margin-bottom:.5rem;text-align:left!important}.theme-ulms-university .ulms-filter-field,.theme-ulms-university .ulms-filter-field--wide{grid-column:auto}.theme-ulms-university .ulms-list__item{flex-direction:column}}
+@media (max-width:767.98px){.theme-ulms-university .ulms-portal-navbar{min-height:4.4rem;padding:.65rem 0}.theme-ulms-university .ulms-portal-navbar .container-fluid,.theme-ulms-university .ulms-shell,.theme-ulms-university .ulms-portal-footer{width:calc(100% - 1rem);max-width:100%}.theme-ulms-university .ulms-portal-navbar .navbar-brand{font-size:1.35rem}.theme-ulms-university .ulms-shell-topbar{flex-wrap:wrap}.theme-ulms-university .ulms-shell-topbar__context{order:3;width:100%;padding-left:0;justify-content:space-between}.theme-ulms-university.ulms-dashboard-page #page.drawers .main-inner{padding-top:5.15rem}.theme-ulms-university .ulms-page{gap:1rem}.theme-ulms-university .ulms-brand-banner,.theme-ulms-university .ulms-page-header,.theme-ulms-university .ulms-panel__header,.theme-ulms-university .ulms-panel__body,.theme-ulms-university .ulms-panel__footer{padding:1rem}.theme-ulms-university .ulms-page-header__actions,.theme-ulms-university .ulms-filter-actions{width:100%}.theme-ulms-university .ulms-page-header__actions .btn,.theme-ulms-university .ulms-page-header__actions a,.theme-ulms-university .ulms-filter-actions .btn,.theme-ulms-university .ulms-filter-actions a{width:100%;justify-content:center}.theme-ulms-university .ulms-kpi-grid,.theme-ulms-university .ulms-filter-grid,.theme-ulms-university .ulms-action-grid,.theme-ulms-university .ulms-dashboard-sections,.theme-ulms-university .ulms-dashboard-support{grid-template-columns:1fr}.theme-ulms-university .ulms-portal-footer__meta,.theme-ulms-university .ulms-portal-footer__support{flex-direction:column;align-items:flex-start}.theme-ulms-university .ulms-brand-banner__portal-grid{grid-template-columns:1fr}.theme-ulms-university .ulms-brand-banner__portal-card .btn,.theme-ulms-university .ulms-role-login__alternate-card .btn{width:100%;justify-content:center}.theme-ulms-university.ulms-role-login-page .login-wrapper{padding:1rem}.theme-ulms-university.ulms-role-login-page .login-container{max-width:calc(100vw - 1rem)}.theme-ulms-university .ulms-role-login__hero{padding:1.2rem}.theme-ulms-university .ulms-role-login__alternates{grid-template-columns:1fr}.theme-ulms-university .ulms-role-login__password-wrap .form-control,.theme-ulms-university.pagelayout-login .toggle-sensitive-wrapper .form-control{padding-right:3.4rem}.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-header,.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main,.theme-ulms-university.path-admin:not(.ulms-custom-page) .secondary-navigation,.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main-settings-menu,.theme-ulms-university.path-admin:not(.ulms-custom-page) .tertiary-navigation{padding:1rem}.theme-ulms-university.path-admin:not(.ulms-custom-page) #adminsettings .form-item.row{padding:1rem 0}.theme-ulms-university.path-admin:not(.ulms-custom-page) #adminsettings .form-label{padding-right:15px;margin-bottom:.5rem;text-align:left!important}.theme-ulms-university .ulms-filter-field,.theme-ulms-university .ulms-filter-field--wide{grid-column:auto}.theme-ulms-university .ulms-list__item{flex-direction:column}}
 @supports not ((backdrop-filter:blur(8px)) or (-webkit-backdrop-filter:blur(8px))){.theme-ulms-university .ulms-brand-banner__portal-card{background:rgba(255,255,255,.14)}.theme-ulms-university .ulms-portal-navbar{background:rgba(255,255,255,.97)!important}}
 
 .theme-ulms-university .ulms-user-actions,.theme-ulms-university .ulms-user-card-actions,.theme-ulms-university .ulms-form-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
@@ -4867,8 +4896,12 @@ body.theme-ulms-university.ulms-dashboard-shell #region-main > * > * > *:has(tab
     border-radius: var(--ulms-radius-card) !important;
 }
 
-/* -------------- SETTINGS / FORMS: 2-col balanced grid → 1-col @≤991 -------------- */
-body.theme-ulms-university.ulms-dashboard-shell #page-content form,
+/* -------------- SETTINGS / FORMS: 2-col balanced grid → 1-col @≤991 --------------
+   Search forms are excluded: forcing `display:grid` with a single
+   `minmax(280px, 1fr)` track onto `form.simplesearchform` cannot fit the
+   input (280px) plus its submit button, which pushed the control outside the
+   header container. They stay flex. */
+body.theme-ulms-university.ulms-dashboard-shell #page-content form:not(.simplesearchform):not(.searchform-navbar),
 body.theme-ulms-university.ulms-dashboard-shell .settings-grid,
 body.theme-ulms-university.ulms-dashboard-shell .ulms-form-grid,
 body.theme-ulms-university.ulms-dashboard-shell form > fieldset,
@@ -4881,6 +4914,16 @@ body.theme-ulms-university.ulms-dashboard-shell .settings-form {
     display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
     gap: clamp(0.85rem, 1.1vw, 1.1rem) !important;
+}
+
+/* Keep the header search control inside its container at every width. */
+body.theme-ulms-university.ulms-dashboard-shell #page-content .simplesearchform {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
 }
 @media (max-width: 991.98px) {
     body.theme-ulms-university.ulms-dashboard-shell form > fieldset,
@@ -5236,13 +5279,15 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
      so sidebar collapse ↔ header pad slide together smoothly.
    ==================================================================== */
 
-/* XL default (mobile-first then override) — we use max-width:none to match shell */
-.theme-ulms-university.ulms-dashboard-shell header[role="banner"],
-.theme-ulms-university.ulms-dashboard-shell [aria-label*="Site navigation"],
-.theme-ulms-university.ulms-dashboard-shell .ulms-page-header,
-.theme-ulms-university.ulms-dashboard-shell #page-header,
-.theme-ulms-university.ulms-dashboard-shell nav[aria-label*="Site"],
-.theme-ulms-university.ulms-dashboard-shell header {
+/* XL default (mobile-first then override) — we use max-width:none to match shell.
+   Scope is restricted to the real portal topbar (header.ulms-portal-navbar /
+   [aria-label*="Site navigation"]) only. Previously the list also contained the
+   generic `header`, `#page-header` and `.ulms-page-header` selectors, which
+   leaked topbar-only positioning (position:sticky, padding-left:280px sidebar
+   gutter, white !important background) onto ordinary page headers — making the
+   admin h1 white-on-white and inset by the sidebar width. */
+.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar,
+.theme-ulms-university.ulms-dashboard-shell [aria-label*="Site navigation"] {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
@@ -5275,8 +5320,8 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell header[role="banner"] .container-fluid,
 .theme-ulms-university.ulms-dashboard-shell [aria-label*="Site navigation"] .container,
 .theme-ulms-university.ulms-dashboard-shell [aria-label*="Site navigation"] .container-fluid,
-.theme-ulms-university.ulms-dashboard-shell header > .container,
-.theme-ulms-university.ulms-dashboard-shell header > .container-fluid {
+.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar > .container,
+.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar > .container-fluid {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
@@ -5291,7 +5336,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell [aria-label*="Site navigation"] > div,
 .theme-ulms-university.ulms-dashboard-shell header[role="banner"] nav,
 .theme-ulms-university.ulms-dashboard-shell header[role="banner"] .d-flex,
-.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-shell header > :first-child {
+.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar > :first-child {
     width: 100% !important;
     max-width: none !important;
     display: flex !important;
@@ -5683,15 +5728,40 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
    regardless of sidebar state or viewport DPR zoom.
    ==================================================================== */
 
-/* L1 header left pad tracks sidebar width in both states (expanded / collapsed). */
-body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell:not(.is-sidebar-collapsed)) header.ulms-portal-navbar.navbar.fixed-top,
-body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top {
-    padding-left: var(--ulms-sidebar-w) !important; /* 280px expanded */
-    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+/* L1 header left pad tracks sidebar width in both states (expanded / collapsed).
+   XL ONLY (>=1200px): below 1200px the sidebar is CSS-narrowed to the rail width
+   by the breakpoint blocks earlier in this file, independently of the JS-managed
+   `.is-sidebar-collapsed` class. Applying the 280px expanded gutter there pinned
+   the topbar 204px away from the rail edge and pushed the brand, context label
+   and edit-mode switch past the right viewport edge (clipped, because the topbar
+   is overflow-x:hidden). The responsive mapping lives in the
+   HEADER RESPONSIVE BREAKPOINTS blocks above. */
+@media (min-width: 1200px) {
+    body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell:not(.is-sidebar-collapsed)) header.ulms-portal-navbar.navbar.fixed-top,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top {
+        padding-left: var(--ulms-sidebar-w) !important; /* 280px expanded */
+        padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+    }
+    body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell.is-sidebar-collapsed) header.ulms-portal-navbar.navbar.fixed-top {
+        padding-left: var(--ulms-sidebar-w-collapsed) !important; /* 76px rail */
+        padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+    }
 }
-body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell.is-sidebar-collapsed) header.ulms-portal-navbar.navbar.fixed-top {
-    padding-left: var(--ulms-sidebar-w-collapsed) !important; /* 68px rail */
-    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+/* MD tablet (768-991.98): the sidebar is an in-flow sticky rail (see the
+   768-1199.98 sidebar block), so the topbar must reserve the rail width, not the
+   safe-left-only gutter meant for viewports with no persistent sidebar. */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top {
+        padding-left: var(--ulms-sidebar-w-collapsed) !important;
+        padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+    }
+}
+/* Tablet/laptop rail (768-1199.98): while the drawer is open the sidebar expands
+   to the full in-flow column, so the topbar gutter expands with it. */
+@media (min-width: 768px) and (max-width: 1199.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell:has(.ulms-shell.is-sidebar-open) header.ulms-portal-navbar.navbar.fixed-top {
+        padding-left: var(--ulms-sidebar-w) !important;
+    }
 }
 /* L2 cancellation: inner flex-row ALWAYS left-pad 0 (expanded + collapsed both)
    so first flex child (hamburger) sits flush to header.padLeft inner edge. */
@@ -6663,17 +6733,30 @@ body.theme-ulms-university.ulms-dashboard-shell section.ulms-dashboard-primary {
     margin-bottom: clamp(1rem, 1.8vh, 1.75rem) !important;
 }
 
-/* Zoom 200% safety: no fixed widths that overflow, all min-width:0.
-   Use body + universal selectors with shell-class compounds for parity. */
+/* Zoom 200% safety — scoped instead of a universal `* { min-width:0 !important;
+   max-width: none }` override, which stripped max-width from every descendant
+   (images, cards, text measures) and forced minimum widths on decorative
+   elements. Only the layout containers and their flex/grid children need the
+   shrink allowance; box-sizing is already provided by the Bootstrap reboot. */
 body.theme-ulms-university,
 body.theme-ulms-university.ulms-dashboard-shell,
-body.theme-ulms-university.ulms-standard-shell,
-body.theme-ulms-university *,
-body.theme-ulms-university *::before,
-body.theme-ulms-university *::after {
-    min-width: 0 !important;
-    max-width: none;
-    box-sizing: border-box !important;
+body.theme-ulms-university.ulms-standard-shell {
+    min-width: 0;
+    box-sizing: border-box;
+}
+body.theme-ulms-university .ulms-shell,
+body.theme-ulms-university .ulms-shell-content,
+body.theme-ulms-university #page-content,
+body.theme-ulms-university #region-main-box,
+body.theme-ulms-university #region-main,
+body.theme-ulms-university .ulms-page-header,
+body.theme-ulms-university .ulms-page-header > *,
+body.theme-ulms-university .ulms-panel,
+body.theme-ulms-university .ulms-panel > *,
+body.theme-ulms-university .card-body,
+body.theme-ulms-university .d-flex > *,
+body.theme-ulms-university .d-grid > * {
+    min-width: 0;
 }
 body.theme-ulms-university img,
 body.theme-ulms-university video,
@@ -6684,6 +6767,39 @@ body.theme-ulms-university canvas {
 }
 body.theme-ulms-university .ulms-shell-sidebar img,
 body.theme-ulms-university .ulms-shell-sidebar svg { width: auto; max-width: none; }
+
+/* ====================================================================
+   Portal-context page header: the dashboard hero grid (single
+   `minmax(0,1fr) auto` row + named areas "eyebrow/title/cta/date")
+   applies to .ulms-page-header generally, but the portal-context variant
+   renders .ulms-breadcrumbs + .ulms-page-header__content, which carry no
+   grid-area. They auto-place into the collapsing minmax(0,1fr) track,
+   squeezing the breadcrumb into a ~24px column of vertically-wrapped
+   text. Give the --portal-context variant a plain stacked flow so the
+   breadcrumb, title and description each get the full width.
+   ==================================================================== */
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header--portal-context {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+    grid-template-areas: none !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header--portal-context > * {
+    grid-area: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+}
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header--portal-context .ulms-breadcrumbs,
+body.theme-ulms-university.ulms-dashboard-shell .ulms-page-header--portal-context .ulms-breadcrumbs__list {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin-bottom: 0 !important;
+}
 
 
 
