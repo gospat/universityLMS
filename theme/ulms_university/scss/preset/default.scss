@@ -187,6 +187,38 @@ body.theme-ulms-university .sr-only,
     font-weight: 600;
 }
 
+/* ROOT-CAUSE FIX — secondary navigation must never be painted at opacity 0.
+   ---------------------------------------------------------------------------
+   Boost core ships `.moremenu { opacity: 0 }` (theme/boost/scss/moodle/
+   moremenu.scss) and reveals the menu only after its AMD script adds the
+   `.observed` class (lib/amd/src/moremenu.js -> autoCollapse()). That reveal
+   is therefore JS-dependent and purely presentational. When the handshake
+   does not complete the entire `.moremenu` subtree keeps painting at
+   opacity 0: the `.secondary-navigation` band stays visible (the theme paints
+   its own background) while every tab label, the active pill and the hover
+   states disappear — even though the anchors keep their geometry, remain
+   hit-testable/clickable and report colour/visibility normally. That is
+   exactly the reported production symptom.
+
+   The ULMS theme owns this band's design, so it must stay legible without
+   depending on a JS handshake. This rule is scoped to the secondary
+   navigation only, and only while `.observed` is still absent, so the normal
+   (JS-working) path is untouched: a short delay first gives core's script
+   time to run and collapse overflowing tabs into the "More" menu exactly as
+   before, after which the band is force-revealed so it can never remain
+   permanently invisible. Once `.observed` arrives the animation is dropped
+   and core's `.moremenu.observed { opacity: 1 }` takes over, so there is no
+   interaction with the healthy path. */
+.theme-ulms-university .secondary-navigation .moremenu:not(.observed) {
+    animation: ulms-secondary-nav-reveal 0.01s linear 0.5s 1 normal forwards;
+}
+
+@keyframes ulms-secondary-nav-reveal {
+    to {
+        opacity: 1;
+    }
+}
+
 .theme-ulms-university #page.drawers .main-inner {
     width: 100% !important;
     max-width: none !important;
