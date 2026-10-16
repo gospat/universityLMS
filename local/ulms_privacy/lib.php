@@ -171,13 +171,11 @@ JSCODE;
         if ($injected !== '' || true) {
             try {
                 if ($PAGE instanceof \moodle_page) {
-                    // P0-4: Ungated skip-link target (always set, regardless of banner presence)
-                    /** @var object $requires */
-                    $requires = $PAGE->requires;
-                    $requires->skip_link_target_id = 'maincontent';
-                    if (method_exists($requires, 'set_skip_link_id')) {
-                        $requires->set_skip_link_id('maincontent');
-                    }
+                    // P0-4: the "maincontent" skip-link target is already registered for every
+                    // page by core (page_requirements_manager::init_requirements_data()). The
+                    // previous ad-hoc `$requires->skip_link_target_id = 'maincontent'` write had
+                    // no effect on output and triggered a PHP 8.2+ dynamic-property deprecation,
+                    // so it is deliberately not repeated here.
                     // P0-4 + P1-12: Inject explicit anchor targets via top-of-body if not already present
                     global $CFG;
                     if (empty($CFG->additionalhtmltopofbody)) {

@@ -43,7 +43,11 @@ AllowOverride None
     Header always set Cross-Origin-Embedder-Policy "require-corp"
     Header always set Cross-Origin-Resource-Policy "same-origin"
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
+    # form-action also allows the Moodle Hub host so the site-registration POST
+    # (admin/registration/index.php) can follow its server-side 303 redirect to
+    # https://stats.moodle.org/local/hub/siteregistration.php. See
+    # theme/ulms_university/classes/output/core_renderer.php. No other directive is relaxed.
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://stats.moodle.org; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
     Header always unset X-Powered-By
 </IfModule>
 

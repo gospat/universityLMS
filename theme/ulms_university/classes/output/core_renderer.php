@@ -174,7 +174,12 @@ class core_renderer extends \theme_boost\output\core_renderer {
         @header('X-Content-Type-Options: nosniff', false);
         @header('X-Frame-Options: DENY', false);
         @header('Referrer-Policy: strict-origin-when-cross-origin', false);
-        @header("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), interest-cohort=(), usb=(), bluetooth=(), magnetometer=(), accelerometer=(), gyroscope=(), ambient-light-sensor=(), battery=(), document-domain=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), gamepad=(), hid=(), idle-detection=(), screen-wake-lock=(), serial=(), sync-xhr=(self), window-placement=(), xr-spatial-tracking=()", false);
+        // Only feature tokens that browsers actually recognise are listed. Unsupported
+        // tokens are ignored by user agents but still raise "Unrecognized feature"
+        // console errors, which obscure real JavaScript failures. Removed: battery,
+        // ambient-light-sensor, document-domain, execution-while-not-rendered,
+        // execution-while-out-of-viewport, window-placement.
+        @header("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), interest-cohort=(), usb=(), bluetooth=(), magnetometer=(), accelerometer=(), gyroscope=(), gamepad=(), hid=(), idle-detection=(), screen-wake-lock=(), serial=(), sync-xhr=(self), xr-spatial-tracking=()", false);
         @header('X-XSS-Protection: 1; mode=block', false);
         @header('X-Download-Options: noopen', false);
         @header('X-Permitted-Cross-Domain-Policies: none', false);
@@ -194,6 +199,22 @@ class core_renderer extends \theme_boost\output\core_renderer {
         // All CSP-restricted origins (connect-src, frame-*, object-src, base-uri,
         // form-action, manifest-src, media-src) remain explicitly allow-listed and
         // restrictive.
+        //
+        // form-action must additionally name the Moodle Hub host. Site registration
+        // (admin/registration/index.php) posts to this same origin and the server then
+        // answers with a 303 redirect to https://stats.moodle.org/local/hub/siteregistration.php
+        // (\core\hub\registration::register()). Browsers apply form-action to every hop of
+        // a form-submission navigation, so a bare "form-action 'self'" blocks that redirect
+        // ("Refused to send form data ... form-action 'self'"). The host comes from the
+        // core constant HUB_MOODLEORGHUBURL; no other directive is relaxed.
+        $formactionsrcs = "'self'";
+        if (defined('HUB_MOODLEORGHUBURL')) {
+            $hubhost = parse_url(HUB_MOODLEORGHUBURL, PHP_URL_SCHEME) . '://'
+                . parse_url(HUB_MOODLEORGHUBURL, PHP_URL_HOST);
+            if ($hubhost !== '://') {
+                $formactionsrcs .= ' ' . $hubhost;
+            }
+        }
         $csp = "default-src 'self'; "
             . "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
             . "style-src 'self' 'unsafe-inline'; "
@@ -204,7 +225,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
             . "frame-src 'self'; "
             . "object-src 'none'; "
             . "base-uri 'self'; "
-            . "form-action 'self'; "
+            . "form-action {$formactionsrcs}; "
             . "manifest-src 'self'; "
             . "media-src 'self'; "
             . "upgrade-insecure-requests;";

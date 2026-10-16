@@ -58,9 +58,6 @@ $PAGE->set_other_editing_capability('moodle/course:activityvisibility');
 $PAGE->set_cacheable(false);
 
 require_course_login($SITE);
-// #region debug-point D:root-index-entry
-$__dbgurl = 'http://127.0.0.1:7777/event'; $__dbgsession = 'auth-landing-flow'; $__dbgenv = @file_get_contents($CFG->dirroot . '/.dbg/auth-landing-flow.env'); if ($__dbgenv !== false) { foreach (preg_split('/\r\n|\r|\n/', $__dbgenv) as $__dbgline) { if (str_starts_with($__dbgline, 'DEBUG_SERVER_URL=')) { $__dbgurl = trim(substr($__dbgline, 17)); } else if (str_starts_with($__dbgline, 'DEBUG_SESSION_ID=')) { $__dbgsession = trim(substr($__dbgline, 17)); } } } @file_get_contents($__dbgurl, false, stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => json_encode(['sessionId' => $__dbgsession, 'runId' => 'pre-fix', 'hypothesisId' => 'D', 'location' => 'index.php:frontpage', 'msg' => '[DEBUG] Root index request reached Moodle frontpage', 'data' => ['requesturi' => (string)($_SERVER['REQUEST_URI'] ?? ''), 'isLoggedIn' => isloggedin(), 'isGuest' => isguestuser(), 'defaultHomepage' => $CFG->defaulthomepage ?? null, 'alternateLoginUrl' => $CFG->alternateloginurl ?? '', 'forgottenPasswordUrl' => $CFG->forgottenpasswordurl ?? ''], 'ts' => (int)round(microtime(true) * 1000)]), 'timeout' => 1]]));
-// #endregion
 
 if (class_exists(\local_ulms_auth\local\service\landing_page_service::class) && isloggedin() && !isguestuser()) {
     $routingservice = new \local_ulms_auth\local\service\landing_page_service();
