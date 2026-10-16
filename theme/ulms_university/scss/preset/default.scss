@@ -1851,8 +1851,13 @@ body.theme-ulms-university {
     box-shadow: none;
 }
 
+/* Do not clip the editor container. `overflow: hidden` on .tox-tinymce was
+   applied only to round the outer corners, but clipping the TinyMCE root can
+   hide the menubar/toolbar rows once the toolbar wraps to two lines (narrow
+   viewports) or the edit surface itself. Rounding is retained via
+   border-radius; Moodle core already clips the inner iframe. */
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #adminsettings .tox.tox-tinymce {
-    overflow: hidden;
+    overflow: visible;
 }
 
 .theme-ulms-university.path-admin:not(.ulms-custom-page) #adminsettings .form-description {
@@ -5131,11 +5136,24 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 }
 
 /* ====================================================================
+   Moodle core editor guard.
+
+   TinyMCE (the Moodle text editor) renders its menubar, toolbar, dialog and
+   listbox controls as real <button> elements (.tox-tbtn, .tox-mbtn,
+   .tox-button, .tox-listbox). The broad button rules in this theme matched
+   those controls and injected a border-radius, a translateY hover transform,
+   an active scale and `outline: none` into the editor chrome. This exclusion
+   chain keeps the theme button polish on Moodle/ULMS buttons while leaving
+   every core editor control untouched.
+   ==================================================================== */
+$ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.tox-listbox):not(.tox-menu-item)';
+
+/* ====================================================================
    4/6 Buttons: tactile press scale, rounded-10 radius, hover elevation,
    focus ring matching accent-green palette, active flash.
    ==================================================================== */
-.theme-ulms-university.ulms-dashboard-shell button,
-.theme-ulms-university.ulms-dashboard-shell [role="button"],
+.theme-ulms-university.ulms-dashboard-shell button#{$ulms-not-editor-control},
+.theme-ulms-university.ulms-dashboard-shell [role="button"]#{$ulms-not-editor-control},
 .theme-ulms-university.ulms-dashboard-shell input[type="submit"],
 .theme-ulms-university.ulms-dashboard-shell .btn {
     border-radius: var(--ulms-radius-btn) !important;
@@ -5147,22 +5165,22 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
         border-color var(--ulms-t-fast) var(--ulms-ease-standard) !important;
     outline: none !important;
 }
-.theme-ulms-university.ulms-dashboard-shell button:hover,
-.theme-ulms-university.ulms-dashboard-shell [role="button"]:hover,
+.theme-ulms-university.ulms-dashboard-shell button#{$ulms-not-editor-control}:hover,
+.theme-ulms-university.ulms-dashboard-shell [role="button"]#{$ulms-not-editor-control}:hover,
 .theme-ulms-university.ulms-dashboard-shell input[type="submit"]:hover,
 .theme-ulms-university.ulms-dashboard-shell .btn:hover {
     box-shadow: var(--ulms-shadow-md) !important;
     transform: translateY(-1px) !important;
 }
-.theme-ulms-university.ulms-dashboard-shell button:active,
-.theme-ulms-university.ulms-dashboard-shell [role="button"]:active,
+.theme-ulms-university.ulms-dashboard-shell button#{$ulms-not-editor-control}:active,
+.theme-ulms-university.ulms-dashboard-shell [role="button"]#{$ulms-not-editor-control}:active,
 .theme-ulms-university.ulms-dashboard-shell input[type="submit"]:active,
 .theme-ulms-university.ulms-dashboard-shell .btn:active {
     transform: scale(0.98) translateY(0) !important;
     transition-duration: 60ms !important;
 }
-.theme-ulms-university.ulms-dashboard-shell button:focus-visible,
-.theme-ulms-university.ulms-dashboard-shell [role="button"]:focus-visible,
+.theme-ulms-university.ulms-dashboard-shell button#{$ulms-not-editor-control}:focus-visible,
+.theme-ulms-university.ulms-dashboard-shell [role="button"]#{$ulms-not-editor-control}:focus-visible,
 .theme-ulms-university.ulms-dashboard-shell input[type="submit"]:focus-visible,
 .theme-ulms-university.ulms-dashboard-shell .btn:focus-visible {
     outline: none !important;
@@ -6166,7 +6184,7 @@ body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card.is-empty::after {
 }
 .ulms-appshell-topbar { height: 64px; }
 .ulms-sidebar-item.is-active { background-color: rgba(15, 76, 129, 0.10); border-left: 3px solid #0f4c81; color: #0f4c81; }
-.btn, button, .ulms-action-btn { border-radius: 8px !important; }
+.btn, button#{$ulms-not-editor-control}, .ulms-action-btn { border-radius: 8px !important; }
 .ulms-sidebar-nav-icon, .ulms-menu-icon { width: 24px; height: 24px; flex: 0 0 24px; }
 
 /* ====================================================================

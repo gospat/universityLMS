@@ -18,7 +18,7 @@ defined('MOODLE_INTERNAL') || die();
 
 /** @var stdClass $THEME */
 $THEME->name = 'ulms_university';
-$THEME->revision = 2026101603;
+$THEME->revision = 2026101604;
 $THEME->sheets = [];
 $THEME->editor_sheets = [];
 $THEME->editor_scss = ['editor'];
