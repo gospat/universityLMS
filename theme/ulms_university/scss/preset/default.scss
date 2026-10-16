@@ -6734,13 +6734,20 @@ body.theme-ulms-university .ulms-shell-sidebar svg { width: auto; max-width: non
 }
 
 /* =========================================================
-   CONTRAST FIXES (USER REPORTED BLUE-ON-BLUE INVISIBLE TEXT
-   Scope line-position EOF cascade last-in-cascade line wins last.
-   WCAG 2.2 AA targets:
-   - Nav group labels on dark sidebar bg #0f3d67
-   - path-admin hero card left quick-nav sidebar links + register button
-   - deep primary banners + alerts/notification text #fff
-   Fixes 4 reported defects: DEF-CONTRAST-1..4
+   CONTRAST FIXES — CORRECTED (regression-safe scoping)
+   Supersedes the deliberately-broad block originally shipped in commit
+   57dd5671. The five reported defects (blue-on-blue invisible text:
+   sidebar group labels, admin hero-card quick-nav links, "Register your
+   site" single button, deep-primary banners) are preserved, but the CSS
+   architecture was narrowed to eliminate regressions:
+     * no catch-all `button:not(.btn-primary)…` / `a.btn:not(...)` matchers;
+     * no [class*="bg-primary"] / [class*="bg-"][class*="-primary"] wildcards;
+     * no div[style*="background:…"] attribute matchers;
+     * no blanket `* { color: inherit !important }` descendant overrides.
+   Exact component classes + the theme body scope are used instead, so
+   semantic/outline/disabled/hover/focus states of buttons, links, forms,
+   nav, notifications and the Site Administration layout are untouched.
+   WCAG 2.2 AA targets: 4.5:1 normal text, 3:1 large text / non-text UI.
    ========================================================= */
 
 /* DEF-CON-1: Sidebar group titles (h2/h3 + __title)
@@ -6775,16 +6782,23 @@ body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search 
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > * {
     color: $ulms-text-strong;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) a {
+/* Only genuine content links are underlined. Button / nav / pagination /
+   dropdown anchors keep their component look (no underline, native hover
+   colour) so toolbars, pagers and dropdown toggles are not restyled. */
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:not(.btn):not(.nav-link):not(.dropdown-toggle):not(.dropdown-item):not(.page-link):not(.list-group-item) {
     text-decoration: underline;
     text-decoration-color: rgba(15, 76, 129, 0.35);
     text-underline-offset: 0.18em;
     text-decoration-thickness: 0.08em;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:hover,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:focus-visible {
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:not(.btn):not(.nav-link):not(.dropdown-toggle):not(.dropdown-item):not(.page-link):not(.list-group-item):hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) a:not(.btn):not(.nav-link):not(.dropdown-toggle):not(.dropdown-item):not(.page-link):not(.list-group-item):focus-visible {
     color: $ulms-primary;
     text-decoration-color: $ulms-primary;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .list-group-item,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .list-group a {
+    text-decoration: none !important;
 }
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search #region-main > :first-child,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > :first-child {
@@ -6819,61 +6833,70 @@ body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main p.seco
     color: $ulms-text-muted !important;
 }
 
-/* DEF-CON-3: Register your site button + light/secondary/outline contrast safe
-   Don't let $primary text on near-white 2:1 invisible bg → force dark text-strong with border and readable (contrast ratio > 6:1 */
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light,
+/* DEF-CON-3 (corrected): the reported defect was the "Register your site"
+   single-button control, rendered by core/single_button.mustache as
+   <button class="btn btn-secondary"> inside .alert.alert-danger.
+   We now target ONLY that control pattern (.singlebutton) and explicit
+   .btn-light surfaces. The former catch-all
+   `button:not(.btn-primary)…` / `a.btn:not(...)` matchers are REMOVED so
+   that .btn-link (topbar toggle, overview toggles, mark-all-read, icon
+   buttons), .btn-close (modals), .btn-outline-* (semantic outline
+   variants), .btn-danger/.btn-warning/.btn-success/.btn-primary and the
+   #adminsettings / .adminsearchform / .buttons controls keep native
+   colours, hover and focus states. */
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .singlebutton .btn.btn-secondary,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-outline-primary,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-outline-primary,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-secondary,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-secondary,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) button:not(.btn-primary):not(.btn-danger):not(.btn-success):not(.btn-warning):not([class*="danger"]):not([class*="primary"]):not([class*="success"]):not([class*="warning"]):not([class*="alert"]),
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) a.btn:not(.btn-primary):not(.btn-danger):not(.btn-success):not(.btn-warning) {
-    background: #ffffff !important;
-    border-color: $ulms-border-strong !important;
-    color: $ulms-text-strong !important;
-    font-weight: 600 !important;
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light {
+    background: #ffffff;
+    border-color: $ulms-border-strong;
+    color: $ulms-text-strong;
+    font-weight: 600;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .singlebutton .btn.btn-secondary:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .singlebutton .btn.btn-secondary:focus-visible,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light:hover,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:focus-visible,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light:focus-visible,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-secondary:hover,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-secondary:hover,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-outline-primary:hover,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-outline-primary:hover {
-    background: $ulms-panel-alt !important;
-    border-color: $primary !important;
-    color: $ulms-primary !important;
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:hover,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:focus-visible {
+    background: $ulms-panel-alt;
+    border-color: $ulms-primary;
+    color: $ulms-primary;
+}
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .singlebutton .btn.btn-secondary:disabled,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn.btn-light:disabled,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .btn-light:disabled {
+    background: $ulms-surface-strong;
+    border-color: $ulms-border;
+    color: $ulms-text-muted;
+    opacity: 1;
 }
 
-/* DEF-CON-4: deep primary (#0f3d67) banners/alerts/notifications
-   across page under hero or notifications.
-   Also global alert/notification + bg-primary style bootstrap alerts/notice cards.
-   Force #fff text + child inherit (buttons/text/icon children also bright white 12.3:1 AAA */
+/* DEF-CON-4 (corrected): deep-primary surfaces get white text using EXACT
+   class selectors only. The former [class*="bg-primary"] /
+   [class*="bg-"][class*="-primary"] wildcards and div[style*=…] attribute
+   matchers (which also caught bg-primary-subtle and other shades) are
+   REMOVED, and the blanket `* { color: inherit !important }` descendant
+   rules are replaced by explicit link rules so links stay identifiable and
+   focus indicators are untouched.
+   Note: .alert.alert-primary is NOT forced white here — Bootstrap 4 renders
+   it on a light blue background; white text would be invisible. Only the
+   genuinely dark surfaces (.bg-primary, .alert.bg-primary) and the
+   admin-scoped dark variant below get white text. */
+body.theme-ulms-university .bg-primary,
 body.theme-ulms-university .alert.bg-primary,
-body.theme-ulms-university .alert.alert-primary,
-body.theme-ulms-university .notification.bg-primary,
-body.theme-ulms-university div[style*="background: #0f3d67"],
-body.theme-ulms-university div[style*="background:#0f3d67"],
-body.theme-ulms-university div[style*="background-color: #0f3d67"],
-body.theme-ulms-university [class*="bg-primary"],
-body.theme-ulms-university [class*="bg-"][class*="-primary"] {
+body.theme-ulms-university .notification.bg-primary {
     color: #ffffff !important;
 }
-body.theme-ulms-university .alert.bg-primary *,
-body.theme-ulms-university .alert.alert-primary *,
-body.theme-ulms-university .notification.bg-primary *,
-body.theme-ulms-university [class*="bg-primary"] *,
-body.theme-ulms-university [class*="bg-"][class*="-primary"] * {
-    color: inherit !important;
+body.theme-ulms-university .bg-primary a:not(.btn),
+body.theme-ulms-university .alert.bg-primary a:not(.btn),
+body.theme-ulms-university .notification.bg-primary a:not(.btn) {
+    color: #ffffff !important;
+    text-decoration: underline;
+    text-decoration-color: rgba(255, 255, 255, 0.7);
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification {
-    color: $ulms-text-strong;
-    background: $ulms-panel-alt;
-    border-color: $ulms-border;
-}
+
+/* Admin alerts keep their semantic colour with AAA-legible text and still
+   identifiable (underlined) links — no blanket `*` inheritance. */
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-primary {
@@ -6881,47 +6904,48 @@ body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-primar
     border-color: $primary !important;
     color: #ffffff !important;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info *,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info *,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-primary * {
-    color: inherit !important;
-}
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info a,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info a {
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-info a:not(.btn),
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .notification.info a:not(.btn),
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-primary a:not(.btn) {
     color: #ffffff !important;
     text-decoration: underline;
-    text-decoration-color: rgba(255, 255, 255, 0.6);
+    text-decoration-color: rgba(255, 255, 255, 0.7);
 }
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-warning {
     background: #fff8e6 !important;
     border-color: #c49a3a !important;
     color: #5a3d08 !important;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-warning * {
-    color: inherit !important;
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-warning a:not(.btn) {
+    color: #7a4b06 !important;
+    text-decoration: underline;
 }
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-success {
     background: #e9f7ef !important;
     border-color: #0f7d3f !important;
     color: #0a4b2a !important;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-success * {
-    color: inherit !important;
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-success a:not(.btn) {
+    color: #075c31 !important;
+    text-decoration: underline;
 }
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-danger {
     background: #fdecea !important;
     border-color: #b42318 !important;
     color: #6d1b12 !important;
 }
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-danger * {
-    color: inherit !important;
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) .alert.alert-danger a:not(.btn) {
+    color: #7a1f14 !important;
+    text-decoration: underline;
 }
 
-/* Prevent page-admin-search hero card sidebar list menus (Bootstrap list-group left quick-nav inside hero card container (1st child of region-main)  — force inherit dark labels + contrast links text-strong (15:1 AAA) */
+/* Admin hero-card quick-nav list-groups use exact component classes
+   (.card .list-group) instead of the former [class*="card"] /
+   [class*="list-group"] attribute wildcards. */
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-search #region-main > div:first-child > div,
 body.theme-ulms-university.path-admin:not(.ulms-custom-page) #page-admin-setting-category #region-main > div:first-child > div,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main [class*="card"] [class*="list-group"] > a,
-body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main [class*="card"] [class*="list-group"] > div {
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .card .list-group > a,
+body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .card .list-group > div {
     color: $ulms-text-strong;
 }
 
