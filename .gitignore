@@ -36,7 +36,24 @@ logs/
 .phpunit.result.cache
 phpunit_database.xml
 coverage/
-build/
+
+# Do NOT add a bare `build/` rule here.
+#
+# Moodle ships *compiled* front-end assets inside directories literally named
+# `build`. These are not build output that can be regenerated at will on the
+# server - they are the deployed artefacts that the PHP asset endpoints read:
+#   - */amd/build/*.min.js      -> lib/requirejs.php  (core_requirejs::find_one_amd_module)
+#   - */yui/build/**            -> theme/yui_combo.php (core_yui_combo)
+#   - lib/yuilib/*/build/**     -> YUI 2-in-3 runtime
+# Ignoring them makes every git-based deployment ship without them, which
+# produces "No define call for core/first", "Mismatched anonymous define()
+# module" and "M.form.shortforms is not a function", and breaks Bootstrap
+# tab/dropdown/modal behaviour (e.g. admin settings tab switching).
+#
+# Upstream Moodle only ignores generated coverage files inside those trees:
+*/yui/build/*/*-coverage.js
+/lib/yuilib/*/build/*/*-coverage.js
+/lib/yuilib/*/*/*-coverage.js
 
 .DS_Store
 .idea/

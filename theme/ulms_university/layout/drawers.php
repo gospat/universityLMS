@@ -33,11 +33,6 @@ $hasblocks = (strpos($blockshtml, 'data-block=') !== false || !empty($addblockbu
 if (!$hasblocks) {
     $blockdraweropen = false;
 }
-$courseindex = core_course_drawer();
-if (!$courseindex) {
-    $courseindexopen = false;
-}
-
 $forceblockdraweropen = $OUTPUT->firstview_fakeblocks();
 
 $secondarynavigation = false;
@@ -64,13 +59,40 @@ $headercontent = $header->export_for_template($renderer);
 $hassidepre = $PAGE->blocks->is_known_region('side-pre');
 $portalshell = method_exists($OUTPUT, 'get_portal_shell_context') ? $OUTPUT->get_portal_shell_context() : null;
 
+// Activities publish parts of their own UI as "fake blocks" through
+// block_manager::add_fake_block(): mod_quiz adds its navigation panel, mod_lesson
+// its timer, mod_book its table of contents, mod_assign its submission overview.
+// Those must keep rendering inside the portal shell, otherwise the quiz attempt
+// page loses #mod_quiz_navblock (the .qnbutton status grid, the "End test" link
+// and the autosave indicator).
+$hasfakeblocks = $hassidepre && $PAGE->blocks->region_has_fakeblocks('side-pre');
+
+// The course index markup is rendered by the native drawer shell only. Rendering
+// it for portal pages would register its inline {{#js}} initialisers
+// (core_courseformat/local/courseindex/drawer and .../placeholder) while the markup
+// itself is discarded below, so those components would be constructed against
+// missing DOM elements and throw "Reactive components needs a main DOM element to
+// dispatch events". Course editor setup does not depend on this call: course pages
+// get it from include_course_ajax() in course/view.php.
+$courseindex = '';
+if ($portalshell === null) {
+    $courseindex = core_course_drawer();
+    if (!$courseindex) {
+        $courseindexopen = false;
+    }
+}
+
 if ($portalshell !== null) {
     $courseindexopen = false;
-    $blockdraweropen = false;
     $courseindex = '';
-    $hasblocks = false;
-    $forceblockdraweropen = false;
-    $blockshtml = '';
+    if (!$hasfakeblocks) {
+        // Portal pages normally hide the native block drawer entirely. When the
+        // page carries fake blocks (activity-owned UI) they are kept instead.
+        $blockdraweropen = false;
+        $forceblockdraweropen = false;
+        $blockshtml = '';
+        $hasblocks = false;
+    }
     $extraclasses = array_values(array_filter($extraclasses, static fn(string $c): bool => $c !== 'drawer-open-index'));
     $extraclasses[] = 'ulms-dashboard-shell';
     $extraclasses[] = 'ulms-portal-suppress-native-drawers';
@@ -90,18 +112,18 @@ if ($portalshell !== null) {
             'homeurl' => $homeurl,
         ],
         'output' => $OUTPUT,
-        'sidepreblocks' => '',
-        'hasblocks' => false,
+        'sidepreblocks' => $blockshtml,
+        'hasblocks' => $hasblocks,
         'bodyattributes' => $bodyattributes,
         'courseindexopen' => false,
-        'blockdraweropen' => false,
+        'blockdraweropen' => $blockdraweropen,
         'courseindex' => '',
         'primarymoremenu' => $primarymenu['moremenu'],
         'secondarymoremenu' => $secondarynavigation ?: false,
         'mobileprimarynav' => $primarymenu['mobileprimarynav'],
         'usermenu' => $usermenu,
         'langmenu' => $primarymenu['lang'],
-        'forceblockdraweropen' => false,
+        'forceblockdraweropen' => $forceblockdraweropen,
         'regionmainsettingsmenu' => $regionmainsettingsmenu,
         'hasregionmainsettingsmenu' => !empty($regionmainsettingsmenu),
         'overflow' => $overflow,
