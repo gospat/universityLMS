@@ -35,19 +35,25 @@ AllowOverride None
 # Sync content with inject_http_security_headers() method.
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
-    Header always set X-Frame-Options "DENY"
+    # SAMEORIGIN, not DENY: Moodle frames its own documents (file-picker upload/download
+    # iframes, resourcelib PDF/H5P embeds, portfolio download) and core already emits
+    # "X-Frame-Options: sameorigin" in lib/weblib.php. DENY breaks all of them.
+    Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin"
     Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), interest-cohort=(), fullscreen=(self)"
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Cross-Origin-Opener-Policy "same-origin"
-    Header always set Cross-Origin-Embedder-Policy "require-corp"
+    # Cross-Origin-Embedder-Policy is deliberately NOT set: "require-corp" refuses the
+    # Moodle file-picker's same-origin upload iframe (repository_ajax.php sends no CORP),
+    # breaking file uploads, and negates the CSP img-src https: allow-list. It only exists
+    # to enable crossOriginIsolated features (SharedArrayBuffer), which Moodle does not use.
     Header always set Cross-Origin-Resource-Policy "same-origin"
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
     # form-action also allows the Moodle Hub host so the site-registration POST
     # (admin/registration/index.php) can follow its server-side 303 redirect to
     # https://stats.moodle.org/local/hub/siteregistration.php. See
     # theme/ulms_university/classes/output/core_renderer.php. No other directive is relaxed.
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://stats.moodle.org; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'self'; frame-src 'self'; base-uri 'self'; form-action 'self' https://stats.moodle.org; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
     Header always unset X-Powered-By
 </IfModule>
 

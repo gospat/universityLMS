@@ -172,7 +172,13 @@ class core_renderer extends \theme_boost\output\core_renderer {
         global $CFG;
 
         @header('X-Content-Type-Options: nosniff', false);
-        @header('X-Frame-Options: DENY', false);
+        // Moodle core frames same-origin Moodle documents itself: the file picker
+        // download/select iframes (lib/form/filemanager.js), resourcelib PDF/H5P embeds
+        // (lib/resourcelib.php), the displayh5p filter and portfolio download
+        // (portfolio/download/file.php). DENY breaks all of them. SAMEORIGIN matches the
+        // value core already emits (lib/weblib.php "The Moodle app must be allowed to
+        // embed content always") and keeps cross-origin embedding refused.
+        @header('X-Frame-Options: SAMEORIGIN', false);
         @header('Referrer-Policy: strict-origin-when-cross-origin', false);
         // Only feature tokens that browsers actually recognise are listed. Unsupported
         // tokens are ignored by user agents but still raise "Unrecognized feature"
@@ -183,7 +189,20 @@ class core_renderer extends \theme_boost\output\core_renderer {
         @header('X-XSS-Protection: 1; mode=block', false);
         @header('X-Download-Options: noopen', false);
         @header('X-Permitted-Cross-Domain-Policies: none', false);
-        @header('Cross-Origin-Embedder-Policy: require-corp', false);
+        // COEP is deliberately NOT emitted. "Cross-Origin-Embedder-Policy: require-corp"
+        // puts the document into a cross-origin-isolated posture in which EVERY embedded
+        // subresource — same-origin iframes included — must carry its own CORP/CORS opt-in.
+        // Moodle core sends no CORP on the repository transport (repository_ajax.php,
+        // draftfile.php) nor on the resourcelib/H5P/portfolio embeds, so require-corp
+        // refuses Moodle's own file-picker upload iframe:
+        //   net::ERR_BLOCKED_BY_RESPONSE / "coep-frame-resource-needs-coep-header" on
+        //   /repository/repository_ajax.php?action=upload (the "Upload a file" repository).
+        // It equally negates this theme's own "img-src 'self' data: https:" allow-list,
+        // because cross-origin images without CORP are refused too (e.g. the bundled
+        // Wikimedia repository previews). COEP's only purpose is enabling
+        // crossOriginIsolated features such as SharedArrayBuffer, which Moodle does not
+        // use, so dropping it weakens no other control: framing stays restricted by
+        // X-Frame-Options/frame-ancestors, and cross-origin reads by CORP/CORS below.
         @header('Cross-Origin-Opener-Policy: same-origin', false);
         @header('Cross-Origin-Resource-Policy: same-origin', false);
 
@@ -221,7 +240,13 @@ class core_renderer extends \theme_boost\output\core_renderer {
             . "img-src 'self' data: https:; "
             . "font-src 'self' data:; "
             . "connect-src 'self' https://api.resend.com https://api.korttext.com https://vle.korttext.com; "
-            . "frame-ancestors 'none'; "
+            // 'self' (not 'none'): Moodle frames its own documents (file-picker download
+            // iframes in lib/form/filemanager.js, resourcelib PDF/H5P embeds, displayh5p
+            // filter, portfolio download). 'none' refused every same-origin frame —
+            // reproduced as "Framing 'http://127.0.0.1:8000/' violates ... frame-ancestors
+            // 'none'" — which breaks file uploads, file selection and embedded resources.
+            // Cross-origin embedding remains refused; only the same origin is permitted.
+            . "frame-ancestors 'self'; "
             . "frame-src 'self'; "
             . "object-src 'none'; "
             . "base-uri 'self'; "
