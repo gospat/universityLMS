@@ -342,6 +342,11 @@ jobs:
           cp .github/workflows/config-template.php config.php
           mkdir -p ../moodledata
 
+      - name: Install the locale Moodle requires
+        # init.php refuses to bootstrap without en_AU.UTF-8; the ubuntu image
+        # ships no locales by default.
+        run: sudo locale-gen en_AU.UTF-8
+
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
