@@ -27,7 +27,7 @@ require_login();
 $entity = required_param('entity', PARAM_ALPHAEXT);
 $id = optional_param('id', 0, PARAM_INT);
 $search = optional_param('search', '', PARAM_TEXT);
-$status = optional_param('status', '', PARAM_ALPHA);
+$status = \local_ulms_academics\local\academic_status::normalize_filter(optional_param('status', '', PARAM_ALPHA));
 $sort = optional_param('sort', 'name', PARAM_ALPHA);
 $dir = optional_param('dir', 'ASC', PARAM_ALPHA);
 $page = optional_param('page', 0, PARAM_INT);
@@ -85,6 +85,20 @@ if ($action === 'delete' && $deleteid) {
     $result = $service->delete_entity_record($entity, $deleteid);
     redirect($contexturl, $result['message'], null, $result['success'] ? \core\output\notification::NOTIFY_SUCCESS :
         \core\output\notification::NOTIFY_ERROR);
+}
+
+if ($action === 'activate' && $id) {
+    // Explicit, single-record activation. Administrators must already satisfy the
+    // manageacademics capability gate above; nothing is ever activated implicitly.
+    require_sesskey();
+    $result = $service->activate_entity_record($entity, $id);
+    $activationredirect = $contexturl;
+    $returnurl = optional_param('returnurl', '', PARAM_LOCALURL);
+    if ($returnurl !== '') {
+        $activationredirect = new moodle_url($returnurl);
+    }
+    redirect($activationredirect, $result['message'], null,
+        $result['success'] ? \core\output\notification::NOTIFY_SUCCESS : \core\output\notification::NOTIFY_ERROR);
 }
 
 $form = new \local_ulms_academics\form\academic_entity_form(
@@ -226,11 +240,7 @@ if ($service->supports_status_filter($entity)) {
     $filterform .= html_writer::start_div('ulms-filter-field');
     $filterform .= html_writer::label(get_string('status', 'local_ulms_academics'), 'id_status', false, ['class' => 'mr-2']);
     $filterform .= html_writer::select(
-        [
-            '' => get_string('all'),
-            'active' => get_string('active', 'local_ulms_academics'),
-            'inactive' => get_string('inactive', 'local_ulms_academics'),
-        ],
+        ['' => get_string('all')] + \local_ulms_academics\local\academic_status::get_options(),
         'status',
         $status,
         false,

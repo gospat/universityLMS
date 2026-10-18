@@ -39,6 +39,9 @@ function local_ulms_academics_extend_navigation(global_navigation $navigation): 
  * Enrol one user (as student) into all courses mapped to the given programme
  * for the given semester (or current active semester if omitted).
  *
+ * The programme itself must be active: programme course mappings carry no status
+ * of their own, so eligibility is decided by the owning programme's status.
+ *
  * Idempotent: silently skips courses user is already enrolled in.
  *
  * @param int $userid
@@ -51,19 +54,23 @@ function local_ulms_academics_enrol_user_into_programme_courses(int $userid, int
     if ($userid <= 0 || $programmeid <= 0) {
         return 0;
     }
+    $programmestatus = $DB->get_field('local_ulms_programmes', 'status', ['id' => $programmeid], IGNORE_MISSING);
+    if (!\local_ulms_academics\local\academic_status::is_active(is_string($programmestatus) ? $programmestatus : null)) {
+        return 0;
+    }
     if ($semesterid === null) {
         $semesterid = (int)$DB->get_field_select(
             'local_ulms_semesters',
             'COALESCE(MIN(id), 0)',
-            "iscurrent = 1 AND status = 'active'",
+            'iscurrent = 1',
             []
         );
     }
     if ($semesterid <= 0) {
-        $where = "programmeid = :pid AND status = 'active'";
+        $where = 'programmeid = :pid';
         $params = ['pid' => $programmeid];
     } else {
-        $where = "programmeid = :pid AND semesterid = :sid AND status = 'active'";
+        $where = 'programmeid = :pid AND semesterid = :sid';
         $params = ['pid' => $programmeid, 'sid' => $semesterid];
     }
     $mappings = $DB->get_records_select('local_ulms_programme_courses', $where, $params, 'id ASC', 'id, moodlecourseid');

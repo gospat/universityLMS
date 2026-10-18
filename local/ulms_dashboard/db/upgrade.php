@@ -606,5 +606,13 @@ function xmldb_local_ulms_dashboard_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026100100, 'local', 'ulms_dashboard');
     }
 
+    if ($oldversion < 2026101800) {
+        // 2026101800: Programme eligibility uses the canonical academic status policy.
+        // "Programme does not exist" and "programme exists but is inactive" are now
+        // reported separately, and inactive programmes are never activated implicitly.
+        // No schema or data changes.
+        upgrade_plugin_savepoint(true, 2026101800, 'local', 'ulms_dashboard');
+    }
+
     return true;
 }

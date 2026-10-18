@@ -16,6 +16,8 @@
 
 namespace local_ulms_academics\local\repository;
 
+use local_ulms_academics\local\academic_status;
+
 // NAMING SCHISM (DO NOT RENAME WITHOUT MIGRATION):
 // User-facing UI displays "College" (renamed from "Faculty" 2026-08).
 // DB/structural identifiers remain legacy *_faculties / facultyid / managefaculties.
@@ -209,9 +211,13 @@ class academic_repository {
     /**
      * Saves a record for the provided entity.
      *
+     * Status values for colleges, departments and programmes are normalised to the
+     * canonical vocabulary before they are persisted.
+     *
      * @param string $entity
      * @param \stdClass $record
      * @return int
+     * @throws \InvalidArgumentException When the entity or its status value is not valid.
      */
     public function save_record(string $entity, \stdClass $record): int {
         $table = $this->get_table_name($entity);
@@ -230,6 +236,16 @@ class academic_repository {
             case 'semesters':
                 $this->validate_parent_reference('sessions', 'sessionid', (int)($record->sessionid ?? 0));
                 break;
+        }
+
+        if (in_array($entity, ['faculties', 'departments', 'programmes'], true) && property_exists($record, 'status')) {
+            $normalised = academic_status::normalize_for_storage(
+                $record->status === null ? null : (string)$record->status
+            );
+            if ($normalised === null) {
+                throw new \InvalidArgumentException(\get_string('invalidstatus', 'local_ulms_academics'));
+            }
+            $record->status = $normalised;
         }
 
         $now = time();
@@ -596,7 +612,7 @@ class academic_repository {
 
         if ($status !== '' && in_array($entity, ['faculties', 'departments', 'programmes'], true)) {
             $whereclause .= " AND status = :status";
-            $params['status'] = $status;
+            $params['status'] = academic_status::normalize_filter($status);
         }
 
         return [$whereclause, $params];

@@ -18,6 +18,8 @@ namespace local_ulms_academics\form;
 
 defined('MOODLE_INTERNAL') || die();
 
+use local_ulms_academics\local\academic_status;
+
 require_once($CFG->libdir . '/formslib.php');
 
 /**
@@ -71,10 +73,7 @@ class academic_entity_form extends \moodleform {
                 'select',
                 'status',
                 get_string('status', 'local_ulms_academics'),
-                [
-                    'active' => get_string('active', 'local_ulms_academics'),
-                    'inactive' => get_string('inactive', 'local_ulms_academics'),
-                ]
+                academic_status::get_options()
             );
             $mform->setType('status', PARAM_ALPHA);
         }
@@ -109,6 +108,12 @@ class academic_entity_form extends \moodleform {
 
         if ($entity === 'programmes' && empty(trim((string)($data['awardtype'] ?? '')))) {
             $errors['awardtype'] = get_string('required');
+        }
+
+        if (in_array($entity, ['faculties', 'departments', 'programmes'], true)) {
+            if (academic_status::normalize((string)($data['status'] ?? '')) === null) {
+                $errors['status'] = get_string('invalidstatus', 'local_ulms_academics');
+            }
         }
 
         if (in_array($entity, ['sessions', 'semesters'], true)) {

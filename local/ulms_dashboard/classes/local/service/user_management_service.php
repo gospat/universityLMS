@@ -19,6 +19,9 @@ namespace local_ulms_dashboard\local\service;
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/local/ulms_auth/lib.php');
+// Loaded explicitly so the programme enrolment helper is always available here,
+// independently of whether navigation callbacks have already pulled it in.
+require_once($CFG->dirroot . '/local/ulms_academics/lib.php');
 
 require_once($CFG->dirroot . '/user/lib.php');
 require_once($CFG->dirroot . '/login/lib.php');
@@ -2078,13 +2081,12 @@ class user_management_service {
         if ($programmeid <= 0 || $this->get_academic_service() === null) {
             return [0, 0, false];
         }
-        $sql = "SELECT p.departmentid, d.facultyid
+        $sql = "SELECT p.departmentid, d.facultyid, p.status
                   FROM {local_ulms_programmes} p
                   JOIN {local_ulms_departments} d ON d.id = p.departmentid
-                 WHERE p.id = :pid
-                   AND p.status = :st";
-        $row = $DB->get_record_sql($sql, ['pid' => $programmeid, 'st' => 'active']);
-        if (!$row) {
+                 WHERE p.id = :pid";
+        $row = $DB->get_record_sql($sql, ['pid' => $programmeid]);
+        if (!$row || !\local_ulms_academics\local\academic_status::is_active((string)$row->status)) {
             return [0, 0, false];
         }
         return [

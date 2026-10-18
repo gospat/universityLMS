@@ -18,6 +18,7 @@ namespace local_ulms_academics\local\service;
 
 defined('MOODLE_INTERNAL') || die();
 
+use local_ulms_academics\local\academic_status;
 use local_ulms_academics\local\repository\academic_repository;
 
 /**
@@ -561,6 +562,46 @@ class academic_structure_service {
             'success' => true,
             'message' => \get_string('recorddeleted', 'local_ulms_academics'),
         ];
+    }
+
+    /**
+     * Activates exactly one status-bearing record on explicit, authorised request.
+     *
+     * Activation is deliberately never implicit and never bulk: the caller must name
+     * the single record, so inactive records keep their restriction until an
+     * administrator consciously lifts it.
+     *
+     * @param string $entity
+     * @param int $id
+     * @return array{success:bool,message:string}
+     */
+    public function activate_entity_record(string $entity, int $id): array {
+        if (!$this->supports_status_filter($entity)) {
+            return [
+                'success' => false,
+                'message' => \get_string('invalidentity', 'local_ulms_academics'),
+            ];
+        }
+
+        $record = $this->get_record_for_entity($entity, $id);
+        if (!$record) {
+            return [
+                'success' => false,
+                'message' => \get_string('recordnotfound', 'local_ulms_academics'),
+            ];
+        }
+
+        if (academic_status::is_active((string)($record->status ?? ''))) {
+            return [
+                'success' => true,
+                'message' => \get_string('recordalreadyactive', 'local_ulms_academics'),
+            ];
+        }
+
+        $payload = (object)(array)$record;
+        $payload->status = academic_status::ACTIVE;
+
+        return $this->save_entity_record($entity, $payload);
     }
 
     /**
@@ -1598,7 +1639,12 @@ class academic_structure_service {
         $record->name = $name;
 
         if (in_array($entity, ['faculties', 'departments', 'programmes'], true)) {
-            $record->status = trim((string)($row['status'] ?? 'active')) ?: 'active';
+            $status = academic_status::normalize_for_storage((string)($row['status'] ?? ''));
+            if ($status === null) {
+                $errors[] = \get_string('csvinvalidstatus', 'local_ulms_academics', $linenumber);
+                return null;
+            }
+            $record->status = $status;
         }
 
         if ($entity === 'departments') {

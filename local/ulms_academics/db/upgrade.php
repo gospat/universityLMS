@@ -273,13 +273,26 @@ function xmldb_local_ulms_academics_upgrade(int $oldversion): bool {
     }
 
     if ($oldversion < 2026100101) {
+        // 2026100101: composite "current + status" index.
+        // The local_ulms_semesters table has never shipped a status column, so the
+        // index can only be created once that column exists. Guard the step so the
+        // upgrade cannot abort on sites where it is absent (it is also a no-op there).
         $dbman = $DB->get_manager();
         $table = new xmldb_table('local_ulms_semesters');
-        $index = new xmldb_index('currstatus', XMLDB_INDEX_NOTUNIQUE, ['iscurrent', 'status']);
-        if (!$dbman->index_exists($table, $index)) {
-            $dbman->add_index($table, $index);
+        if ($dbman->field_exists($table, 'status')) {
+            $index = new xmldb_index('currstatus', XMLDB_INDEX_NOTUNIQUE, ['iscurrent', 'status']);
+            if (!$dbman->index_exists($table, $index)) {
+                $dbman->add_index($table, $index);
+            }
         }
         upgrade_plugin_savepoint(true, 2026100101, 'local', 'ulms_academics');
+    }
+
+    if ($oldversion < 2026100102) {
+        // 2026100102: canonical academic status policy.
+        // No schema or data changes: existing records already store the canonical
+        // "active" value, and status normalisation happens at the write boundary.
+        upgrade_plugin_savepoint(true, 2026100102, 'local', 'ulms_academics');
     }
 
     return true;
