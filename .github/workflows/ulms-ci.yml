@@ -20,6 +20,11 @@
 #     directory is picked up on the next run with no workflow change — and becomes a
 #     REQUIRED suite by default.
 #   * Composer downloads are cached and superseded runs are cancelled.
+#   * Dependencies come from the committed composer.lock when it applies to PHP 8.3.
+#     The lock currently resolves a few packages to PHP 8.4-only releases, so the
+#     pipeline re-resolves for the run and warns rather than failing; see the
+#     "Install Composer dependencies" step. Regenerating composer.lock on PHP 8.3
+#     removes the warning and restores determinism.
 #
 # Test gating is two-tier:
 #   * `phpunit-required` is the merge gate. It runs every discovered suite except the
@@ -177,7 +182,18 @@ jobs:
             composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
+        # The committed composer.lock was resolved on PHP 8.4 and pins several
+        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
+        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
+        # lock so the run stays deterministic; if it does not apply to this PHP version,
+        # re-resolve for this run only and warn, naming the real fix.
+        run: |
+          if composer install --no-interaction --prefer-dist --no-progress; then
+            echo "Dependencies installed from the committed composer.lock."
+          else
+            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
+            composer update --no-interaction --prefer-dist --no-progress
+          fi
 
       - name: Prepare the Moodle test configuration
         # config-template.php is the Moodle CI template: it points Moodle at the
@@ -190,7 +206,9 @@ jobs:
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
-        run: php admin/tool/phpunit/cli/init.php --no-composer-self-update
+        # --no-composer-upgrade stops init.php re-running `composer install`, which
+        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
 
       - name: Run the required ULMS PHPUnit suites
         env:
@@ -300,7 +318,18 @@ jobs:
             composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
+        # The committed composer.lock was resolved on PHP 8.4 and pins several
+        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
+        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
+        # lock so the run stays deterministic; if it does not apply to this PHP version,
+        # re-resolve for this run only and warn, naming the real fix.
+        run: |
+          if composer install --no-interaction --prefer-dist --no-progress; then
+            echo "Dependencies installed from the committed composer.lock."
+          else
+            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
+            composer update --no-interaction --prefer-dist --no-progress
+          fi
 
       - name: Prepare the Moodle test configuration
         run: |
@@ -311,7 +340,9 @@ jobs:
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
-        run: php admin/tool/phpunit/cli/init.php --no-composer-self-update
+        # --no-composer-upgrade stops init.php re-running `composer install`, which
+        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
 
       - name: Run every ULMS PHPUnit suite
         env:
