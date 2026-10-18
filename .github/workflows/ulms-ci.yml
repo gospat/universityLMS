@@ -438,6 +438,10 @@ jobs:
   # Advisory only. The Moodle coding standard is newly introduced to this repository,
   # so existing violations must not block a merge. Promote this job to a required
   # check in branch protection once the backlog is cleared.
+  #
+  # The violations themselves are advisory, but the toolchain is not: if the standard
+  # cannot be loaded the job fails, so a misconfigured phpcs can never be mistaken for a
+  # clean codebase.
   coding-standard:
     name: Moodle coding standard (advisory)
     runs-on: ubuntu-24.04
@@ -458,16 +462,45 @@ jobs:
         run: composer create-project -n --no-dev --prefer-dist moodlehq/moodle-cs /tmp/moodle-cs
 
       - name: Register the standard with PHP_CodeSniffer
-        run: phpcs --config-set installed_paths /tmp/moodle-cs
+        # moodle-cs keeps its rulesets in `moodle/` and `moodle-extra/`, and the Moodle
+        # standard references sniffs from phpcsextra. All three paths must be registered:
+        # pointing phpcs at the moodle-cs root alone registers the two Moodle rulesets but
+        # not phpcsextra, and every phpcsextra sniff then fails to resolve with
+        # "Referenced sniff ... does not exist".
+        run: |
+          phpcs --config-set installed_paths /tmp/moodle-cs/moodle,/tmp/moodle-cs/moodle-extra,/tmp/moodle-cs/vendor/phpcsstandards/phpcsextra
+          phpcs -i
+
+      - name: Check the Moodle standard actually loaded
+        # A coding-standard job that cannot load the standard must not look like a pass.
+        # This step fails loudly if the registration above is ever broken again.
+        run: |
+          set -euo pipefail
+          standards="$(phpcs -i)"
+          echo "Installed standards: ${standards}"
+          for required in moodle moodle-extra NormalizedArrays Universal; do
+            if ! grep -qw "${required}" <<< "${standards}"; then
+              echo "::error::The '${required}' coding standard is not registered, so Moodle coding-standard results would be meaningless."
+              exit 1
+            fi
+          done
 
       - name: Run the Moodle standard over the application code
         # phpcs.xml.dist at the repository root already selects the `moodle` standard.
+        # The standard has never been enforced in this repository, so the violations it
+        # reports are pre-existing. They are surfaced as a warning and are not allowed to
+        # block a merge; promote this job to a required check in branch protection once the
+        # backlog is cleared.
         run: |
           set +e
-          phpcs -q --report=full --extensions=php local theme/ulms_university
-          status=$?
+          phpcs -q --report=summary --extensions=php local theme/ulms_university 2>&1 | tee /tmp/phpcs.log
+          status=${PIPESTATUS[0]}
+          if grep -q 'Referenced sniff' /tmp/phpcs.log; then
+            echo "::error::phpcs could not resolve the Moodle standard, so the results above are invalid."
+            exit 1
+          fi
           if [ "$status" -eq 0 ]; then
-            echo "No coding-standard violations found."
+            echo "No coding-standard violations found in the tracked ULMS application code."
           else
             echo "::warning::PHP_CodeSniffer reported coding-standard violations (advisory, non-blocking)."
           fi
