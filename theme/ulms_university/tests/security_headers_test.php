@@ -124,4 +124,25 @@ final class security_headers_test extends \advanced_testcase {
         $this->assertStringContainsString("default-src 'self'", $htaccess);
         $this->assertStringContainsString("object-src 'none'", $htaccess);
     }
+
+    /**
+     * The policy must be emitted for every layout, the authentication pages included.
+     *
+     * core_renderer::header() is the most general injection point and is the one that
+     * covers the login, secure, standard and dashboard shells. Removing that override
+     * would silently drop every security header from the login page.
+     */
+    public function test_security_headers_are_emitted_for_every_layout(): void {
+        $renderer = $this->get_renderer_source();
+
+        $this->assertMatchesRegularExpression(
+            '/public function header\(\)\s*\{\s*self::inject_http_security_headers\(\);/',
+            $renderer
+        );
+        $this->assertStringContainsString(
+            'Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
+            $renderer
+        );
+        $this->assertStringContainsString("@header('X-Content-Type-Options: nosniff'", $renderer);
+    }
 }
