@@ -14,6 +14,15 @@
 #     no production database, configuration or Moodle data is ever contacted.
 #   * No deployment step of any kind. This workflow cannot change production.
 #
+# Environment prerequisites the workflow supplies for the run:
+#   * phpCAS under auth/cas/CAS/vendor, which the repository does not track, so a
+#     fresh checkout can install a Moodle site.
+#   * The en_AU.UTF-8 locale, which Moodle's PHPUnit bootstrap requires and the
+#     ubuntu image does not ship.
+#   * A composer.lock workaround: the committed lock resolves packages that require
+#     PHP 8.4, so the run re-resolves dependencies and warns instead of failing.
+#   Each of these is a pre-existing repository or image gap, described at its step.
+#
 # Reusability:
 #   * Runs on every push to every branch and on every pull request targeting `main`.
 #   * Discovers PHPUnit suites from the filesystem, so a new `local/ulms_foo/tests`
@@ -203,6 +212,29 @@ jobs:
           cp .github/workflows/config-template.php config.php
           mkdir -p ../moodledata
 
+      - name: Provide the phpCAS library the CAS authentication plugin needs
+        # A fresh checkout cannot install a Moodle site without this.
+        # auth/cas/settings.php requires auth/cas/CAS/vendor/autoload.php, but the
+        # repository does not track auth/cas/CAS/vendor — the unanchored `vendor/`
+        # rule in .gitignore excluded it when Moodle core was imported. phpCAS is
+        # therefore installed here for the run only, exactly as
+        # auth/cas/CAS/readme_moodle.txt prescribes: the version comes from
+        # auth/cas/thirdpartylibs.xml, and psr/log is replaced so the library cannot
+        # redeclare the copy Moodle already loads. No tracked file is modified.
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/phpcas && cd /tmp/phpcas
+          cat > composer.json <<'JSON'
+          {
+              "require": {"apereo/phpcas": "1.6.1"},
+              "replace": {"psr/log": "*"}
+          }
+          JSON
+          composer install --no-interaction --prefer-dist --no-progress
+          test ! -d vendor/psr/log
+          rm -rf "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+          cp -R vendor "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+
       - name: Install the locale Moodle requires
         # init.php refuses to bootstrap without en_AU.UTF-8; the ubuntu image
         # ships no locales by default.
@@ -341,6 +373,29 @@ jobs:
           echo "pathtophp=$(which php)" >> "$GITHUB_ENV"
           cp .github/workflows/config-template.php config.php
           mkdir -p ../moodledata
+
+      - name: Provide the phpCAS library the CAS authentication plugin needs
+        # A fresh checkout cannot install a Moodle site without this.
+        # auth/cas/settings.php requires auth/cas/CAS/vendor/autoload.php, but the
+        # repository does not track auth/cas/CAS/vendor — the unanchored `vendor/`
+        # rule in .gitignore excluded it when Moodle core was imported. phpCAS is
+        # therefore installed here for the run only, exactly as
+        # auth/cas/CAS/readme_moodle.txt prescribes: the version comes from
+        # auth/cas/thirdpartylibs.xml, and psr/log is replaced so the library cannot
+        # redeclare the copy Moodle already loads. No tracked file is modified.
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/phpcas && cd /tmp/phpcas
+          cat > composer.json <<'JSON'
+          {
+              "require": {"apereo/phpcas": "1.6.1"},
+              "replace": {"psr/log": "*"}
+          }
+          JSON
+          composer install --no-interaction --prefer-dist --no-progress
+          test ! -d vendor/psr/log
+          rm -rf "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+          cp -R vendor "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
 
       - name: Install the locale Moodle requires
         # init.php refuses to bootstrap without en_AU.UTF-8; the ubuntu image
