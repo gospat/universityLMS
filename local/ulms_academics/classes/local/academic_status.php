@@ -28,7 +28,8 @@ defined('MOODLE_INTERNAL') || die();
  *
  * Rules:
  * - Only the canonical values returned by {@see self::get_choices()} are stored.
- * - Missing values default to "active" (historic behaviour of the CSV importer).
+ * - Missing values default to "active", which is only correct for a brand new record;
+ *   a caller upserting an existing record must keep the stored status instead.
  * - Unrecognised values are rejected rather than silently coerced.
  * - Anything that is not explicitly active is treated as NOT active, so inactive
  *   or unknown records can never be selected or enrolled into.
