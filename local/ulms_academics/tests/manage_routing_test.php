@@ -31,6 +31,27 @@ require_once(__DIR__ . '/../locallib.php');
  * @coversNothing
  */
 final class manage_routing_test extends advanced_testcase {
+    /**
+     * Returns a route path exactly as the active site reports it.
+     *
+     * Moodle's phpunit bootstrap (lib/phpunit/bootstrap.php) unconditionally forces
+     * $CFG->wwwroot to 'https://www.example.com/moodle', so every path it generates
+     * carries a '/moodle' subdirectory that the real site does not have. Deriving the
+     * prefix from the live $CFG->wwwroot keeps these assertions exact - they still prove
+     * the route and its trailing slash - without pinning the test to the bootstrap
+     * placeholder. No production or core configuration is changed to achieve this.
+     *
+     * @param string $path Route path excluding any wwwroot subdirectory.
+     * @return string
+     */
+    private function expected_route_path(string $path): string {
+        global $CFG;
+
+        $prefix = (string)parse_url((string)$CFG->wwwroot, PHP_URL_PATH);
+
+        return rtrim($prefix, '/') . $path;
+    }
+
     public function test_manage_context_routes_preserve_entity_for_all_supported_entities(): void {
         $this->resetAfterTest(true);
 
@@ -50,7 +71,7 @@ final class manage_routing_test extends advanced_testcase {
 
             $url = $routingservice->get_url_for_route('management.academicsmanage', $contextparams);
 
-            $this->assertSame('/management/academics/manage/', $url->get_path());
+            $this->assertSame($this->expected_route_path('/management/academics/manage/'), $url->get_path());
             $this->assertSame($entity, $url->get_param('entity'), 'Missing entity for ' . $entity);
             $this->assertSame('science', $url->get_param('search'));
             $this->assertSame('active', $url->get_param('status'));
@@ -78,7 +99,7 @@ final class manage_routing_test extends advanced_testcase {
             $formparams = local_ulms_academics_build_manage_form_params($contextparams, $index + 10);
             $url = $routingservice->get_url_for_route('management.academicsmanage', $formparams);
 
-            $this->assertSame('/management/academics/manage/', $url->get_path());
+            $this->assertSame($this->expected_route_path('/management/academics/manage/'), $url->get_path());
             $this->assertSame($entity, $url->get_param('entity'), 'Missing entity for ' . $entity);
             $this->assertSame((string)($index + 10), $url->get_param('id'));
             $this->assertSame('1', $url->get_param('page'));
@@ -107,8 +128,8 @@ final class manage_routing_test extends advanced_testcase {
         $contexturl = $routingservice->get_url_for_route('management.academicsmappings', $contextparams);
         $formurl = $routingservice->get_url_for_route('management.academicsmappings', $formparams);
 
-        $this->assertSame('/management/academics/course-mappings/', $contexturl->get_path());
-        $this->assertSame('/management/academics/course-mappings/', $formurl->get_path());
+        $this->assertSame($this->expected_route_path('/management/academics/course-mappings/'), $contexturl->get_path());
+        $this->assertSame($this->expected_route_path('/management/academics/course-mappings/'), $formurl->get_path());
         $this->assertNull($contexturl->get_param('editid'));
         $this->assertSame('44', $formurl->get_param('editid'));
         $this->assertSame('3', $contexturl->get_param('page'));
@@ -192,7 +213,7 @@ final class manage_routing_test extends advanced_testcase {
             'sesskey' => 'abc123',
         ]);
 
-        $this->assertSame('/management/academics/manage/', $url->get_path());
+        $this->assertSame($this->expected_route_path('/management/academics/manage/'), $url->get_path());
         $this->assertStringContainsString('entity=departments', $url->out(false));
         $this->assertStringContainsString('/management/academics/manage/?', $url->out(false));
         $this->assertStringNotContainsString('/management/academics/manage?', $url->out(false));
@@ -208,7 +229,7 @@ final class manage_routing_test extends advanced_testcase {
             'editid' => 6,
         ]);
 
-        $this->assertSame('/management/academics/course-mappings/', $formurl->get_path());
+        $this->assertSame($this->expected_route_path('/management/academics/course-mappings/'), $formurl->get_path());
         $this->assertStringContainsString('/management/academics/course-mappings/?', $formurl->out(false));
         $this->assertStringNotContainsString('/management/academics/course-mappings?', $formurl->out(false));
     }
