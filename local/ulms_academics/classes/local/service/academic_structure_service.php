@@ -1648,6 +1648,8 @@ class academic_structure_service {
      * - An existing inactive record can never be switched to active by an import;
      *   activation stays with the single-record administrative action
      *   ({@see self::activate_entity_record()}).
+     * - A stored status the platform cannot interpret is never overwritten; the row is
+     *   refused so the record is left untouched for an administrator to correct.
      * - Unrecognised values are refused, so no row can bypass validation.
      *
      * @param string $rawstatus Status cell exactly as it appeared in the CSV.
@@ -1671,10 +1673,14 @@ class academic_structure_service {
             return $status;
         }
 
-        $storedstatus = academic_status::normalize_for_storage((string)($existing->status ?? ''));
+        $storedstatus = academic_status::normalize((string)($existing->status ?? ''));
         if ($storedstatus === null) {
-            // The stored value cannot be interpreted, so refuse the row rather than guess.
-            $errors[] = \get_string('csvinvalidstatus', 'local_ulms_academics', $linenumber);
+            // A stored status the platform cannot read is never rewritten: the row is refused
+            // so the record keeps exactly what it has until an administrator corrects it.
+            $errors[] = \get_string('csvinvalidstoredstatus', 'local_ulms_academics', (object)[
+                'line' => $linenumber,
+                'code' => (string)$existing->code,
+            ]);
 
             return null;
         }

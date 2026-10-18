@@ -19,6 +19,7 @@ namespace local_ulms_academics;
 defined('MOODLE_INTERNAL') || die();
 
 use advanced_testcase;
+use local_ulms_academics\local\academic_status;
 use local_ulms_academics\local\repository\academic_repository;
 use local_ulms_academics\local\service\academic_structure_service;
 
@@ -379,12 +380,182 @@ final class csv_import_status_test extends advanced_testcase {
     }
 
     /**
+     * An existing record whose stored status is empty is refused, never silently activated.
+     */
+    public function test_existing_record_with_an_empty_stored_status_is_rejected(): void {
+        global $DB;
+
+        $code = $this->unique_code('CSV-EMP');
+        $this->create_record('faculties', $code, 'active', 'Untouched College');
+        $DB->set_field('local_ulms_faculties', 'status', '', ['code' => $code]);
+
+        $row = ['code' => $code, 'name' => 'Renamed College', 'status' => 'active'];
+        $expected = get_string('csvinvalidstoredstatus', 'local_ulms_academics', (object)[
+            'line' => 2,
+            'code' => $code,
+        ]);
+
+        $preview = $this->service()->preview_csv_rows('faculties', [$row]);
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+        $this->assertSame([$expected], $preview['errors']);
+
+        $result = $this->service()->import_csv_rows('faculties', [$row]);
+        $this->assertSame(0, $result['processed']);
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame([$expected], $result['errors']);
+        // The row was refused, so nothing at all was written.
+        $this->assertSame('Untouched College', $this->stored_name('faculties', $code));
+        $this->assertNull(academic_status::normalize((string)$this->stored_status('faculties', $code)));
+    }
+
+    /**
+     * An existing record whose stored status cannot be recognised is refused as well.
+     */
+    public function test_existing_record_with_an_unrecognised_stored_status_is_rejected(): void {
+        global $DB;
+
+        $code = $this->unique_code('CSV-UNR');
+        $this->create_record('faculties', $code, 'active', 'Untouched College');
+        $DB->set_field('local_ulms_faculties', 'status', 'archived', ['code' => $code]);
+
+        $row = ['code' => $code, 'name' => 'Renamed College', 'status' => 'active'];
+        $expected = get_string('csvinvalidstoredstatus', 'local_ulms_academics', (object)[
+            'line' => 2,
+            'code' => $code,
+        ]);
+
+        $preview = $this->service()->preview_csv_rows('faculties', [$row]);
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+        $this->assertSame([$expected], $preview['errors']);
+
+        $result = $this->service()->import_csv_rows('faculties', [$row]);
+        $this->assertSame(0, $result['processed']);
+        $this->assertSame([$expected], $result['errors']);
+        $this->assertSame('Untouched College', $this->stored_name('faculties', $code));
+        $this->assertSame('archived', $this->stored_status('faculties', $code));
+    }
+
+    /**
+     * An existing record whose stored status is NULL is refused.
+     *
+     * The academic status column is declared NOT NULL, so a NULL can only reach the resolver
+     * through the record object. The lookup is stubbed to prove the defensive branch rejects
+     * the row on both the preview and the import path.
+     */
+    public function test_existing_record_with_a_null_stored_status_is_rejected(): void {
+        $code = $this->unique_code('CSV-NUL');
+        $service = $this->service_with_stored_record((object)[
+            'id' => 90210,
+            'code' => $code,
+            'name' => 'Null Stored College',
+            'status' => null,
+        ]);
+
+        $row = ['code' => $code, 'name' => 'Renamed College', 'status' => 'active'];
+        $expected = get_string('csvinvalidstoredstatus', 'local_ulms_academics', (object)[
+            'line' => 2,
+            'code' => $code,
+        ]);
+
+        $preview = $service->preview_csv_rows('faculties', [$row]);
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+        $this->assertSame([$expected], $preview['errors']);
+        $this->assertFalse($preview['previewrows'][0]['valid']);
+
+        $result = $service->import_csv_rows('faculties', [$row]);
+        $this->assertSame(0, $result['processed']);
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame([$expected], $result['errors']);
+    }
+
+    /**
+     * Every unreadable stored status is refused identically by the preview and the import,
+     * whatever the CSV row asks for.
+     */
+    public function test_unreadable_stored_statuses_are_rejected_consistently_on_both_paths(): void {
+        global $DB;
+
+        $storedvalues = [
+            'empty' => '',
+            'blank' => '   ',
+            'unrecognised' => 'archived',
+            'unknown' => 'PENDING',
+        ];
+
+        foreach ($storedvalues as $label => $storedvalue) {
+            foreach (['active', 'inactive', ''] as $csvstatus) {
+                $code = $this->unique_code('CSV-BAD');
+                $this->create_record('faculties', $code, 'active', 'Untouched College');
+                $DB->set_field('local_ulms_faculties', 'status', $storedvalue, ['code' => $code]);
+
+                $row = ['code' => $code, 'name' => 'Renamed College', 'status' => $csvstatus];
+                $context = $label . ' stored, csv "' . $csvstatus . '"';
+                $expected = get_string('csvinvalidstoredstatus', 'local_ulms_academics', (object)[
+                    'line' => 2,
+                    'code' => $code,
+                ]);
+
+                $preview = $this->service()->preview_csv_rows('faculties', [$row]);
+                $this->assertSame(0, $preview['valid'], 'preview validity for: ' . $context);
+                $this->assertSame(1, $preview['invalid'], 'preview invalidity for: ' . $context);
+                $this->assertSame([$expected], $preview['errors'], 'preview error for: ' . $context);
+                $this->assertSame(
+                    get_string('csvactioninvalid', 'local_ulms_academics'),
+                    $preview['previewrows'][0]['action'],
+                    'preview action for: ' . $context
+                );
+                // The preview reports the stored value, because the rejected row writes nothing.
+                $this->assertSame(
+                    (string)$this->stored_status('faculties', $code),
+                    $preview['previewrows'][0]['status'],
+                    'preview effective status for: ' . $context
+                );
+
+                $result = $this->service()->import_csv_rows('faculties', [$row]);
+                $this->assertSame(0, $result['processed'], 'import processed for: ' . $context);
+                $this->assertSame(0, $result['created'], 'import created for: ' . $context);
+                $this->assertSame(0, $result['updated'], 'import updated for: ' . $context);
+                $this->assertSame([$expected], $result['errors'], 'import error for: ' . $context);
+                $this->assertSame(
+                    'Untouched College',
+                    $this->stored_name('faculties', $code),
+                    'stored name for: ' . $context
+                );
+            }
+        }
+    }
+
+    /**
      * Returns the shared academic structure service.
      *
      * @return academic_structure_service
      */
     private function service(): academic_structure_service {
         return new academic_structure_service();
+    }
+
+    /**
+     * Returns a service whose existing-record lookup always answers with the supplied record.
+     *
+     * The status column is NOT NULL, so a genuine NULL can only reach the resolver through the
+     * record object itself; stubbing the lookup is the only way to drive that branch, and the
+     * resulting service still exercises both the preview and the import path.
+     *
+     * @param \stdClass $record
+     * @return academic_structure_service
+     */
+    private function service_with_stored_record(\stdClass $record): academic_structure_service {
+        $repository = $this->getMockBuilder(academic_repository::class)
+            ->onlyMethods(['get_record_by_field'])
+            ->getMock();
+        $repository->method('get_record_by_field')->willReturn($record);
+
+        return new academic_structure_service($repository);
     }
 
     /**

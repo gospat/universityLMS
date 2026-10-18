@@ -53,6 +53,7 @@ $string['csvpreviewfixerrors'] = 'Fix the invalid rows in the CSV preview before
 $string['csvpreviewheading'] = 'Import preview';
 $string['csvpreviewpayloaderror'] = 'The import preview could not be prepared. Please upload the CSV file again.';
 $string['csvpreviewsummary'] = 'Preview ready. Rows processed: {$a->processed}, valid: {$a->valid}, invalid: {$a->invalid}.';
+$string['csvinvalidstoredstatus'] = 'Line {$a->line}: "{$a->code}" is stored with an empty or unrecognised status, so the import cannot safely decide what to write. Correct the record on the academic structure page first.';
 $string['csvreactivationblocked'] = 'Line {$a->line}: "{$a->code}" is inactive and cannot be reactivated by a bulk import. Use the Activate action on the academic structure page instead.';
 $string['csvtemplatedesc'] = 'Use the template links below to download the correct column structure before importing.';
 $string['courses'] = 'Courses';
