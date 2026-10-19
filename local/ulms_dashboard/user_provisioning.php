@@ -113,6 +113,7 @@ $errors = [];
 $previewdata = null;
 $previewreporttoken = null;
 $resultreporttoken = null;
+$inactiveprogrammes = [];
 $recentactivity = $provisioningservice->get_recent_activity(8);
 
 if ($downloadtemplate) {
@@ -152,6 +153,10 @@ if ($createsingle && confirm_sesskey()) {
                 $singleerrors[] = $singleoutcome['message'];
             }
             $errors = array_merge($errors, $singleerrors);
+            if (!empty($singleoutcome['inactiveprogramme']['id'])) {
+                $inactiveprogrammes[(int)$singleoutcome['inactiveprogramme']['id']] =
+                    $singleoutcome['inactiveprogramme'];
+            }
         }
     } catch (\Throwable $exception) {
         if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'user_provisioning::create_single', []); }
@@ -171,6 +176,7 @@ if ($previewimport && confirm_sesskey()) {
 
             if (empty($errors)) {
                 $previewdata = $provisioningservice->preview_bulk_import($bulktargetrole, $rows);
+                $inactiveprogrammes = $previewdata['inactiveprogrammes'] ?? [];
                 $importtoken = $provisioningservice->store_pending_import($bulktargetrole, $rows);
                 $previewreporttoken = $provisioningservice->store_report(
                     get_string('provisioningcsverrorreportfile', 'local_ulms_dashboard'),
@@ -191,6 +197,7 @@ if ($confirmimport && confirm_sesskey()) {
     } else {
         try {
             $previewdata = $provisioningservice->preview_bulk_import($pendingimport['targetrole'], $pendingimport['rows']);
+            $inactiveprogrammes = $previewdata['inactiveprogrammes'] ?? [];
             if (($previewdata['invalid'] ?? 0) > 0) {
                 $errors[] = get_string('provisioningpreviewfixerrors', 'local_ulms_dashboard');
                 $previewreporttoken = $provisioningservice->store_report(
@@ -272,6 +279,52 @@ if (!empty($errors)) {
         : get_string('provisioningpreviewfixerrors', 'local_ulms_dashboard');
     echo $OUTPUT->notification($errormessage, \core\output\notification::NOTIFY_ERROR);
     echo html_writer::alist(array_values(array_unique($errors)));
+}
+
+if (!empty($inactiveprogrammes)) {
+    // The programme exists but is inactive. Provisioning stays blocked; the link to
+    // activate that one programme is only offered to administrators who could perform
+    // the activation anyway (manage.php re-checks the same capability server-side).
+    $canactivate = has_capability('local/ulms_academics:manageacademics', $context);
+    $inactiveitems = [];
+    foreach ($inactiveprogrammes as $inactiveprogramme) {
+        // The service already ran format_string() on the programme name, so it is
+        // safe to echo as-is; the code is a raw database value and must be escaped.
+        $inactivelabel = (string)($inactiveprogramme['name'] ?? '');
+        $inactivecode = (string)($inactiveprogramme['code'] ?? '');
+        if ($inactivelabel === '') {
+            $inactivelabel = s($inactivecode);
+        }
+        $item = $inactivelabel;
+        if ($inactivecode !== '') {
+            $item .= ' (' . s($inactivecode) . ')';
+        }
+        if ($canactivate) {
+            $activateurl = $routingservice->get_url_for_route('management.academicsmanage', [
+                'entity' => 'programmes',
+                'id' => (int)$inactiveprogramme['id'],
+                'action' => 'activate',
+                'sesskey' => sesskey(),
+                'returnurl' => $url->out(false),
+            ]);
+            $item .= ' — ' . html_writer::link(
+                $activateurl,
+                get_string('provisioningprogrammeactivate', 'local_ulms_dashboard', $inactivelabel)
+            );
+        }
+        $inactiveitems[] = $item;
+    }
+
+    $inactivenotice = html_writer::tag(
+        'p',
+        get_string('provisioningprogrammeinactiveheading', 'local_ulms_dashboard')
+    );
+    $inactivenotice .= html_writer::alist($inactiveitems);
+    $inactivenotice .= html_writer::tag(
+        'p',
+        get_string('provisioningprogrammeinactivehelp', 'local_ulms_dashboard')
+    );
+    echo $OUTPUT->notification($inactivenotice, \core\output\notification::NOTIFY_WARNING);
 }
 
 echo local_ulms_dashboard_render_summary_cards($kpijson);

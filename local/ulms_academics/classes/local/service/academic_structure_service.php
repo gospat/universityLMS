@@ -18,6 +18,7 @@ namespace local_ulms_academics\local\service;
 
 defined('MOODLE_INTERNAL') || die();
 
+use local_ulms_academics\local\academic_status;
 use local_ulms_academics\local\repository\academic_repository;
 
 /**
@@ -561,6 +562,46 @@ class academic_structure_service {
             'success' => true,
             'message' => \get_string('recorddeleted', 'local_ulms_academics'),
         ];
+    }
+
+    /**
+     * Activates exactly one status-bearing record on explicit, authorised request.
+     *
+     * Activation is deliberately never implicit and never bulk: the caller must name
+     * the single record, so inactive records keep their restriction until an
+     * administrator consciously lifts it.
+     *
+     * @param string $entity
+     * @param int $id
+     * @return array{success:bool,message:string}
+     */
+    public function activate_entity_record(string $entity, int $id): array {
+        if (!$this->supports_status_filter($entity)) {
+            return [
+                'success' => false,
+                'message' => \get_string('invalidentity', 'local_ulms_academics'),
+            ];
+        }
+
+        $record = $this->get_record_for_entity($entity, $id);
+        if (!$record) {
+            return [
+                'success' => false,
+                'message' => \get_string('recordnotfound', 'local_ulms_academics'),
+            ];
+        }
+
+        if (academic_status::is_active((string)($record->status ?? ''))) {
+            return [
+                'success' => true,
+                'message' => \get_string('recordalreadyactive', 'local_ulms_academics'),
+            ];
+        }
+
+        $payload = (object)(array)$record;
+        $payload->status = academic_status::ACTIVE;
+
+        return $this->save_entity_record($entity, $payload);
     }
 
     /**
@@ -1392,7 +1433,8 @@ class academic_structure_service {
         foreach ($rows as $index => $row) {
             $linenumber = $index + 2;
             $rowerrors = [];
-            $record = $this->build_record_from_import_row($entity, $row, $linenumber, $rowerrors);
+            $existing = $this->get_existing_record_for_import_row($entity, $row);
+            $record = $this->build_record_from_import_row($entity, $row, $linenumber, $rowerrors, $existing);
             $previewrow = [
                 'linenumber' => $linenumber,
                 'code' => trim((string)($row['code'] ?? '')),
@@ -1411,7 +1453,6 @@ class academic_structure_service {
             }
 
             if ($record) {
-                $existing = $this->get_record_for_entity_by_field($entity, 'code', $record->code);
                 $previewrow['valid'] = true;
                 $previewrow['action'] = $existing
                     ? \get_string('csvactionupdate', 'local_ulms_academics')
@@ -1422,6 +1463,10 @@ class academic_structure_service {
             } else {
                 $previewrow['action'] = \get_string('csvactioninvalid', 'local_ulms_academics');
                 $previewrow['message'] = implode(' ', $rowerrors);
+                if ($existing) {
+                    // The row is rejected, so nothing is written and the stored status stands.
+                    $previewrow['status'] = (string)($existing->status ?? $previewrow['status']);
+                }
                 $result['errors'] = array_merge($result['errors'], $rowerrors);
                 $result['invalid']++;
             }
@@ -1555,12 +1600,12 @@ class academic_structure_service {
 
         foreach ($rows as $index => $row) {
             $linenumber = $index + 2;
-            $record = $this->build_record_from_import_row($entity, $row, $linenumber, $result['errors']);
+            $existing = $this->get_existing_record_for_import_row($entity, $row);
+            $record = $this->build_record_from_import_row($entity, $row, $linenumber, $result['errors'], $existing);
             if (!$record) {
                 continue;
             }
 
-            $existing = $this->get_record_for_entity_by_field($entity, 'code', $record->code);
             if ($existing) {
                 $record->id = $existing->id;
                 $result['updated']++;
@@ -1576,15 +1621,110 @@ class academic_structure_service {
     }
 
     /**
+     * Looks up the record an import row would update, keyed on its academic code.
+     *
+     * @param string $entity
+     * @param array $row
+     * @return \stdClass|false
+     */
+    private function get_existing_record_for_import_row(string $entity, array $row) {
+        $code = trim((string)($row['code'] ?? ''));
+        if ($code === '') {
+            return false;
+        }
+
+        return $this->get_record_for_entity_by_field($entity, 'code', $code);
+    }
+
+    /**
+     * Resolves the status an import row is allowed to store.
+     *
+     * The importer upserts on academic code, so an omitted status column used to rewrite
+     * every matching record back to "active" - silently lifting the restriction on
+     * inactive colleges, departments and programmes. The rules are now:
+     *
+     * - A new record without a status keeps the historic default of "active".
+     * - An existing record without a status keeps exactly what is already stored.
+     * - An existing inactive record can never be switched to active by an import;
+     *   activation stays with the single-record administrative action
+     *   ({@see self::activate_entity_record()}).
+     * - A stored status the platform cannot interpret is never overwritten; the row is
+     *   refused so the record is left untouched for an administrator to correct.
+     * - Unrecognised values are refused, so no row can bypass validation.
+     *
+     * @param string $rawstatus Status cell exactly as it appeared in the CSV.
+     * @param \stdClass|null $existing Record already stored under the row code, if any.
+     * @param int $linenumber
+     * @param array $errors
+     * @return string|null Canonical status, or null when the row must be rejected.
+     */
+    private function resolve_import_status(
+        string $rawstatus,
+        ?\stdClass $existing,
+        int $linenumber,
+        array &$errors
+    ): ?string {
+        if ($existing === null) {
+            $status = academic_status::normalize_for_storage($rawstatus);
+            if ($status === null) {
+                $errors[] = \get_string('csvinvalidstatus', 'local_ulms_academics', $linenumber);
+            }
+
+            return $status;
+        }
+
+        $storedstatus = academic_status::normalize((string)($existing->status ?? ''));
+        if ($storedstatus === null) {
+            // A stored status the platform cannot read is never rewritten: the row is refused
+            // so the record keeps exactly what it has until an administrator corrects it.
+            $errors[] = \get_string('csvinvalidstoredstatus', 'local_ulms_academics', (object)[
+                'line' => $linenumber,
+                'code' => (string)$existing->code,
+            ]);
+
+            return null;
+        }
+
+        if (academic_status::is_missing($rawstatus)) {
+            return $storedstatus;
+        }
+
+        $requested = academic_status::normalize($rawstatus);
+        if ($requested === null) {
+            $errors[] = \get_string('csvinvalidstatus', 'local_ulms_academics', $linenumber);
+
+            return null;
+        }
+
+        if ($storedstatus === academic_status::INACTIVE && $requested === academic_status::ACTIVE) {
+            $errors[] = \get_string('csvreactivationblocked', 'local_ulms_academics', (object)[
+                'line' => $linenumber,
+                'code' => (string)$existing->code,
+            ]);
+
+            return null;
+        }
+
+        return $requested;
+    }
+
+    /**
      * Builds an entity record from an import row.
      *
      * @param string $entity
      * @param array $row
      * @param int $linenumber
      * @param array $errors
+     * @param \stdClass|false|null $existing Record already stored under the row code, when there is one.
      * @return \stdClass|null
      */
-    private function build_record_from_import_row(string $entity, array $row, int $linenumber, array &$errors): ?\stdClass {
+    private function build_record_from_import_row(
+        string $entity,
+        array $row,
+        int $linenumber,
+        array &$errors,
+        $existing = null
+    ): ?\stdClass {
         $code = trim((string)($row['code'] ?? ''));
         $name = trim((string)($row['name'] ?? ''));
 
@@ -1598,7 +1738,16 @@ class academic_structure_service {
         $record->name = $name;
 
         if (in_array($entity, ['faculties', 'departments', 'programmes'], true)) {
-            $record->status = trim((string)($row['status'] ?? 'active')) ?: 'active';
+            $status = $this->resolve_import_status(
+                (string)($row['status'] ?? ''),
+                $existing ?: null,
+                $linenumber,
+                $errors
+            );
+            if ($status === null) {
+                return null;
+            }
+            $record->status = $status;
         }
 
         if ($entity === 'departments') {

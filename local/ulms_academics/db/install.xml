@@ -130,7 +130,6 @@
             <INDEXES>
                 <INDEX NAME="session_idx" UNIQUE="false" FIELDS="sessionid"/>
                 <INDEX NAME="code_unique" UNIQUE="true" FIELDS="code"/>
-                <INDEX NAME="currstatus" UNIQUE="false" FIELDS="iscurrent,status"/>
             </INDEXES>
         </TABLE>
     </TABLES>

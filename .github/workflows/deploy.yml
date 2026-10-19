@@ -1,16 +1,34 @@
+# Bells University of Technology — production gate.
+#
+# This workflow NEVER runs automatically. A push to `main` is validated by the ULMS CI
+# pipeline (ulms-ci.yml) and nothing else; production is only ever reached by a human
+# starting this workflow from the Actions tab.
+#
+# Two independent gates protect production:
+#   1. Explicit initiation — the only trigger is workflow_dispatch, and the production job
+#      is additionally skipped unless the operator sets `skip_deploy` to false. The safe
+#      path is therefore the default.
+#   2. The `production` GitHub Environment, whose protection rules require a reviewer to
+#      approve the run before any step of the production job executes.
+#
+# This workflow performs no deployment: there is no SSH, no rsync and no call against the
+# production server. It runs the quality gate, verifies the CODEOWNERS review gate and
+# prints the operator checklist for a manual deployment.
+#
+# The previous version ran on every push to `main`, which meant a merge could reach the
+# `production` environment without anyone asking for a deployment. That trigger has been
+# removed.
+
 name: ULMS Production Deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       skip_deploy:
-        description: Skip deploy step (run build & PRC only)
+        description: Run the quality gate only and skip the production job
         type: boolean
         required: false
-        default: false
+        default: true
 
 concurrency:
   group: production-deploy
@@ -80,6 +98,9 @@ jobs:
   deploy-production:
     name: Deploy to Production (Bells)
     needs: build
+    # Explicit-opt-in gate: `skip_deploy` defaults to true, so an operator must
+    # deliberately turn the production job on. The `production` environment below is the
+    # second gate and still requires a reviewer to approve the run.
     if: github.event.inputs.skip_deploy != 'true'
     runs-on: ubuntu-24.04
     environment:

@@ -640,4 +640,252 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $this->assertSame(1, $DB->count_records('local_ulms_user_provisioning_log', ['status' => 'created_with_email_warning']));
         $this->assertSame(2, $DB->count_records('local_ulms_user_provisioning_log', ['status' => 'created']));
     }
+
+    /**
+     * Creates a programme hierarchy and stores the supplied status verbatim.
+     *
+     * The status is written directly with insert_record() so the stored value is
+     * never normalised by the academics repository, which lets the tests exercise
+     * mixed-case and legacy values that already exist in the database.
+     *
+     * @param string $programmestatus Raw value to store in the status column.
+     * @return array{facultyid: int, departmentid: int, programmeid: int, code: string, name: string}
+     */
+    private function create_programme_fixture(string $programmestatus): array {
+        global $DB;
+
+        $suffix = random_string(6);
+        $now = time();
+        $facultyid = $DB->insert_record('local_ulms_faculties', (object)[
+            'code' => 'PROV-FAC-' . $suffix,
+            'name' => 'Provisioning College ' . $suffix,
+            'status' => 'active',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $departmentid = $DB->insert_record('local_ulms_departments', (object)[
+            'facultyid' => $facultyid,
+            'code' => 'PROV-DEP-' . $suffix,
+            'name' => 'Provisioning Department ' . $suffix,
+            'status' => 'active',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $programmecode = 'PROV-PRG-' . $suffix;
+        $programmename = 'Provisioning Programme ' . $suffix;
+        $programmeid = $DB->insert_record('local_ulms_programmes', (object)[
+            'departmentid' => $departmentid,
+            'code' => $programmecode,
+            'name' => $programmename,
+            'awardtype' => 'BSc',
+            'durationyears' => 4,
+            'status' => $programmestatus,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+
+        return [
+            'facultyid' => (int)$facultyid,
+            'departmentid' => (int)$departmentid,
+            'programmeid' => (int)$programmeid,
+            'code' => $programmecode,
+            'name' => $programmename,
+        ];
+    }
+
+    public function test_student_provisioning_requires_a_programme(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data());
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('require an active programme', implode(' ', $result['errors']));
+        $this->assertNull($result['inactiveprogramme']);
+    }
+
+    public function test_student_provisioning_reports_unknown_programme_as_not_found(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'programmecode' => 'DOES-NOT-EXIST',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('No programme matches', implode(' ', $result['errors']));
+        $this->assertStringNotContainsString('currently inactive', implode(' ', $result['errors']));
+        $this->assertNull($result['inactiveprogramme']);
+    }
+
+    public function test_student_provisioning_reports_inactive_programme_distinctly(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('inactive');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'programmeid' => $programme['programmeid'],
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('currently inactive', implode(' ', $result['errors']));
+        $this->assertStringNotContainsString('No programme matches', implode(' ', $result['errors']));
+
+        $this->assertNotNull($result['inactiveprogramme']);
+        $this->assertSame($programme['programmeid'], $result['inactiveprogramme']['id']);
+        $this->assertSame($programme['code'], $result['inactiveprogramme']['code']);
+        $this->assertSame($programme['name'], $result['inactiveprogramme']['name']);
+    }
+
+    public function test_student_provisioning_reports_inactive_programme_by_code(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('inactive');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'programmecode' => $programme['code'],
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertSame($programme['programmeid'], $result['inactiveprogramme']['id']);
+    }
+
+    public function test_student_provisioning_accepts_mixed_case_active_programme_status(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        // Legacy rows may store the canonical value with different casing.
+        $programme = $this->create_programme_fixture('Active');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'username' => 'mixedcase.active',
+            'email' => 'mixedcase.active@example.com',
+            'idnumber' => 'PROV-MIX-1',
+            'programmecode' => $programme['code'],
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+        $this->assertNull($result['inactiveprogramme'] ?? null);
+
+        $user = $DB->get_record('user', ['username' => 'mixedcase.active'], '*', MUST_EXIST);
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame($programme['programmeid'], (int)$profile->programmeid);
+        $this->assertSame($programme['departmentid'], (int)$profile->departmentid);
+        $this->assertSame($programme['facultyid'], (int)$profile->facultyid);
+    }
+
+    public function test_student_provisioning_accepts_legacy_active_alias_status(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('enabled');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'username' => 'legacy.alias',
+            'email' => 'legacy.alias@example.com',
+            'idnumber' => 'PROV-LEG-1',
+            'programmeid' => $programme['programmeid'],
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'legacy.alias'], '*', MUST_EXIST);
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame($programme['programmeid'], (int)$profile->programmeid);
+    }
+
+    public function test_student_provisioning_rejects_legacy_inactive_alias_status(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('suspended');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'programmeid' => $programme['programmeid'],
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertSame($programme['programmeid'], $result['inactiveprogramme']['id']);
+    }
+
+    public function test_bulk_preview_collects_inactive_programme_once(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('inactive');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $preview = $service->preview_bulk_import('student', [
+            [
+                'firstname' => 'Inactive',
+                'lastname' => 'Student One',
+                'email' => 'inactive.one@example.com',
+                'username' => 'inactive.one',
+                'idnumber' => 'PROV-INA-1',
+                'programmeid' => $programme['programmeid'],
+            ],
+            [
+                'firstname' => 'Inactive',
+                'lastname' => 'Student Two',
+                'email' => 'inactive.two@example.com',
+                'username' => 'inactive.two',
+                'idnumber' => 'PROV-INA-2',
+                'programmecode' => $programme['code'],
+            ],
+        ]);
+
+        $this->assertSame(2, $preview['processed']);
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(2, $preview['invalid']);
+        // The same inactive programme must be reported once, not once per row.
+        $this->assertCount(1, $preview['inactiveprogrammes']);
+        $this->assertSame($programme['programmeid'], $preview['inactiveprogrammes'][0]['id']);
+        $this->assertSame($programme['code'], $preview['inactiveprogrammes'][0]['code']);
+    }
+
+    public function test_bulk_preview_accepts_mixed_case_active_programme_status(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('ACTIVE');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $preview = $service->preview_bulk_import('student', [[
+            'firstname' => 'Uppercase',
+            'lastname' => 'Active Student',
+            'email' => 'uppercase.active@example.com',
+            'username' => 'uppercase.active',
+            'idnumber' => 'PROV-UPP-1',
+            'programmecode' => $programme['code'],
+        ]]);
+
+        $this->assertSame(1, $preview['valid']);
+        $this->assertSame(0, $preview['invalid']);
+        $this->assertSame([], $preview['inactiveprogrammes']);
+        $this->assertSame($programme['programmeid'], (int)$preview['validrows'][0]['programmeid']);
+        $this->assertSame($programme['facultyid'], (int)$preview['validrows'][0]['facultyid']);
+        $this->assertSame($programme['departmentid'], (int)$preview['validrows'][0]['departmentid']);
+    }
 }

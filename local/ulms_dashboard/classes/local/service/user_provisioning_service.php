@@ -23,6 +23,9 @@ require_once($CFG->dirroot . '/login/lib.php');
 require_once($CFG->libdir . '/accesslib.php');
 require_once($CFG->dirroot . '/local/ulms_mail/lib.php');
 require_once($CFG->dirroot . '/local/ulms_auth/lib.php');
+// Loaded explicitly so the programme enrolment helper is always available here,
+// independently of whether navigation callbacks have already pulled it in.
+require_once($CFG->dirroot . '/local/ulms_academics/lib.php');
 
 /**
  * Handles secure manual and bulk user provisioning for ULMS admin users.
@@ -147,6 +150,7 @@ class user_provisioning_service {
             'validrows' => [],
             'reportrows' => [],
             'errors' => [],
+            'inactiveprogrammes' => [],
         ];
         $seen = [
             'emails' => [],
@@ -184,6 +188,10 @@ class user_provisioning_service {
                 'message' => $validation['message'],
             ];
 
+            if (!empty($validation['inactiveprogramme'])) {
+                $result['inactiveprogrammes'][$validation['inactiveprogramme']['id']] = $validation['inactiveprogramme'];
+            }
+
             if ($validation['valid']) {
                 $result['valid']++;
                 $result['validrows'][] = $validation['record'];
@@ -194,6 +202,8 @@ class user_provisioning_service {
 
             $result['processed']++;
         }
+
+        $result['inactiveprogrammes'] = array_values($result['inactiveprogrammes']);
 
         return $result;
     }
@@ -220,6 +230,7 @@ class user_provisioning_service {
                 'success' => false,
                 'errors' => $validation['errors'],
                 'message' => $validation['message'],
+                'inactiveprogramme' => $validation['inactiveprogramme'] ?? null,
             ];
         }
 
@@ -444,27 +455,52 @@ class user_provisioning_service {
         $idnumber = trim((string)($row['idnumber'] ?? ''));
         $programmecode = trim((string)($row['programmecode'] ?? ''));
         $programmeid = max(0, (int)($row['programmeid'] ?? 0));
+        $inactiveprogramme = null;
 
         // Student programme requirement (FR-A3 / AC-A3).
         if ($targetrole === 'student') {
             if ($programmeid <= 0 && $programmecode === '') {
                 $errors[] = get_string('provisioningerrorprogrammerequired', 'local_ulms_dashboard');
             } else {
-                // Try lookup by code if only code set.
-                if ($programmeid <= 0 && $programmecode !== '') {
-                    $record = $DB->get_record('local_ulms_programmes', ['code' => $programmecode, 'status' => 'active'], 'id', IGNORE_MISSING);
-                    if ($record) {
-                        $programmeid = (int)$record->id;
-                    } else {
-                        $errors[] = get_string('provisioningerrorprogrammeinvalid', 'local_ulms_dashboard');
-                        $programmeid = 0;
-                    }
-                } elseif ($programmeid > 0) {
-                    $exists = (bool)$DB->record_exists('local_ulms_programmes', ['id' => $programmeid, 'status' => 'active']);
-                    if (!$exists) {
-                        $errors[] = get_string('provisioningerrorprogrammeinvalid', 'local_ulms_dashboard');
-                        $programmeid = 0;
-                    }
+                // Resolve the programme by id, then by code, WITHOUT filtering on
+                // status so that "does not exist" and "exists but is inactive" can be
+                // reported distinctly.
+                if ($programmeid > 0) {
+                    $programmerecord = $DB->get_record(
+                        'local_ulms_programmes',
+                        ['id' => $programmeid],
+                        'id, code, name, status',
+                        IGNORE_MISSING
+                    );
+                } else {
+                    $programmerecord = $DB->get_record(
+                        'local_ulms_programmes',
+                        ['code' => $programmecode],
+                        'id, code, name, status',
+                        IGNORE_MISSING
+                    );
+                }
+
+                if (!$programmerecord) {
+                    $errors[] = get_string(
+                        'provisioningerrorprogrammenotfound',
+                        'local_ulms_dashboard',
+                        $programmecode !== '' ? $programmecode : $programmeid
+                    );
+                    $programmeid = 0;
+                } else if (!\local_ulms_academics\local\academic_status::is_active((string)$programmerecord->status)) {
+                    $errors[] = get_string('provisioningerrorprogrammeinactive', 'local_ulms_dashboard', (object)[
+                        'name' => format_string((string)$programmerecord->name),
+                        'code' => (string)$programmerecord->code,
+                    ]);
+                    $inactiveprogramme = [
+                        'id' => (int)$programmerecord->id,
+                        'code' => (string)$programmerecord->code,
+                        'name' => format_string((string)$programmerecord->name),
+                    ];
+                    $programmeid = 0;
+                } else {
+                    $programmeid = (int)$programmerecord->id;
                 }
             }
         }
@@ -502,6 +538,7 @@ class user_provisioning_service {
                 'valid' => false,
                 'errors' => $errors,
                 'message' => implode(' ', array_unique($errors)),
+                'inactiveprogramme' => $inactiveprogramme,
                 'display' => [
                     'firstname' => $firstname,
                     'lastname' => $lastname,
@@ -541,6 +578,7 @@ class user_provisioning_service {
             'valid' => true,
             'errors' => [],
             'message' => get_string('provisioningcsvvalidationpassed', 'local_ulms_dashboard'),
+            'inactiveprogramme' => null,
             'display' => [
                 'firstname' => $firstname,
                 'lastname' => $lastname,

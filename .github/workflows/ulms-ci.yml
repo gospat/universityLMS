@@ -1,0 +1,522 @@
+# Bells University of Technology — University LMS (Moodle) continuous integration.
+#
+# This is the permanent CI entry point for the university's own Moodle application
+# code: the `local/ulms_*` plugins and the `ulms_university` theme. It is deliberately
+# generic so that future plugins and themes added under those trees are validated
+# automatically without editing this file.
+#
+# What it guarantees:
+#   * PHP 8.3 — the Moodle 4.5 version the university deploys.
+#   * A disposable MySQL 8 service container created for the run only.
+#   * A PHPUnit dataroot created outside the working tree, so no test data can ever
+#     be confused with the checked-out application code.
+#   * Throwaway, non-secret credentials. No secret is read from the repository and
+#     no production database, configuration or Moodle data is ever contacted.
+#   * No deployment step of any kind. This workflow cannot change production.
+#
+# Environment prerequisites the workflow supplies for the run:
+#   * phpCAS under auth/cas/CAS/vendor, which the repository does not track, so a
+#     fresh checkout can install a Moodle site.
+#   * The en_AU.UTF-8 locale, which Moodle's PHPUnit bootstrap requires and the
+#     ubuntu image does not ship.
+#   * A composer.lock workaround: the committed lock resolves packages that require
+#     PHP 8.4, so the run re-resolves dependencies and warns instead of failing.
+#   Each of these is a pre-existing repository or image gap, described at its step.
+#
+# Reusability:
+#   * Runs on every push to every branch and on every pull request targeting `main`.
+#   * Discovers PHPUnit suites from the filesystem, so a new `local/ulms_foo/tests`
+#     directory is picked up on the next run with no workflow change — and becomes a
+#     REQUIRED suite by default.
+#   * Composer downloads are cached and superseded runs are cancelled.
+#   * Dependencies come from the committed composer.lock when it applies to PHP 8.3.
+#     The lock currently resolves a few packages to PHP 8.4-only releases, so the
+#     pipeline re-resolves for the run and warns rather than failing; see the
+#     "Install Composer dependencies" step. Regenerating composer.lock on PHP 8.3
+#     removes the warning and restores determinism.
+#
+# Test gating is two-tier:
+#   * `phpunit-required` is the merge gate. It runs every discovered suite except the
+#     ones listed in KNOWN_FAILING_SUITES below. Those suites were already failing at
+#     the time this pipeline was introduced (see KNOWN_FAILING_SUITES for the exact
+#     defects) and are being remediated separately; holding them as a required check
+#     would block every merge in the repository for reasons unrelated to the change
+#     under review. Newly added suites are required by default, so a regression in
+#     existing or future code cannot slip through.
+#   * `phpunit-full` runs the complete suite, including the known failures, and is
+#     advisory. It exists so the outstanding defects stay visible on every run.
+#
+# Outstanding technical debt — measured on this tree, not fixed by this pipeline.
+# The suite is NOT fully passing and must not be reported as such:
+#   * PHPUnit: 146 tests, 762 assertions, 13 errors and 25 failures. Every one of them is
+#     in local_ulms_dashboard_testsuite (missing language strings for the welcome panels)
+#     or local_ulms_mail_testsuite (no mail transport configured). See KNOWN_FAILING_SUITES.
+#   * Moodle coding standard: 6340 errors and 1448 warnings across 158 files. The standard
+#     has never been enforced here, so this is pre-existing backlog, not a regression.
+#     `phpcbf` can fix 3548 of them automatically.
+#   * Committed AMD assets: `npx grunt` reports the committed `build/` files as out of date
+#     against `src/`. The check lives in .github/workflows/push.yml and is manual-only until
+#     the assets are rebuilt.
+#   * composer.lock resolves packages that require PHP 8.4, so it cannot be installed on the
+#     PHP 8.3 the university deploys. Regenerating it on PHP 8.3 removes the workaround in
+#     the "Install Composer dependencies" step and restores deterministic installs.
+#
+# Once the known failures are repaired, delete the corresponding entries from
+# KNOWN_FAILING_SUITES and both PHPUnit jobs become fully green.
+
+name: ULMS CI
+
+on:
+  # Every branch, so feature, review and hotfix branches are all validated.
+  # Tag pushes are intentionally excluded — they carry no application code change.
+  push:
+    branches:
+      - '**'
+  # The merge gate: nothing reaches main without these checks.
+  pull_request:
+    branches:
+      - main
+  # Allows an operator to re-run the pipeline or run a subset of tests by hand.
+  workflow_dispatch:
+    inputs:
+      phpunit_extra_options:
+        description: Extra options appended to the required PHPUnit command
+        required: false
+        default: ''
+
+# One run per branch/PR. A newer commit cancels the in-flight run for the same ref
+# so a busy branch cannot accumulate queued jobs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only: this pipeline never writes to the repository, the API or a deployment.
+permissions:
+  contents: read
+
+env:
+  PHP_VERSION: '8.3'
+
+  # Suites that were ALREADY failing before this pipeline existed. They are excluded
+  # from the required gate only; `phpunit-full` still runs them so the defects remain
+  # visible. This list must only ever shrink.
+  #
+  #   local_ulms_dashboard_testsuite — 13 errors / 18 failures. The portal services
+  #     request language strings that do not exist in the plugin
+  #     (`studentwelcome`, `lecturerwelcome`, `superadminwelcome`, `adminwelcome`,
+  #     `management.lecturers.eyebrow`), which Moodle reports through debugging();
+  #     `advanced_testcase` turns unexpected debugging() output into a failure. The
+  #     remaining failures depend on study-level fixtures and mail transport
+  #     configuration that the PHPUnit environment does not provide.
+  #   local_ulms_mail_testsuite — 7 failures. The resend-mail transport is not
+  #     configured in the PHPUnit environment, so every transport assertion fails.
+  KNOWN_FAILING_SUITES: 'local_ulms_dashboard_testsuite local_ulms_mail_testsuite'
+
+jobs:
+  # Fast, dependency-free gate. Runs first so a syntax error is reported in seconds
+  # instead of after a full Moodle PHPUnit bootstrap.
+  syntax:
+    name: PHP syntax and Composer validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        # Non-strict on purpose: this repository inherits Moodle's own composer.json
+        # and `--strict` would fail on upstream metadata we do not control.
+        run: composer validate --no-check-publish
+
+      - name: Lint every PHP file in the application code
+        run: |
+          set -uo pipefail
+          failed=0
+          checked=0
+          # Local plugins and the university theme are the application code owned by
+          # the university. Moodle core and third-party themes are not linted here;
+          # they are versioned upstream and are not modified by this project.
+          while IFS= read -r file; do
+            checked=$((checked + 1))
+            if ! php -l "$file" > /dev/null 2>&1; then
+              echo "::error file=${file}::PHP syntax error"
+              php -l "$file" || true
+              failed=1
+            fi
+          done < <(find local theme/ulms_university -type f -name '*.php' -not -path '*/node_modules/*' | sort)
+          echo "PHP files linted: ${checked}"
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::PHP syntax validation failed."
+            exit 1
+          fi
+          echo "All ${checked} PHP files passed syntax validation."
+
+  # The merge gate: a full Moodle PHPUnit install against an isolated MySQL database.
+  phpunit-required:
+    name: PHPUnit required (Moodle 4.5, PHP 8.3, MySQL 8)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      # Disposable database. `test`/`test` are the same throwaway credentials the
+      # Moodle CI config template expects; they exist only for the life of this run.
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: test
+          MYSQL_USER: test
+          MYSQL_PASSWORD: test
+          MYSQL_ROOT_PASSWORD: test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+          --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          # Mirrors the extensions required by composer.json for the mysqli driver.
+          extensions: mysqli, pdo_mysql, curl, gd, mbstring, xml, zip, intl, soap, sodium, exif, fileinfo, opcache
+          ini-values: max_input_vars=5000
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/composer
+            ~/.composer/cache
+          key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
+
+      - name: Install Composer dependencies
+        # The committed composer.lock was resolved on PHP 8.4 and pins several
+        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
+        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
+        # lock so the run stays deterministic; if it does not apply to this PHP version,
+        # re-resolve for this run only and warn, naming the real fix.
+        run: |
+          if composer install --no-interaction --prefer-dist --no-progress; then
+            echo "Dependencies installed from the committed composer.lock."
+          else
+            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
+            composer update --no-interaction --prefer-dist --no-progress
+          fi
+
+      - name: Prepare the Moodle test configuration
+        # config-template.php is the Moodle CI template: it points Moodle at the
+        # service container above and puts both dataroots outside the working tree.
+        run: |
+          echo "pathtophp=$(which php)" >> "$GITHUB_ENV"
+          cp .github/workflows/config-template.php config.php
+          mkdir -p ../moodledata
+
+      - name: Provide the phpCAS library the CAS authentication plugin needs
+        # A fresh checkout cannot install a Moodle site without this.
+        # auth/cas/settings.php requires auth/cas/CAS/vendor/autoload.php, but the
+        # repository does not track auth/cas/CAS/vendor — the unanchored `vendor/`
+        # rule in .gitignore excluded it when Moodle core was imported. phpCAS is
+        # therefore installed here for the run only, exactly as
+        # auth/cas/CAS/readme_moodle.txt prescribes: the version comes from
+        # auth/cas/thirdpartylibs.xml, and psr/log is replaced so the library cannot
+        # redeclare the copy Moodle already loads. No tracked file is modified.
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/phpcas && cd /tmp/phpcas
+          cat > composer.json <<'JSON'
+          {
+              "require": {"apereo/phpcas": "1.6.1"},
+              "replace": {"psr/log": "*"}
+          }
+          JSON
+          composer install --no-interaction --prefer-dist --no-progress
+          test ! -d vendor/psr/log
+          rm -rf "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+          cp -R vendor "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+
+      - name: Install the locale Moodle requires
+        # init.php refuses to bootstrap without en_AU.UTF-8; the ubuntu image
+        # ships no locales by default.
+        run: sudo locale-gen en_AU.UTF-8
+
+      - name: Initialise the Moodle PHPUnit environment
+        env:
+          dbtype: mysqli
+        # --no-composer-upgrade stops init.php re-running `composer install`, which
+        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
+
+      - name: Run the required ULMS PHPUnit suites
+        env:
+          dbtype: mysqli
+        run: |
+          set -euo pipefail
+
+          # Moodle generates one PHPUnit suite per plugin/theme that has a tests
+          # directory. Discovering them here keeps this workflow valid for plugins
+          # that do not exist yet, and avoids failing on a suite name that Moodle
+          # never generated (e.g. a plugin with no tests).
+          suites=()
+          while IFS= read -r dir; do
+            component="${dir%/tests}"
+            component="${component//\//_}"
+            suites+=("${component}_testsuite")
+          done < <(find local theme/ulms_university -type d -name tests | sort)
+
+          if [ "${#suites[@]}" -eq 0 ]; then
+            echo "::error::No ULMS test directories were found under local/ or theme/ulms_university/."
+            exit 1
+          fi
+
+          # Split the discovered suites into the required gate and the suites with
+          # known pre-existing failures. A suite absent from KNOWN_FAILING_SUITES is
+          # required, so a newly added plugin/theme is gated automatically.
+          read -r -a known <<< "${KNOWN_FAILING_SUITES:-}"
+          required=()
+          excluded=()
+          for suite in "${suites[@]}"; do
+            isknown=0
+            for candidate in "${known[@]}"; do
+              if [ "$suite" = "$candidate" ]; then
+                isknown=1
+                break
+              fi
+            done
+            if [ "$isknown" -eq 1 ]; then
+              excluded+=("$suite")
+            else
+              required+=("$suite")
+            fi
+          done
+
+          echo "Discovered suites      : ${suites[*]}"
+          echo "Required (gating) suites: ${required[*]}"
+          echo "Excluded known failures : ${excluded[*]:-none}"
+
+          if [ "${#required[@]}" -eq 0 ]; then
+            echo "::error::Every discovered suite is listed in KNOWN_FAILING_SUITES, so nothing would be gated."
+            exit 1
+          fi
+
+          # PHPUnit accepts the suite filter as one COMMA-SEPARATED list. Passing
+          # --testsuite repeatedly would silently run only the last suite, because
+          # the CLI builder keeps the final occurrence of the option.
+          suite_filter=$(IFS=,; echo "${required[*]}")
+
+          php vendor/bin/phpunit --testsuite "${suite_filter}" ${{ inputs.phpunit_extra_options }}
+
+  # Advisory only. Runs the complete ULMS suite, including the known pre-existing
+  # failures listed in KNOWN_FAILING_SUITES, so the outstanding defects stay visible
+  # on every push. Always non-blocking: remove entries from KNOWN_FAILING_SUITES as
+  # they are repaired and this job turns green as well.
+  phpunit-full:
+    name: PHPUnit full suite (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    continue-on-error: true
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: test
+          MYSQL_USER: test
+          MYSQL_PASSWORD: test
+          MYSQL_ROOT_PASSWORD: test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+          --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mysqli, pdo_mysql, curl, gd, mbstring, xml, zip, intl, soap, sodium, exif, fileinfo, opcache
+          ini-values: max_input_vars=5000
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/composer
+            ~/.composer/cache
+          key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
+
+      - name: Install Composer dependencies
+        # The committed composer.lock was resolved on PHP 8.4 and pins several
+        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
+        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
+        # lock so the run stays deterministic; if it does not apply to this PHP version,
+        # re-resolve for this run only and warn, naming the real fix.
+        run: |
+          if composer install --no-interaction --prefer-dist --no-progress; then
+            echo "Dependencies installed from the committed composer.lock."
+          else
+            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
+            composer update --no-interaction --prefer-dist --no-progress
+          fi
+
+      - name: Prepare the Moodle test configuration
+        run: |
+          echo "pathtophp=$(which php)" >> "$GITHUB_ENV"
+          cp .github/workflows/config-template.php config.php
+          mkdir -p ../moodledata
+
+      - name: Provide the phpCAS library the CAS authentication plugin needs
+        # A fresh checkout cannot install a Moodle site without this.
+        # auth/cas/settings.php requires auth/cas/CAS/vendor/autoload.php, but the
+        # repository does not track auth/cas/CAS/vendor — the unanchored `vendor/`
+        # rule in .gitignore excluded it when Moodle core was imported. phpCAS is
+        # therefore installed here for the run only, exactly as
+        # auth/cas/CAS/readme_moodle.txt prescribes: the version comes from
+        # auth/cas/thirdpartylibs.xml, and psr/log is replaced so the library cannot
+        # redeclare the copy Moodle already loads. No tracked file is modified.
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/phpcas && cd /tmp/phpcas
+          cat > composer.json <<'JSON'
+          {
+              "require": {"apereo/phpcas": "1.6.1"},
+              "replace": {"psr/log": "*"}
+          }
+          JSON
+          composer install --no-interaction --prefer-dist --no-progress
+          test ! -d vendor/psr/log
+          rm -rf "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+          cp -R vendor "$GITHUB_WORKSPACE/auth/cas/CAS/vendor"
+
+      - name: Install the locale Moodle requires
+        # init.php refuses to bootstrap without en_AU.UTF-8; the ubuntu image
+        # ships no locales by default.
+        run: sudo locale-gen en_AU.UTF-8
+
+      - name: Initialise the Moodle PHPUnit environment
+        env:
+          dbtype: mysqli
+        # --no-composer-upgrade stops init.php re-running `composer install`, which
+        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
+
+      - name: Run every ULMS PHPUnit suite
+        env:
+          dbtype: mysqli
+        run: |
+          set -uo pipefail
+
+          suites=()
+          while IFS= read -r dir; do
+            component="${dir%/tests}"
+            component="${component//\//_}"
+            suites+=("${component}_testsuite")
+          done < <(find local theme/ulms_university -type d -name tests | sort)
+
+          if [ "${#suites[@]}" -eq 0 ]; then
+            echo "::error::No ULMS test directories were found under local/ or theme/ulms_university/."
+            exit 1
+          fi
+
+          suite_filter=$(IFS=,; echo "${suites[*]}")
+          echo "Running all suites (advisory): ${suite_filter}"
+
+          # Never let this job block a merge; the required job above is the gate.
+          php vendor/bin/phpunit --testsuite "${suite_filter}" || {
+            echo "::warning::The full ULMS PHPUnit suite reported failures. This job is advisory; see KNOWN_FAILING_SUITES in ulms-ci.yml for the pre-existing defects."
+          }
+
+  # Advisory only. The Moodle coding standard is newly introduced to this repository,
+  # so existing violations must not block a merge. Promote this job to a required
+  # check in branch protection once the backlog is cleared.
+  #
+  # The violations themselves are advisory, but the toolchain is not: if the standard
+  # cannot be loaded the job fails, so a misconfigured phpcs can never be mistaken for a
+  # clean codebase.
+  coding-standard:
+    name: Moodle coding standard (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2, phpcs
+
+      - name: Install the Moodle CodeSniffer standard
+        run: composer create-project -n --no-dev --prefer-dist moodlehq/moodle-cs /tmp/moodle-cs
+
+      - name: Register the standard with PHP_CodeSniffer
+        # moodle-cs keeps its rulesets in `moodle/` and `moodle-extra/`, and the Moodle
+        # standard references sniffs from phpcsextra. All three paths must be registered:
+        # pointing phpcs at the moodle-cs root alone registers the two Moodle rulesets but
+        # not phpcsextra, and every phpcsextra sniff then fails to resolve with
+        # "Referenced sniff ... does not exist".
+        run: |
+          phpcs --config-set installed_paths /tmp/moodle-cs/moodle,/tmp/moodle-cs/moodle-extra,/tmp/moodle-cs/vendor/phpcsstandards/phpcsextra
+          phpcs -i
+
+      - name: Check the Moodle standard actually loaded
+        # A coding-standard job that cannot load the standard must not look like a pass.
+        # This step fails loudly if the registration above is ever broken again.
+        run: |
+          set -euo pipefail
+          standards="$(phpcs -i)"
+          echo "Installed standards: ${standards}"
+          for required in moodle moodle-extra NormalizedArrays Universal; do
+            if ! grep -qw "${required}" <<< "${standards}"; then
+              echo "::error::The '${required}' coding standard is not registered, so Moodle coding-standard results would be meaningless."
+              exit 1
+            fi
+          done
+
+      - name: Run the Moodle standard over the application code
+        # phpcs.xml.dist at the repository root already selects the `moodle` standard.
+        # The standard has never been enforced in this repository, so the violations it
+        # reports are pre-existing. They are surfaced as a warning and are not allowed to
+        # block a merge; promote this job to a required check in branch protection once the
+        # backlog is cleared.
+        run: |
+          set +e
+          phpcs -q --report=summary --extensions=php local theme/ulms_university 2>&1 | tee /tmp/phpcs.log
+          status=${PIPESTATUS[0]}
+          if grep -q 'Referenced sniff' /tmp/phpcs.log; then
+            echo "::error::phpcs could not resolve the Moodle standard, so the results above are invalid."
+            exit 1
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "No coding-standard violations found in the tracked ULMS application code."
+          else
+            echo "::warning::PHP_CodeSniffer reported coding-standard violations (advisory, non-blocking)."
+          fi
+          exit 0
