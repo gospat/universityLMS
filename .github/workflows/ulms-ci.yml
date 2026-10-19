@@ -46,6 +46,21 @@
 #   * `phpunit-full` runs the complete suite, including the known failures, and is
 #     advisory. It exists so the outstanding defects stay visible on every run.
 #
+# Outstanding technical debt — measured on this tree, not fixed by this pipeline.
+# The suite is NOT fully passing and must not be reported as such:
+#   * PHPUnit: 146 tests, 762 assertions, 13 errors and 25 failures. Every one of them is
+#     in local_ulms_dashboard_testsuite (missing language strings for the welcome panels)
+#     or local_ulms_mail_testsuite (no mail transport configured). See KNOWN_FAILING_SUITES.
+#   * Moodle coding standard: 6340 errors and 1448 warnings across 158 files. The standard
+#     has never been enforced here, so this is pre-existing backlog, not a regression.
+#     `phpcbf` can fix 3548 of them automatically.
+#   * Committed AMD assets: `npx grunt` reports the committed `build/` files as out of date
+#     against `src/`. The check lives in .github/workflows/push.yml and is manual-only until
+#     the assets are rebuilt.
+#   * composer.lock resolves packages that require PHP 8.4, so it cannot be installed on the
+#     PHP 8.3 the university deploys. Regenerating it on PHP 8.3 removes the workaround in
+#     the "Install Composer dependencies" step and restores deterministic installs.
+#
 # Once the known failures are repaired, delete the corresponding entries from
 # KNOWN_FAILING_SUITES and both PHPUnit jobs become fully green.
 
