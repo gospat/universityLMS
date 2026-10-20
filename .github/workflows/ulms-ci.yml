@@ -44,13 +44,18 @@
 #     under review. Newly added suites are required by default, so a regression in
 #     existing or future code cannot slip through.
 #   * `phpunit-full` runs the complete suite, including the known failures, and is
-#     advisory. It exists so the outstanding defects stay visible on every run.
+#     advisory. It exists so the outstanding defects stay visible on every run, and it
+#     publishes the per-suite verdict as a check-run annotation so any account can read
+#     which suite is still failing without job-log access.
 #
 # Outstanding technical debt — measured on this tree, not fixed by this pipeline.
 # The suite is NOT fully passing and must not be reported as such:
-#   * PHPUnit: 146 tests, 762 assertions, 13 errors and 25 failures. Every one of them is
-#     in local_ulms_dashboard_testsuite (missing language strings for the welcome panels)
-#     or local_ulms_mail_testsuite (no mail transport configured). See KNOWN_FAILING_SUITES.
+#   * PHPUnit: the last measured full-suite run was 146 tests, 762 assertions, 13 errors
+#     and 25 failures, all of them in local_ulms_dashboard_testsuite (missing language
+#     strings for the welcome panels) or local_ulms_mail_testsuite (no mail transport
+#     configured). The missing dashboard and exam strings have since been defined, so the
+#     dashboard suite must be re-measured: trim it from KNOWN_FAILING_SUITES based on the
+#     `phpunit-full` annotation, not on this comment.
 #   * Moodle coding standard: 6340 errors and 1448 warnings across 158 files. The standard
 #     has never been enforced here, so this is pre-existing backlog, not a regression.
 #     `phpcbf` can fix 3548 of them automatically.
@@ -62,7 +67,8 @@
 #     the "Install Composer dependencies" step and restores deterministic installs.
 #
 # Once the known failures are repaired, delete the corresponding entries from
-# KNOWN_FAILING_SUITES and both PHPUnit jobs become fully green.
+# KNOWN_FAILING_SUITES and both PHPUnit jobs become fully green. The `phpunit-full`
+# annotation names the suite(s) still failing, which is the evidence for that trim.
 
 name: ULMS CI
 
@@ -445,10 +451,41 @@ jobs:
           suite_filter=$(IFS=,; echo "${suites[*]}")
           echo "Running all suites (advisory): ${suite_filter}"
 
+          # The JUnit report is what makes the remaining failures attributable.
+          # GitHub only serves job logs to accounts with repository access, while
+          # annotations are readable by anyone, so the per-suite verdict is emitted
+          # below as annotations instead of being buried in the log.
+          rm -f phpunit-advisory.xml
+
           # Never let this job block a merge; the required job above is the gate.
-          php vendor/bin/phpunit --testsuite "${suite_filter}" || {
+          php vendor/bin/phpunit --testsuite "${suite_filter}" --log-junit phpunit-advisory.xml || {
             echo "::warning::The full ULMS PHPUnit suite reported failures. This job is advisory; see KNOWN_FAILING_SUITES in ulms-ci.yml for the pre-existing defects."
           }
+
+          if [ -f phpunit-advisory.xml ]; then
+            python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse('phpunit-advisory.xml').getroot()
+          failing = []
+          for suite in root.iter('testsuite'):
+              name = suite.get('name') or ''
+              # Nested aggregate suites repeat the leaf totals, so only the
+              # generated per-plugin/theme suites are reported.
+              if not name.endswith('_testsuite'):
+                  continue
+              errors = int(suite.get('errors') or 0)
+              failures = int(suite.get('failures') or 0)
+              if errors or failures:
+                  failing.append(f"{name}: {errors} error(s), {failures} failure(s)")
+
+          if failing:
+              print("::warning::ULMS PHPUnit suites still report failures (advisory): "
+                    + "; ".join(failing))
+          else:
+              print("Every ULMS PHPUnit suite passed.")
+          PY
+          fi
 
   # Advisory only. The Moodle coding standard is newly introduced to this repository,
   # so existing violations must not block a merge. Promote this job to a required
