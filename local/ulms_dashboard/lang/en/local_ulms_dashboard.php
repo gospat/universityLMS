@@ -1394,4 +1394,10 @@ $string['studenttimetableweekof'] = 'Week of {$a}';
 $string['studenttimetableprevweek'] = '← Prev Week';
 $string['studenttablenextweek'] = 'Next Week →';
 $string['studenttimetablecourseempty'] = 'No classes scheduled this week for this course.';
+$string['studentwelcome'] = 'Welcome back, {$a}';
+$string['lecturerwelcome'] = 'Welcome back, {$a}';
+$string['adminwelcome'] = 'Welcome back, {$a}';
+$string['superadminwelcome'] = 'Welcome back, {$a}';
+$string['lecturernavgrading'] = 'Grading';
+$string['superadmin.kpifetcherror'] = 'Delivery and scheduling KPI data failed to load. Displayed values may be stale; check the logs and retry.';
 

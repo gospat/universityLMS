@@ -78,31 +78,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $validation_errors = [];
     if ($title === '') {
-        $validation_errors[] = get_string('err_required_title', 'local_ulms_exam', null, 'Exam title is required.');
+        $validation_errors[] = get_string('err_required_title', 'local_ulms_exam');
     }
     if ($programmeid <= 0) {
-        $validation_errors[] = get_string('err_required_programme', 'local_ulms_exam', null, 'Programme is required — select Faculty → Department → Programme.');
+        $validation_errors[] = get_string('err_required_programme', 'local_ulms_exam');
     }
     if ($levelid <= 0) {
-        $validation_errors[] = get_string('err_required_level', 'local_ulms_exam', null, 'Level is required.');
+        $validation_errors[] = get_string('err_required_level', 'local_ulms_exam');
     }
     if ($sessionid <= 0) {
-        $validation_errors[] = get_string('err_required_session', 'local_ulms_exam', null, 'Academic Session is required.');
+        $validation_errors[] = get_string('err_required_session', 'local_ulms_exam');
     }
     if ($semesterid <= 0) {
-        $validation_errors[] = get_string('err_required_semester', 'local_ulms_exam', null, 'Semester is required.');
+        $validation_errors[] = get_string('err_required_semester', 'local_ulms_exam');
     }
     if ($courseid <= 0) {
-        $validation_errors[] = get_string('err_required_course', 'local_ulms_exam', null, 'Course is required — ensure the course is mapped under that Programme+Level+Semester combination.');
+        $validation_errors[] = get_string('err_required_course', 'local_ulms_exam');
     }
     if ($startts <= 0) {
-        $validation_errors[] = get_string('err_required_start', 'local_ulms_exam', null, 'Start date/time is required.');
+        $validation_errors[] = get_string('err_required_start', 'local_ulms_exam');
     }
     if ($endts <= 0) {
-        $validation_errors[] = get_string('err_required_end', 'local_ulms_exam', null, 'End date/time is required.');
+        $validation_errors[] = get_string('err_required_end', 'local_ulms_exam');
     }
     if ($startts > 0 && $endts > 0 && $endts <= $startts) {
-        $validation_errors[] = get_string('err_end_before_start', 'local_ulms_exam', null, 'End time must be after start time.');
+        $validation_errors[] = get_string('err_end_before_start', 'local_ulms_exam');
     }
     if (!empty($validation_errors)) {
         foreach ($validation_errors as $ve) {

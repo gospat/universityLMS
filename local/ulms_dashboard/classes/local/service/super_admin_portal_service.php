@@ -399,7 +399,7 @@ class super_admin_portal_service {
             } else {
                 error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'super_admin_portal_service::get_dashboard_view_data::deliveries_kpi','type'=>get_class($e),'message'=>$e->getMessage(),'line'=>$e->getLine(),'file'=>$e->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
             }
-            $dashboarderror = get_string('superadmin.kpifetcherror', 'local_ulms_dashboard', '⚠ Delivery & scheduling KPI data failed to load. Displayed values may be stale; check logs and retry.');
+            $dashboarderror = get_string('superadmin.kpifetcherror', 'local_ulms_dashboard');
             if (!isset($summaryerrors)) {
                 $summaryerrors = [];
             }
