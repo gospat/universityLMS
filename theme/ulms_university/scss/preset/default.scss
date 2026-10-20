@@ -3382,11 +3382,25 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{display:block;font-size:.76rem
     overflow-wrap: anywhere;
 }
 
+/* Text-like controls fill their container. Button-like (submit/button/reset)
+   and choice controls (checkbox/radio/range) are deliberately excluded:
+   stretching them to `width:100%` broke action rows such as the Bulk Upload
+   "Cancel / Preview upload" bar and distorted inline checkbox groups. */
 .theme-ulms-university .ulms-shell-content form .form-group,
 .theme-ulms-university .ulms-shell-content .form-control,
 .theme-ulms-university .ulms-shell-content select,
 .theme-ulms-university .ulms-shell-content textarea,
-.theme-ulms-university .ulms-shell-content input[type],
+.theme-ulms-university .ulms-shell-content input[type="text"],
+.theme-ulms-university .ulms-shell-content input[type="email"],
+.theme-ulms-university .ulms-shell-content input[type="password"],
+.theme-ulms-university .ulms-shell-content input[type="search"],
+.theme-ulms-university .ulms-shell-content input[type="number"],
+.theme-ulms-university .ulms-shell-content input[type="tel"],
+.theme-ulms-university .ulms-shell-content input[type="url"],
+.theme-ulms-university .ulms-shell-content input[type="date"],
+.theme-ulms-university .ulms-shell-content input[type="month"],
+.theme-ulms-university .ulms-shell-content input[type="time"],
+.theme-ulms-university .ulms-shell-content input[type="datetime-local"],
 .theme-ulms-university .ulms-shell-content .custom-select {
     width: 100%;
     min-width: 0;
@@ -4933,12 +4947,16 @@ body.theme-ulms-university.ulms-dashboard-shell #region-main > * > * > *:has(tab
     border-radius: var(--ulms-radius-card) !important;
 }
 
-/* -------------- SETTINGS / FORMS: 2-col balanced grid → 1-col @≤991 --------------
-   Search forms are excluded: forcing `display:grid` with a single
-   `minmax(280px, 1fr)` track onto `form.simplesearchform` cannot fit the
-   input (280px) plus its submit button, which pushed the control outside the
-   header container. They stay flex. */
-body.theme-ulms-university.ulms-dashboard-shell #page-content form:not(.simplesearchform):not(.searchform-navbar),
+/* -------------- SETTINGS / FORMS: opt-in 2-col balanced grid → 1-col @≤991 --------------
+   Scoped strictly to explicit opt-in containers. This rule previously also
+   matched `#page-content form:not(.simplesearchform):not(.searchform-navbar)`,
+   which hijacked EVERY custom portal form. Bootstrap `.row/.col-*` markup and
+   panel-structured forms (`.ulms-panel__header` + `.ulms-panel__body`) were
+   re-flowed into side-by-side `minmax(280px, 1fr)` tracks, collapsing field
+   columns (e.g. `.col-md-6` → ~157px) and pushing submit buttons into their own
+   grid column (Bulk Upload "Cancel" / "Preview upload" action bar). Forms now
+   keep their own layout; only the dedicated grid containers opt in. Search
+   forms stay flex for the same reason as before. */
 body.theme-ulms-university.ulms-dashboard-shell .settings-grid,
 body.theme-ulms-university.ulms-dashboard-shell .ulms-form-grid,
 body.theme-ulms-university.ulms-dashboard-shell form > fieldset,

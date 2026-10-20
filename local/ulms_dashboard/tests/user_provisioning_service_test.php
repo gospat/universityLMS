@@ -888,4 +888,126 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $this->assertSame($programme['facultyid'], (int)$preview['validrows'][0]['facultyid']);
         $this->assertSame($programme['departmentid'], (int)$preview['validrows'][0]['departmentid']);
     }
+
+    /**
+     * A preview is a pure validation pass.
+     *
+     * No account may be created and no provisioning log written, even when every
+     * submitted row is valid: only an explicit confirmation may create users.
+     */
+    public function test_bulk_preview_creates_no_users_and_writes_no_log(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('active');
+
+        $usersbefore = $DB->count_records('user');
+        $logsbefores = $DB->count_records('local_ulms_user_provisioning_log');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $preview = $service->preview_bulk_import('student', [
+            [
+                'firstname' => 'Preview',
+                'lastname' => 'Valid Row',
+                'email' => 'preview.valid.row@example.com',
+                'username' => 'preview.valid.row',
+                'idnumber' => 'PREV-VALID-1',
+                'programmecode' => $programme['code'],
+            ],
+            [
+                'firstname' => 'Preview',
+                'lastname' => 'Invalid Row',
+                'email' => 'not-an-email',
+                'username' => 'preview.invalid.row',
+                'idnumber' => 'PREV-INVALID-1',
+                'programmecode' => $programme['code'],
+            ],
+        ]);
+
+        $this->assertSame(2, $preview['processed']);
+        $this->assertSame(1, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+
+        // The acceptance criterion: preview must not create users.
+        $this->assertSame($usersbefore, $DB->count_records('user'));
+        $this->assertSame($logsbefores, $DB->count_records('local_ulms_user_provisioning_log'));
+        $this->assertFalse($DB->record_exists('user', ['username' => 'preview.valid.row']));
+        $this->assertFalse($DB->record_exists('user', ['username' => 'preview.invalid.row']));
+    }
+
+    /**
+     * Rows naming a programme that does not exist must be rejected outright and
+     * must never be offered to the confirmation step.
+     */
+    public function test_bulk_preview_rejects_unknown_programme(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $usersbefore = $DB->count_records('user');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $preview = $service->preview_bulk_import('student', [[
+            'firstname' => 'Missing',
+            'lastname' => 'Programme',
+            'email' => 'preview.missing.programme@example.com',
+            'username' => 'preview.missing.programme',
+            'idnumber' => 'PREV-NOPROG-1',
+            'programmecode' => 'DOES-NOT-EXIST',
+        ]]);
+
+        $this->assertSame(1, $preview['processed']);
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+        $this->assertSame([], $preview['validrows']);
+        $this->assertSame([], $preview['inactiveprogrammes']);
+        $this->assertStringContainsString('No programme matches', implode(' ', $preview['errors']));
+
+        $this->assertSame($usersbefore, $DB->count_records('user'));
+        $this->assertFalse($DB->record_exists('user', ['username' => 'preview.missing.programme']));
+    }
+
+    /**
+     * Rejecting an inactive programme must not alter its stored status, and must
+     * leave the confirmation step with nothing to import.
+     */
+    public function test_bulk_preview_never_reactivates_inactive_programme(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('inactive');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $preview = $service->preview_bulk_import('student', [[
+            'firstname' => 'Inactive',
+            'lastname' => 'Programme Student',
+            'email' => 'preview.inactive.programme@example.com',
+            'username' => 'preview.inactive.programme',
+            'idnumber' => 'PREV-INA-1',
+            'programmecode' => $programme['code'],
+        ]]);
+
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+        $this->assertSame([], $preview['validrows']);
+        $this->assertSame($programme['programmeid'], $preview['inactiveprogrammes'][0]['id']);
+
+        // The status must be untouched, and no account may have been created from
+        // the approved-row list the confirmation step consumes.
+        $stored = $DB->get_record('local_ulms_programmes', ['id' => $programme['programmeid']], 'status', MUST_EXIST);
+        $this->assertSame('inactive', $stored->status);
+        $this->assertFalse($DB->record_exists('user', ['username' => 'preview.inactive.programme']));
+
+        $importresult = $service->import_bulk_rows('student', $preview['validrows']);
+        $this->assertSame(0, $importresult['created']);
+        $this->assertSame(0, $DB->count_records('local_ulms_user_provisioning_log'));
+    }
 }

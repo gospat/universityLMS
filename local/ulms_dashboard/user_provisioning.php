@@ -114,6 +114,7 @@ $previewdata = null;
 $previewreporttoken = null;
 $resultreporttoken = null;
 $inactiveprogrammes = [];
+$showfixerrorsheading = false;
 $recentactivity = $provisioningservice->get_recent_activity(8);
 
 if ($downloadtemplate) {
@@ -130,7 +131,11 @@ if ($downloadtemplate) {
     exit;
 }
 
-if ($createsingle && confirm_sesskey()) {
+if ($createsingle) {
+    // Fail loudly on a stale or invalid session token. confirm_sesskey()
+    // silently returned false here, so a re-submitted or expired form produced
+    // no response and no error at all ("Preview upload does nothing").
+    require_sesskey();
     try {
         $singleoutcome = $provisioningservice->create_single_user($singlevalues['targetrole'], $singlevalues);
         if ($singleoutcome['success']) {
@@ -153,6 +158,7 @@ if ($createsingle && confirm_sesskey()) {
                 $singleerrors[] = $singleoutcome['message'];
             }
             $errors = array_merge($errors, $singleerrors);
+            $showfixerrorsheading = $errors !== [];
             if (!empty($singleoutcome['inactiveprogramme']['id'])) {
                 $inactiveprogrammes[(int)$singleoutcome['inactiveprogramme']['id']] =
                     $singleoutcome['inactiveprogramme'];
@@ -164,7 +170,10 @@ if ($createsingle && confirm_sesskey()) {
     }
 }
 
-if ($previewimport && confirm_sesskey()) {
+if ($previewimport) {
+    // See $createsingle above: a stale token must surface as an error instead
+    // of a silent no-op.
+    require_sesskey();
     try {
         if (empty($_FILES['csvfile']['tmp_name']) || !is_uploaded_file($_FILES['csvfile']['tmp_name'])) {
             $errors[] = get_string('provisioninguploadrequired', 'local_ulms_dashboard');
@@ -190,7 +199,10 @@ if ($previewimport && confirm_sesskey()) {
     }
 }
 
-if ($confirmimport && confirm_sesskey()) {
+if ($confirmimport) {
+    // See $createsingle above: a stale token must surface as an error instead
+    // of a silent no-op. Account creation must never be silently skipped.
+    require_sesskey();
     $pendingimport = $provisioningservice->get_pending_import($importtoken);
     if ($pendingimport === null) {
         $errors[] = get_string('provisioningcsvstructureerror', 'local_ulms_dashboard');
@@ -199,7 +211,9 @@ if ($confirmimport && confirm_sesskey()) {
             $previewdata = $provisioningservice->preview_bulk_import($pendingimport['targetrole'], $pendingimport['rows']);
             $inactiveprogrammes = $previewdata['inactiveprogrammes'] ?? [];
             if (($previewdata['invalid'] ?? 0) > 0) {
-                $errors[] = get_string('provisioningpreviewfixerrors', 'local_ulms_dashboard');
+                // The page shows the "fix the invalid rows" heading for this case, so
+                // the string is not repeated here.
+                $showfixerrorsheading = true;
                 $previewreporttoken = $provisioningservice->store_report(
                     get_string('provisioningcsverrorreportfile', 'local_ulms_dashboard'),
                     $previewdata['reportrows']
@@ -273,12 +287,23 @@ foreach ($warnings as $warning) {
     echo $OUTPUT->notification($warning, \core\output\notification::NOTIFY_WARNING);
 }
 
-if (!empty($errors)) {
-    $errormessage = $createsingle
-        ? get_string('provisioningmanualfixerrors', 'local_ulms_dashboard')
-        : get_string('provisioningpreviewfixerrors', 'local_ulms_dashboard');
+if ($showfixerrorsheading || !empty($errors)) {
+    if ($showfixerrorsheading) {
+        // Validation actually ran against rows/fields, so the generic repair
+        // heading applies.
+        $errormessage = $createsingle
+            ? get_string('provisioningmanualfixerrors', 'local_ulms_dashboard')
+            : get_string('provisioningpreviewfixerrors', 'local_ulms_dashboard');
+    } else {
+        // Bulk/CSV errors (no file chosen, empty file, unreadable structure) are
+        // already specific and self-describing, so the first one becomes the
+        // notification instead of a generic heading that contradicted it.
+        $errormessage = (string)array_shift($errors);
+    }
     echo $OUTPUT->notification($errormessage, \core\output\notification::NOTIFY_ERROR);
-    echo html_writer::alist(array_values(array_unique($errors)));
+    if (!empty($errors)) {
+        echo html_writer::alist(array_values(array_unique($errors)));
+    }
 }
 
 if (!empty($inactiveprogrammes)) {
