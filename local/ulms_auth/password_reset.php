@@ -130,7 +130,11 @@ if ($showpasswordform) {
     }
 }
 
-if ($token === '' && data_submitted() && confirm_sesskey()) {
+if ($token === '' && data_submitted()) {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so submitting the reset form from an expired
+    // page redisplayed it with no error and no request was ever sent.
+    require_sesskey();
     $identifier = trim((string)optional_param('identifier', '', PARAM_RAW_TRIMMED));
     $honeypot = trim((string)optional_param($honeypotname, '', PARAM_RAW_TRIMMED));
 

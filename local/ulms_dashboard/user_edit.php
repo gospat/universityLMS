@@ -63,7 +63,11 @@ if (optional_param('cancel', '', PARAM_RAW_TRIMMED) !== '') {
         : $routingservice->get_url_for_route('management.users'));
 }
 
-if (optional_param('saveuser', '', PARAM_RAW_TRIMMED) !== '' && confirm_sesskey()) {
+if (optional_param('saveuser', '', PARAM_RAW_TRIMMED) !== '') {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so submitting the edit form from an expired
+    // page silently discarded the changes.
+    require_sesskey();
     $values = [
         'firstname' => optional_param('firstname', '', PARAM_TEXT),
         'middlename' => optional_param('middlename', '', PARAM_TEXT),

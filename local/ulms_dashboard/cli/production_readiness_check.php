@@ -693,7 +693,11 @@ try {
         $haspost = preg_match('/\$_SERVER\s*\[\s*[\'"]REQUEST_METHOD[\'"]\s*\]\s*===?\s*[\'"]POST[\'"]|if\s*\(\s*isset\s*\(\s*\$_POST|\$_POST\[|data_submitted\s*\(|optional_param\s*\(\s*[\'"](?:action|save|submit|createsingle|previewimport|confirmimport|saveuser|delete|bulkaction|suspend|unsuspend)[\'"][\s,)]/i', $contents) === 1;
         if ($haspost) {
             $postsesskeychecks++;
-            $hassesskey = preg_match('/\bconfirm_sesskey\s*\(|required_param\s*\(\s*[\'"]sesskey[\'"]|optional_param\s*\(\s*[\'"]sesskey[\'"]|\bsesskey\s*=/i', $contents) === 1;
+            // `require_sesskey()` is the canonical Moodle guard: it calls
+            // `confirm_sesskey()` and throws `invalidsesskey` instead of returning
+            // false, so a stale token surfaces as an error rather than a silent
+            // no-op. It must count as a session-key check here.
+            $hassesskey = preg_match('/\b(?:confirm|require)_sesskey\s*\(|required_param\s*\(\s*[\'"]sesskey[\'"]|optional_param\s*\(\s*[\'"]sesskey[\'"]|\bsesskey\s*=/i', $contents) === 1;
             if ($hassesskey) {
                 $postsesskeypass++;
             }

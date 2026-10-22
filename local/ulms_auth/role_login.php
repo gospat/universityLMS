@@ -75,7 +75,11 @@ if (isloggedin() && !isguestuser()) {
     );
 }
 
-if (data_submitted() && confirm_sesskey()) {
+if (data_submitted()) {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so submitting the login form from an expired
+    // page redisplayed the form with no error and no explanation.
+    require_sesskey();
     $username = trim((string)optional_param('username', '', PARAM_RAW_TRIMMED));
     $password = (string)optional_param('password', '', PARAM_RAW);
     $rememberusername = local_ulms_auth_should_remember_username_by_default(

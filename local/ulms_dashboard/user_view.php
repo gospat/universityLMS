@@ -44,7 +44,11 @@ $PAGE->set_heading(get_string('usermanagementviewusertitle', 'local_ulms_dashboa
 $PAGE->set_pagelayout('ulmsdashboard');
 
 $action = optional_param('action', '', PARAM_ALPHA);
-if ($action !== '' && data_submitted() && confirm_sesskey()) {
+if ($action !== '' && data_submitted()) {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so an expired page silently discarded
+    // suspend / unsuspend / delete / reset-password requests.
+    require_sesskey();
     try {
         if ($action === 'changerole') {
             $current = $service->get_user_details($userid);
