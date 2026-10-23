@@ -130,12 +130,17 @@ final class resend_mail_service_test extends \advanced_testcase {
         $this->configure_resend_transport();
         $CFG->resendapikey = 're_too_short';
 
-        $service = new resend_mail_service(new MockHttpClient());
+        // A logger is supplied so the format-check diagnostic goes to the log
+        // rather than to debugging(), which the test framework treats as an
+        // unexpected call.
+        $logger = $this->create_collecting_logger();
+        $service = new resend_mail_service(new MockHttpClient(), $logger);
         $result = $service->send_transactional_email($this->get_message_payload());
 
         $this->assertFalse($result['success']);
         $this->assertSame(get_string('errorinvalidapikey', 'local_ulms_mail'), $result['error']);
         $this->assertNotSame(get_string('errormissingapikey', 'local_ulms_mail'), $result['error']);
+        $this->assertNotEmpty($logger->records);
     }
 
     public function test_sender_configuration_is_validated(): void {
