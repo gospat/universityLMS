@@ -123,6 +123,21 @@ final class resend_mail_service_test extends \advanced_testcase {
         $this->assertSame(get_string('errormissingapikey', 'local_ulms_mail'), $result['error']);
     }
 
+    public function test_malformed_api_key_is_reported_distinctly_from_a_missing_key(): void {
+        global $CFG;
+
+        $this->resetAfterTest(true);
+        $this->configure_resend_transport();
+        $CFG->resendapikey = 're_too_short';
+
+        $service = new resend_mail_service(new MockHttpClient());
+        $result = $service->send_transactional_email($this->get_message_payload());
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(get_string('errorinvalidapikey', 'local_ulms_mail'), $result['error']);
+        $this->assertNotSame(get_string('errormissingapikey', 'local_ulms_mail'), $result['error']);
+    }
+
     public function test_sender_configuration_is_validated(): void {
         global $CFG;
 

@@ -246,7 +246,7 @@ class resend_mail_service {
 
         if (!$this->is_valid_resend_api_key($apikey)) {
             $this->log_failure('Resend API key did not match the expected production format.', []);
-            return $this->failure_result(get_string('errormissingapikey', 'local_ulms_mail'));
+            return $this->failure_result(get_string('errorinvalidapikey', 'local_ulms_mail'));
         }
 
         $sender = $this->build_sender();

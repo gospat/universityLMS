@@ -17,6 +17,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'ULMS mail';
+$string['errorinvalidapikey'] = 'ULMS mail API key is not in the expected format.';
 $string['errorinvalidrecipient'] = 'ULMS mail recipient configuration is invalid.';
 $string['errorinvalidreplyto'] = 'ULMS mail reply-to configuration is invalid.';
 $string['errorinvalidsender'] = 'ULMS mail sender configuration is invalid.';
