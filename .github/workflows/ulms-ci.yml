@@ -486,32 +486,26 @@ jobs:
               if errors or failures:
                   failing.append(f"{name}: {errors} error(s), {failures} failure(s)")
 
-          # Naming the individual tests, and the first line of each failure, is what
-          # makes the debt actionable without job-log access, which GitHub only
-          # serves to repository members.
-          def firstline(text):
-              for line in (text or '').splitlines():
-                  collapsed = ' '.join(line.split())
-                  if collapsed:
-                      return collapsed[:200]
-              return ''
+          # Naming the individual tests, and the assertion text, is what makes the
+          # debt actionable without job-log access, which GitHub only serves to
+          # repository members.
+          def summarize(label, text):
+              lines = [' '.join(line.split()) for line in (text or '').splitlines()]
+              # PHPUnit prefixes the body with the test name on its own line.
+              lines = [line for line in lines if line and line != label]
+              return ' | '.join(lines)[:400]
 
 
           offenders = []
           seen = set()
           for case in root.iter('testcase'):
+              label = f"{case.get('class') or ''}::{case.get('name') or ''}".lstrip(':')
               detail = None
               for child in case:
                   if child.tag in ('failure', 'error'):
-                      # PHPUnit puts the assertion text in the element body and a
-                      # redundant test name in the message attribute, so the body
-                      # is the useful one.
-                      detail = (child.tag, firstline(child.text or child.get('message')))
+                      detail = (child.tag, summarize(label, child.text))
                       break
-              if detail is None:
-                  continue
-              label = f"{case.get('class') or ''}::{case.get('name') or ''}".lstrip(':')
-              if label in seen:
+              if detail is None or label in seen:
                   continue
               seen.add(label)
               offenders.append(f"{label} [{detail[0]}] {detail[1]}".rstrip())
