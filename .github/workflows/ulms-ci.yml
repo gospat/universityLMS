@@ -466,6 +466,13 @@ jobs:
             python3 - <<'PY'
           import xml.etree.ElementTree as ET
 
+
+          def emit(message):
+              # Workflow-command escaping, as documented by GitHub Actions.
+              escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::warning::' + escaped)
+
+
           root = ET.parse('phpunit-advisory.xml').getroot()
           failing = []
           for suite in root.iter('testsuite'):
@@ -479,11 +486,31 @@ jobs:
               if errors or failures:
                   failing.append(f"{name}: {errors} error(s), {failures} failure(s)")
 
+          # Naming the individual tests is what makes the debt actionable without
+          # job-log access, which GitHub only serves to repository members.
+          offenders = []
+          seen = set()
+          for case in root.iter('testcase'):
+              kind = ''
+              for child in case:
+                  if child.tag in ('failure', 'error'):
+                      kind = child.tag
+                      break
+              if kind == '':
+                  continue
+              label = f"{case.get('class') or ''}::{case.get('name') or ''}".lstrip(':')
+              if label in seen:
+                  continue
+              seen.add(label)
+              offenders.append(f"{label} [{kind}]")
+
           if failing:
-              print("::warning::ULMS PHPUnit suites still report failures (advisory): "
-                    + "; ".join(failing))
+              emit('ULMS PHPUnit suites still report failures (advisory): ' + '; '.join(failing))
           else:
-              print("Every ULMS PHPUnit suite passed.")
+              print('Every ULMS PHPUnit suite passed.')
+
+          if offenders:
+              emit('Failing ULMS tests (advisory): ' + '; '.join(offenders))
           PY
           fi
 
