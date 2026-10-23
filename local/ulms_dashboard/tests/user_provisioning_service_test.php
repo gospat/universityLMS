@@ -233,8 +233,11 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $this->configure_resend_transport();
 
         $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
 
-        $result = $service->create_single_user('student', $this->get_valid_data());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'programmecode' => $programme['code'],
+        ]));
 
         $this->assertTrue($result['success']);
         $this->assertTrue($result['emailsent']);
@@ -252,11 +255,13 @@ final class user_provisioning_service_test extends \advanced_testcase {
 
         $mailer = $this->get_success_mailer();
         $service = $this->get_service($mailer);
+        $programme = $this->create_programme_fixture('active');
 
         $result = $service->create_single_user('student', $this->get_valid_data([
             'username' => 'activation.clean.user',
             'email' => 'activation.clean.user@example.com',
             'idnumber' => 'STU-1006',
+            'programmecode' => $programme['code'],
         ]));
 
         $this->assertTrue($result['success']);
@@ -376,11 +381,13 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $this->configure_resend_transport();
 
         $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
 
         $result = $service->create_single_user('student', $this->get_valid_data([
             'email' => 'generated.user@example.com',
             'username' => '',
             'idnumber' => 'STU-1004',
+            'programmecode' => $programme['code'],
         ]));
 
         $this->assertTrue($result['success']);
@@ -396,11 +403,13 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $this->configure_resend_transport();
 
         $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
 
         $result = $service->create_single_user('student', $this->get_valid_data([
             'username' => 'student.role.user',
             'email' => 'student.role@example.com',
             'idnumber' => 'STU-1005',
+            'programmecode' => $programme['code'],
         ]));
 
         $this->assertTrue($result['success']);
@@ -476,11 +485,13 @@ final class user_provisioning_service_test extends \advanced_testcase {
             'error' => 'send failed',
         ]);
         $service = $this->get_service($mailer);
+        $programme = $this->create_programme_fixture('active');
 
         $result = $service->create_single_user('student', $this->get_valid_data([
             'username' => 'warning.user',
             'email' => 'warning@example.com',
             'idnumber' => 'STU-1002',
+            'programmecode' => $programme['code'],
         ]));
 
         $this->assertTrue($result['success']);
@@ -507,11 +518,13 @@ final class user_provisioning_service_test extends \advanced_testcase {
             new \RuntimeException('transport failed')
         );
         $service = $this->get_service($mailer);
+        $programme = $this->create_programme_fixture('active');
 
         $result = $service->create_single_user('student', $this->get_valid_data([
             'username' => 'exception.user',
             'email' => 'exception@example.com',
             'idnumber' => 'STU-1003',
+            'programmecode' => $programme['code'],
         ]));
 
         $this->assertTrue($result['success']);
@@ -532,6 +545,7 @@ final class user_provisioning_service_test extends \advanced_testcase {
         ]);
 
         $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
 
         $rows = [
             [
@@ -540,6 +554,7 @@ final class user_provisioning_service_test extends \advanced_testcase {
                 'email' => 'bulk.student.one@example.com',
                 'username' => 'bulk.student.one',
                 'idnumber' => 'BULK-STU-1',
+                'programmecode' => $programme['code'],
             ],
             [
                 'firstname' => 'Bulk',
@@ -547,6 +562,7 @@ final class user_provisioning_service_test extends \advanced_testcase {
                 'email' => 'bulk.student.one@example.com',
                 'username' => 'bulk.student.two',
                 'idnumber' => 'BULK-STU-2',
+                'programmecode' => $programme['code'],
             ],
             [
                 'firstname' => 'Bulk',
@@ -554,6 +570,7 @@ final class user_provisioning_service_test extends \advanced_testcase {
                 'email' => 'existing.bulk@example.com',
                 'username' => 'existing.bulk',
                 'idnumber' => 'BULK-EXIST-1',
+                'programmecode' => $programme['code'],
             ],
         ];
 

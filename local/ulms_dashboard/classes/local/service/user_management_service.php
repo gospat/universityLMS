@@ -2121,6 +2121,14 @@ class user_management_service {
             $errors['studylevel'] = get_string('maximumchars', '', 50);
         }
 
+        // Study level must be one the form offered, the same way faculty, department and
+        // programme are checked below. Without this the value travelled as far as
+        // save_profile_record(), which threw after the account had already been created.
+        if ($cleaned['studylevel'] !== '' && !array_key_exists($cleaned['studylevel'], $this->get_level_options())) {
+            $errors['studylevel'] = get_string('invaliddata');
+            $cleaned['studylevel'] = '';
+        }
+
         if ($cleaned['staffid'] !== '' && \core_text::strlen($cleaned['staffid']) > 100) {
             $errors['staffid'] = get_string('maximumchars', '', 100);
         }
