@@ -1258,6 +1258,12 @@ class user_management_service {
             'email' => $cleaned['email'],
             'idnumber' => $cleaned['idnumber'],
             'password' => $cleaned['password'],
+            // The provisioning service applies the student programme mandate itself, so the
+            // validated programme has to travel with the request. Without it every student
+            // was rejected as "programme required" even though one had just been chosen.
+            // Faculty and department are not sent: provisioning re-derives them from the
+            // programme so the two can never disagree.
+            'programmeid' => $cleaned['programmeid'],
             'institution' => $institution,
             'department' => $department,
         ];
