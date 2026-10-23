@@ -503,7 +503,10 @@ jobs:
               detail = None
               for child in case:
                   if child.tag in ('failure', 'error'):
-                      detail = (child.tag, firstline(child.get('message') or child.text))
+                      # PHPUnit puts the assertion text in the element body and a
+                      # redundant test name in the message attribute, so the body
+                      # is the useful one.
+                      detail = (child.tag, firstline(child.text or child.get('message')))
                       break
               if detail is None:
                   continue
