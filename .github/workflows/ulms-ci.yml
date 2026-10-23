@@ -486,23 +486,32 @@ jobs:
               if errors or failures:
                   failing.append(f"{name}: {errors} error(s), {failures} failure(s)")
 
-          # Naming the individual tests is what makes the debt actionable without
-          # job-log access, which GitHub only serves to repository members.
+          # Naming the individual tests, and the first line of each failure, is what
+          # makes the debt actionable without job-log access, which GitHub only
+          # serves to repository members.
+          def firstline(text):
+              for line in (text or '').splitlines():
+                  collapsed = ' '.join(line.split())
+                  if collapsed:
+                      return collapsed[:200]
+              return ''
+
+
           offenders = []
           seen = set()
           for case in root.iter('testcase'):
-              kind = ''
+              detail = None
               for child in case:
                   if child.tag in ('failure', 'error'):
-                      kind = child.tag
+                      detail = (child.tag, firstline(child.get('message') or child.text))
                       break
-              if kind == '':
+              if detail is None:
                   continue
               label = f"{case.get('class') or ''}::{case.get('name') or ''}".lstrip(':')
               if label in seen:
                   continue
               seen.add(label)
-              offenders.append(f"{label} [{kind}]")
+              offenders.append(f"{label} [{detail[0]}] {detail[1]}".rstrip())
 
           if failing:
               emit('ULMS PHPUnit suites still report failures (advisory): ' + '; '.join(failing))
@@ -510,7 +519,14 @@ jobs:
               print('Every ULMS PHPUnit suite passed.')
 
           if offenders:
-              emit('Failing ULMS tests (advisory): ' + '; '.join(offenders))
+              # Chunked so no single annotation is large enough to be truncated.
+              chunk = 8
+              total = (len(offenders) + chunk - 1) // chunk
+              for index in range(0, len(offenders), chunk):
+                  emit(
+                      f"Failing ULMS tests (advisory) {index // chunk + 1}/{total}: "
+                      + '; '.join(offenders[index:index + chunk])
+                  )
           PY
           fi
 
