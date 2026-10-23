@@ -98,7 +98,10 @@ final class portal_isolation_service_test extends advanced_testcase {
         $this->assertNotNull($shellcontext);
         $this->assertSame(get_string('superadminportalshelltitle', 'local_ulms_dashboard'), $shellcontext['portalname']);
         $this->assertNotNull($headercontext);
-        $this->assertSame(get_string('superadminportaleyebrow', 'local_ulms_dashboard'), $headercontext['eyebrow']);
+        // The shell stays Super Admin, but the eyebrow names the section the user is actually
+        // working in instead of repeating the portal name (cross-portal eyebrow dedup).
+        $this->assertNotSame(get_string('superadminportaleyebrow', 'local_ulms_dashboard'), $headercontext['eyebrow']);
+        $this->assertSame(get_string('management.users.eyebrow', 'local_ulms_dashboard'), $headercontext['eyebrow']);
         $this->assertSame(get_string('adminusermanagementlink', 'local_ulms_dashboard'), $headercontext['title']);
 
         $labels = [];

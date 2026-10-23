@@ -19,6 +19,7 @@ namespace local_ulms_dashboard;
 defined('MOODLE_INTERNAL') || die();
 
 use advanced_testcase;
+use local_ulms_auth\local\service\landing_page_service;
 use local_ulms_dashboard\local\service\portal_overview_service;
 
 require_once(__DIR__ . '/../../../config.php');
@@ -40,6 +41,7 @@ final class portal_overview_service_test extends advanced_testcase {
         $this->setUser($manager);
 
         $service = new portal_overview_service();
+        $routingservice = new landing_page_service();
         $data = $service->get_admin_overview_data('courses');
         $items = $data['secondarypanels'][0]['items'] ?? [];
 
@@ -51,11 +53,14 @@ final class portal_overview_service_test extends advanced_testcase {
         }
 
         $this->assertArrayHasKey(get_string('addnewcourse'), $urls);
-        $this->assertSame('/course/edit.php', $urls[get_string('addnewcourse')]->get_path());
+        // These URLs are absolute, so under PHPUnit they carry the wwwroot base path.
+        // normalise_path() strips it, keeping the assertion independent of how the site
+        // happens to be mounted.
+        $this->assertSame('/course/edit.php', $routingservice->normalise_path($urls[get_string('addnewcourse')]->get_path()));
         $this->assertSame((string)$category->id, $urls[get_string('addnewcourse')]->get_param('category'));
         $this->assertSame('catmanage', $urls[get_string('addnewcourse')]->get_param('returnto'));
         $this->assertArrayHasKey(get_string('coursemgmt', 'admin'), $urls);
-        $this->assertSame('/course/management.php', $urls[get_string('coursemgmt', 'admin')]->get_path());
+        $this->assertSame('/course/management.php', $routingservice->normalise_path($urls[get_string('coursemgmt', 'admin')]->get_path()));
         $this->assertSame((string)$category->id, $urls[get_string('coursemgmt', 'admin')]->get_param('categoryid'));
     }
 
