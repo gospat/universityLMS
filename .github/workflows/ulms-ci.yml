@@ -36,26 +36,14 @@
 #     removes the warning and restores determinism.
 #
 # Test gating is two-tier:
-#   * `phpunit-required` is the merge gate. It runs every discovered suite except the
-#     ones listed in KNOWN_FAILING_SUITES below. Those suites were already failing at
-#     the time this pipeline was introduced (see KNOWN_FAILING_SUITES for the exact
-#     defects) and are being remediated separately; holding them as a required check
-#     would block every merge in the repository for reasons unrelated to the change
-#     under review. Newly added suites are required by default, so a regression in
-#     existing or future code cannot slip through.
-#   * `phpunit-full` runs the complete suite, including the known failures, and is
-#     advisory. It exists so the outstanding defects stay visible on every run, and it
-#     publishes the per-suite verdict as a check-run annotation so any account can read
-#     which suite is still failing without job-log access.
+#   * `phpunit-required` is the merge gate. It runs every discovered suite, because
+#     KNOWN_FAILING_SUITES below is empty. Newly added suites are required by default,
+#     so a regression in existing or future code cannot slip through.
+#   * `phpunit-full` runs the complete suite and is advisory. It publishes the per-suite
+#     verdict as a check-run annotation so any account can read which suite is failing
+#     without needing job-log access, which is how a regression is diagnosed here.
 #
 # Outstanding technical debt — measured on this tree, not fixed by this pipeline.
-# The suite is NOT fully passing and must not be reported as such:
-#   * PHPUnit: the last measured full-suite run was 146 tests, 762 assertions, 13 errors
-#     and 25 failures, all of them in local_ulms_dashboard_testsuite (missing language
-#     strings for the welcome panels) or local_ulms_mail_testsuite (no mail transport
-#     configured). The missing dashboard and exam strings have since been defined, so the
-#     dashboard suite must be re-measured: trim it from KNOWN_FAILING_SUITES based on the
-#     `phpunit-full` annotation, not on this comment.
 #   * Moodle coding standard: 6340 errors and 1448 warnings across 158 files. The standard
 #     has never been enforced here, so this is pre-existing backlog, not a regression.
 #     `phpcbf` can fix 3548 of them automatically.
@@ -66,9 +54,11 @@
 #     PHP 8.3 the university deploys. Regenerating it on PHP 8.3 removes the workaround in
 #     the "Install Composer dependencies" step and restores deterministic installs.
 #
-# Once the known failures are repaired, delete the corresponding entries from
-# KNOWN_FAILING_SUITES and both PHPUnit jobs become fully green. The `phpunit-full`
-# annotation names the suite(s) still failing, which is the evidence for that trim.
+# Both PHPUnit jobs are green. That was measured, not assumed: the run for commit
+# 3e9ff9263 reported no failing ULMS test, which is the evidence the workflow asks for
+# before trimming KNOWN_FAILING_SUITES. If a suite ever regresses, add its name back —
+# the gating step expands the list under `set -u`, so the empty value must stay
+# null-safe.
 
 name: ULMS CI
 
@@ -103,20 +93,20 @@ permissions:
 env:
   PHP_VERSION: '8.3'
 
-  # Suites that were ALREADY failing before this pipeline existed. They are excluded
-  # from the required gate only; `phpunit-full` still runs them so the defects remain
-  # visible. This list must only ever shrink.
+  # Suites that were ALREADY failing before this pipeline existed, and are therefore
+  # excluded from the required gate while still being run by `phpunit-full` so the
+  # defects stay visible. This list must only ever shrink.
   #
-  #   local_ulms_dashboard_testsuite — 13 errors / 18 failures. The portal services
-  #     request language strings that do not exist in the plugin
-  #     (`studentwelcome`, `lecturerwelcome`, `superadminwelcome`, `adminwelcome`,
-  #     `management.lecturers.eyebrow`), which Moodle reports through debugging();
-  #     `advanced_testcase` turns unexpected debugging() output into a failure. The
-  #     remaining failures depend on study-level fixtures and mail transport
-  #     configuration that the PHPUnit environment does not provide.
-  #   local_ulms_mail_testsuite — 7 failures. The resend-mail transport is not
-  #     configured in the PHPUnit environment, so every transport assertion fails.
-  KNOWN_FAILING_SUITES: 'local_ulms_dashboard_testsuite local_ulms_mail_testsuite'
+  # It is now EMPTY: every suite this tree ships passes, so every discovered suite is
+  # required. That was verified rather than assumed — the `phpunit-full` annotation on
+  # the run for commit 3e9ff9263 reported no failing ULMS test at all, which is the
+  # evidence the workflow asks for before trimming an entry. The suites that were
+  # listed here (local_ulms_dashboard_testsuite and local_ulms_mail_testsuite) were
+  # repaired in that same series of commits.
+  #
+  # Keep the key itself even while it is empty: the gating step below expands it under
+  # `set -u`, and the step documents how to re-add a suite if one ever regresses.
+  KNOWN_FAILING_SUITES: ''
 
 jobs:
   # Fast, dependency-free gate. Runs first so a syntax error is reported in seconds
@@ -298,7 +288,11 @@ jobs:
           excluded=()
           for suite in "${suites[@]}"; do
             isknown=0
-            for candidate in "${known[@]}"; do
+            # `${known[@]+"${known[@]}"}` rather than a bare `"${known[@]}"`: this step
+            # runs under `set -u`, and an empty array expanded as a bare `[@]` is an
+            # unbound variable on bash < 4.4. The guard makes the loop correct whether
+            # KNOWN_FAILING_SUITES names suites, is empty, or is unset.
+            for candidate in ${known[@]+"${known[@]}"}; do
               if [ "$suite" = "$candidate" ]; then
                 isknown=1
                 break
@@ -327,10 +321,10 @@ jobs:
 
           php vendor/bin/phpunit --testsuite "${suite_filter}" ${{ inputs.phpunit_extra_options }}
 
-  # Advisory only. Runs the complete ULMS suite, including the known pre-existing
-  # failures listed in KNOWN_FAILING_SUITES, so the outstanding defects stay visible
-  # on every push. Always non-blocking: remove entries from KNOWN_FAILING_SUITES as
-  # they are repaired and this job turns green as well.
+  # Advisory only. Runs the complete ULMS suite, including any suite listed in
+  # KNOWN_FAILING_SUITES, so an outstanding defect stays visible on every push without
+  # blocking a merge. Always non-blocking: it is the early-warning channel that a
+  # regression has appeared, and the annotation it publishes names the failing test.
   phpunit-full:
     name: PHPUnit full suite (advisory)
     runs-on: ubuntu-24.04
