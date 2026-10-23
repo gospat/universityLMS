@@ -33,6 +33,11 @@ require_once(__DIR__ . '/../../../config.php');
  * suite. Defining the strings fixes the notice at its source instead of hiding
  * the suite.
  *
+ * The same audit, extended to identifier arguments built at runtime (for
+ * example 'attendance.status.' . $status), confirmed that the remaining
+ * wrapper-resolved identifiers were genuinely absent.  Those are pinned here as
+ * well so the language file stays internally consistent.
+ *
  * @coversNothing
  */
 final class lang_strings_test extends advanced_testcase {
@@ -53,6 +58,20 @@ final class lang_strings_test extends advanced_testcase {
      */
     public function test_other_referenced_portal_strings_are_defined(): void {
         foreach (['lecturernavgrading', 'superadmin.kpifetcherror'] as $identifier) {
+            $text = get_string($identifier, 'local_ulms_dashboard');
+            $this->assertNotSame('', $text, 'Empty portal string: ' . $identifier);
+            $this->assertStringNotContainsString('[[', $text, 'Unresolved portal string: ' . $identifier);
+        }
+    }
+
+    /**
+     * Identifiers reached through dashboard_commons::safe_lang_string() and
+     * safe_eyebrow() are defined too.  Those wrappers swallow a missing string
+     * and substitute their own fallback, so the pages still rendered — but the
+     * reference was dead weight that no translator could ever override.
+     */
+    public function test_wrapper_resolved_portal_strings_are_defined(): void {
+        foreach (['management.lecturers.eyebrow', 'schedulesessionrepeatflexible'] as $identifier) {
             $text = get_string($identifier, 'local_ulms_dashboard');
             $this->assertNotSame('', $text, 'Empty portal string: ' . $identifier);
             $this->assertStringNotContainsString('[[', $text, 'Unresolved portal string: ' . $identifier);
