@@ -8,7 +8,6 @@ class pii_field_accessed extends \core\event\base {
     protected function init(): void {
         $this->data['crud'] = 'r';
         $this->data['edulevel'] = self::LEVEL_OTHER;
-        $this->data['objecttable'] = 'user_info_data';
     }
 
     public static function get_name(): string {
@@ -36,8 +35,13 @@ class pii_field_accessed extends \core\event\base {
         }
     }
 
-    public static function get_objectid_mapping(): array {
-        return ['db' => 'user_info_data', 'restore' => 'user_info_data'];
+    /**
+     * This event records that a viewer read a set of PII fields on a subject user, so it
+     * belongs to the user context rather than to one user_info_data row. There is no single
+     * object id to map, and core rejects an event that declares an objecttable without one.
+     */
+    public static function get_objectid_mapping() {
+        return \core\event\base::NOT_MAPPED;
     }
 
     public static function get_other_mapping(): array {
