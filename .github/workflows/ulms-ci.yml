@@ -19,8 +19,6 @@
 #     fresh checkout can install a Moodle site.
 #   * The en_AU.UTF-8 locale, which Moodle's PHPUnit bootstrap requires and the
 #     ubuntu image does not ship.
-#   * A composer.lock workaround: the committed lock resolves packages that require
-#     PHP 8.4, so the run re-resolves dependencies and warns instead of failing.
 #   Each of these is a pre-existing repository or image gap, described at its step.
 #
 # Reusability:
@@ -29,11 +27,9 @@
 #     directory is picked up on the next run with no workflow change — and becomes a
 #     REQUIRED suite by default.
 #   * Composer downloads are cached and superseded runs are cancelled.
-#   * Dependencies come from the committed composer.lock when it applies to PHP 8.3.
-#     The lock currently resolves a few packages to PHP 8.4-only releases, so the
-#     pipeline re-resolves for the run and warns rather than failing; see the
-#     "Install Composer dependencies" step. Regenerating composer.lock on PHP 8.3
-#     removes the warning and restores determinism.
+#   * Dependencies come from the committed composer.lock, which composer.json pins to
+#     PHP 8.3.36 through config.platform.php. The install is deterministic and a stale
+#     lock fails the job rather than being silently re-resolved.
 #
 # Test gating is two-tier:
 #   * `phpunit-required` is the merge gate. It runs every discovered suite, because
@@ -50,9 +46,6 @@
 #   * Committed AMD assets: `npx grunt` reports the committed `build/` files as out of date
 #     against `src/`. The check lives in .github/workflows/push.yml and is manual-only until
 #     the assets are rebuilt.
-#   * composer.lock resolves packages that require PHP 8.4, so it cannot be installed on the
-#     PHP 8.3 the university deploys. Regenerating it on PHP 8.3 removes the workaround in
-#     the "Install Composer dependencies" step and restores deterministic installs.
 #
 # Both PHPUnit jobs are green. That was measured, not assumed: the run for commit
 # 3e9ff9263 reported no failing ULMS test, which is the evidence the workflow asks for
@@ -202,18 +195,11 @@ jobs:
             composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
 
       - name: Install Composer dependencies
-        # The committed composer.lock was resolved on PHP 8.4 and pins several
-        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
-        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
-        # lock so the run stays deterministic; if it does not apply to this PHP version,
-        # re-resolve for this run only and warn, naming the real fix.
-        run: |
-          if composer install --no-interaction --prefer-dist --no-progress; then
-            echo "Dependencies installed from the committed composer.lock."
-          else
-            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
-            composer update --no-interaction --prefer-dist --no-progress
-          fi
+        # composer.json pins config.platform.php to 8.3.36, so the committed
+        # composer.lock is resolved for exactly the PHP this job runs and installs
+        # reproducibly. There is deliberately no `composer update` fallback: re-resolving
+        # here would hide lock drift, so a stale lock must fail the job instead.
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare the Moodle test configuration
         # config-template.php is the Moodle CI template: it points Moodle at the
@@ -254,8 +240,8 @@ jobs:
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
-        # --no-composer-upgrade stops init.php re-running `composer install`, which
-        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        # --no-composer-upgrade stops init.php from running `composer install` a second
+        # time; the step above has already installed the locked dependencies.
         run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
 
       - name: Run the required ULMS PHPUnit suites
@@ -370,18 +356,11 @@ jobs:
             composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
 
       - name: Install Composer dependencies
-        # The committed composer.lock was resolved on PHP 8.4 and pins several
-        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
-        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
-        # lock so the run stays deterministic; if it does not apply to this PHP version,
-        # re-resolve for this run only and warn, naming the real fix.
-        run: |
-          if composer install --no-interaction --prefer-dist --no-progress; then
-            echo "Dependencies installed from the committed composer.lock."
-          else
-            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
-            composer update --no-interaction --prefer-dist --no-progress
-          fi
+        # composer.json pins config.platform.php to 8.3.36, so the committed
+        # composer.lock is resolved for exactly the PHP this job runs and installs
+        # reproducibly. There is deliberately no `composer update` fallback: re-resolving
+        # here would hide lock drift, so a stale lock must fail the job instead.
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare the Moodle test configuration
         run: |
@@ -420,8 +399,8 @@ jobs:
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
-        # --no-composer-upgrade stops init.php re-running `composer install`, which
-        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        # --no-composer-upgrade stops init.php from running `composer install` a second
+        # time; the step above has already installed the locked dependencies.
         run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
 
       - name: Run every ULMS PHPUnit suite
