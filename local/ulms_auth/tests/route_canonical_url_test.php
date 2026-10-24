@@ -66,6 +66,24 @@ final class route_canonical_url_test extends advanced_testcase {
     }
 
     /**
+     * Returns the installation base path taken from $CFG->wwwroot.
+     *
+     * Route definitions are always base-free, but moodle_url::get_path() prefixes
+     * the wwwroot path. Moodle is served from a subdirectory in CI (for example
+     * /moodle), so a generated path there is "/moodle/student/courses/" while the
+     * declared route path is "/student/courses/".
+     *
+     * @return string Base path without a trailing slash, e.g. "/moodle" or "".
+     */
+    private function installation_base_path(): string {
+        global $CFG;
+
+        $base = (string)(parse_url((string)($CFG->wwwroot ?? ''), PHP_URL_PATH) ?? '');
+
+        return rtrim($base, '/');
+    }
+
+    /**
      * Every route backed by a physical directory must end with a trailing slash.
      */
     public function test_every_directory_backed_route_uses_a_canonical_trailing_slash(): void {
@@ -143,10 +161,14 @@ final class route_canonical_url_test extends advanced_testcase {
             $path = (string)$definition['path'];
             $url = $service->get_url_for_route($routekey);
 
-            $this->assertStringEndsWith(
-                $path,
+            // moodle_url::get_path() prefixes the wwwroot path, so the generated
+            // path must be the installation base path followed by the declared
+            // route path — never the declared route path on its own.
+            $this->assertSame(
+                $this->installation_base_path() . $path,
                 $url->get_path(),
-                "Route {$routekey} generated a non-canonical path."
+                "Route {$routekey} generated a path that is not the installation base path "
+                . "followed by its declared canonical path."
             );
             $this->assertSame(
                 '/',
@@ -384,17 +406,32 @@ final class route_canonical_url_test extends advanced_testcase {
         global $CFG;
 
         $service = new landing_page_service();
-        $actionpath = $service->get_url_for_route('management.bulkupload')->get_path();
 
-        $this->assertSame('/management/users/bulk-upload/', $actionpath);
+        // The route definition itself is always installation-base-free, so it can be
+        // resolved against $CFG->dirroot to locate the physical directory.
+        $declaredpath = $service->get_path_for_route('management.bulkupload');
+        $this->assertSame('/management/users/bulk-upload/', $declaredpath);
+
+        // The generated action path is the installation base path followed by the
+        // declared route path. Moodle is served from a subdirectory in CI (for
+        // example /moodle), so the base path must never be assumed to be empty.
+        $actionpath = $service->get_url_for_route('management.bulkupload')->get_path();
+        $this->assertSame(
+            $this->installation_base_path() . '/management/users/bulk-upload/',
+            $actionpath
+        );
+
+        // The action must be slash-terminated, otherwise the web server answers the
+        // POST with a 301 and the uploaded CSV body is discarded.
         $this->assertSame(
             '/',
             substr($actionpath, -1),
             'A slash-less form action is answered with a 301 and the CSV upload body is discarded.'
         );
 
-        // The web server only redirects when the URI is not already a directory.
-        $actiondirectory = rtrim($CFG->dirroot, '/') . $actionpath;
+        // Resolve the physical directory from $CFG->dirroot and the declared route
+        // path — never from the URL path, which carries the installation base path.
+        $actiondirectory = rtrim($CFG->dirroot, '/') . '/management/users/bulk-upload/';
         $this->assertDirectoryExists($actiondirectory);
         $this->assertFileExists($actiondirectory . 'index.php');
         $this->assertFileIsReadable($actiondirectory . 'index.php');
