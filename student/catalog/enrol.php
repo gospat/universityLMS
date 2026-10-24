@@ -13,7 +13,7 @@ require_capability('local/ulms_dashboard:viewstudentdashboard', $context);
 
 $bulk = optional_param('bulk', 0, PARAM_BOOL);
 $courseid = $bulk ? 0 : required_param('courseid', PARAM_INT);
-$returnurl = new \moodle_url('/student/catalog', ['view' => 'catalog']);
+$returnurl = new \moodle_url('/student/catalog/', ['view' => 'catalog']);
 
 require_sesskey();
 
