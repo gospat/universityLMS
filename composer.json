@@ -60,6 +60,11 @@
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
+    "config": {
+        "platform": {
+            "php": "8.3.36"
+        }
+    },
     "suggest": {
         "ext-pgsql": "Needed when Moodle uses PostgreSQL database.",
         "ext-sqlsrv": "Needed when Moodle uses MS SQL Server database.",
