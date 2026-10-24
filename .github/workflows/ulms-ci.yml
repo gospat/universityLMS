@@ -30,6 +30,12 @@
 #   * Dependencies come from the committed composer.lock, which composer.json pins to
 #     PHP 8.3.36 through config.platform.php. The install is deterministic and a stale
 #     lock fails the job rather than being silently re-resolved.
+#   * The actions run on Node 24. `actions/checkout@v5` and `actions/cache@v5` are the
+#     first releases of each action on that runtime, which is the smallest change that
+#     clears GitHub's Node 20 deprecation notice for this workflow. `v5` also carries
+#     the fork-checkout hardening for `pull_request_target`/`workflow_run`; this
+#     workflow only triggers on `push`, `pull_request` and `workflow_dispatch`, so that
+#     hardening is inert here and no input needs to change.
 #
 # Test gating is two-tier:
 #   * `phpunit-required` is the merge gate. It runs every discovered suite, because
@@ -40,12 +46,24 @@
 #     without needing job-log access, which is how a regression is diagnosed here.
 #
 # Outstanding technical debt — measured on this tree, not fixed by this pipeline.
-#   * Moodle coding standard: 6340 errors and 1448 warnings across 158 files. The standard
+#   * Moodle coding standard: 6346 errors and 1461 warnings across 160 files. The standard
 #     has never been enforced here, so this is pre-existing backlog, not a regression.
-#     `phpcbf` can fix 3548 of them automatically.
-#   * Committed AMD assets: `npx grunt` reports the committed `build/` files as out of date
-#     against `src/`. The check lives in .github/workflows/push.yml and is manual-only until
-#     the assets are rebuilt.
+#     `phpcbf` can fix 3563 of them automatically. The baseline this branch was cut from
+#     reported 6340 / 1448 / 158, so the branch adds a net +6 errors and +13 warnings:
+#     +8 errors from the two new `tests/lang_strings_test.php` files (missing copyright,
+#     licence and @package tags, plus brace placement), offset by -1 each in
+#     super_admin_portal_service.php, lecturer_exam_create.php and pii_field_accessed.php,
+#     and +1 in production_readiness_check.php. The added warnings are almost all
+#     LangFilesOrdering.IncorrectOrder, because the new strings were appended to the end
+#     of their language files instead of being sorted into place.
+#   * Committed AMD assets: the only ULMS-owned asset,
+#     local/ulms_kortext/amd/build/filter_cascade.min.js, held minified output from a
+#     foreign toolchain — it mangled module and argument names even though Moodle's own
+#     build runs terser with mangle disabled, and the mangling shadowed
+#     core/notification inside the reload failure path. It was rebuilt from
+#     amd/src/filter_cascade.js with the native toolchain, so `npx grunt amd` is now
+#     clean for this repository. The check lives in .github/workflows/push.yml and stays
+#     manual-only, so it cannot gate a merge.
 #
 # Both PHPUnit jobs are green. That was measured, not assumed: the run for commit
 # 3e9ff9263 reported no failing ULMS test, which is the evidence the workflow asks for
@@ -110,7 +128,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -172,7 +190,7 @@ jobs:
           --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -185,7 +203,7 @@ jobs:
           tools: composer:v2
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/composer
@@ -334,7 +352,7 @@ jobs:
           --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -346,7 +364,7 @@ jobs:
           tools: composer:v2
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/composer
@@ -514,7 +532,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
