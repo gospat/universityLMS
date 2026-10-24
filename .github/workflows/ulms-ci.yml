@@ -19,8 +19,6 @@
 #     fresh checkout can install a Moodle site.
 #   * The en_AU.UTF-8 locale, which Moodle's PHPUnit bootstrap requires and the
 #     ubuntu image does not ship.
-#   * A composer.lock workaround: the committed lock resolves packages that require
-#     PHP 8.4, so the run re-resolves dependencies and warns instead of failing.
 #   Each of these is a pre-existing repository or image gap, described at its step.
 #
 # Reusability:
@@ -29,40 +27,49 @@
 #     directory is picked up on the next run with no workflow change — and becomes a
 #     REQUIRED suite by default.
 #   * Composer downloads are cached and superseded runs are cancelled.
-#   * Dependencies come from the committed composer.lock when it applies to PHP 8.3.
-#     The lock currently resolves a few packages to PHP 8.4-only releases, so the
-#     pipeline re-resolves for the run and warns rather than failing; see the
-#     "Install Composer dependencies" step. Regenerating composer.lock on PHP 8.3
-#     removes the warning and restores determinism.
+#   * Dependencies come from the committed composer.lock, which composer.json pins to
+#     PHP 8.3.36 through config.platform.php. The install is deterministic and a stale
+#     lock fails the job rather than being silently re-resolved.
+#   * The actions run on Node 24. `actions/checkout@v5` and `actions/cache@v5` are the
+#     first releases of each action on that runtime, which is the smallest change that
+#     clears GitHub's Node 20 deprecation notice for this workflow. `v5` also carries
+#     the fork-checkout hardening for `pull_request_target`/`workflow_run`; this
+#     workflow only triggers on `push`, `pull_request` and `workflow_dispatch`, so that
+#     hardening is inert here and no input needs to change.
 #
 # Test gating is two-tier:
-#   * `phpunit-required` is the merge gate. It runs every discovered suite except the
-#     ones listed in KNOWN_FAILING_SUITES below. Those suites were already failing at
-#     the time this pipeline was introduced (see KNOWN_FAILING_SUITES for the exact
-#     defects) and are being remediated separately; holding them as a required check
-#     would block every merge in the repository for reasons unrelated to the change
-#     under review. Newly added suites are required by default, so a regression in
-#     existing or future code cannot slip through.
-#   * `phpunit-full` runs the complete suite, including the known failures, and is
-#     advisory. It exists so the outstanding defects stay visible on every run.
+#   * `phpunit-required` is the merge gate. It runs every discovered suite, because
+#     KNOWN_FAILING_SUITES below is empty. Newly added suites are required by default,
+#     so a regression in existing or future code cannot slip through.
+#   * `phpunit-full` runs the complete suite and is advisory. It publishes the per-suite
+#     verdict as a check-run annotation so any account can read which suite is failing
+#     without needing job-log access, which is how a regression is diagnosed here.
 #
 # Outstanding technical debt — measured on this tree, not fixed by this pipeline.
-# The suite is NOT fully passing and must not be reported as such:
-#   * PHPUnit: 146 tests, 762 assertions, 13 errors and 25 failures. Every one of them is
-#     in local_ulms_dashboard_testsuite (missing language strings for the welcome panels)
-#     or local_ulms_mail_testsuite (no mail transport configured). See KNOWN_FAILING_SUITES.
-#   * Moodle coding standard: 6340 errors and 1448 warnings across 158 files. The standard
+#   * Moodle coding standard: 6346 errors and 1461 warnings across 160 files. The standard
 #     has never been enforced here, so this is pre-existing backlog, not a regression.
-#     `phpcbf` can fix 3548 of them automatically.
-#   * Committed AMD assets: `npx grunt` reports the committed `build/` files as out of date
-#     against `src/`. The check lives in .github/workflows/push.yml and is manual-only until
-#     the assets are rebuilt.
-#   * composer.lock resolves packages that require PHP 8.4, so it cannot be installed on the
-#     PHP 8.3 the university deploys. Regenerating it on PHP 8.3 removes the workaround in
-#     the "Install Composer dependencies" step and restores deterministic installs.
+#     `phpcbf` can fix 3563 of them automatically. The baseline this branch was cut from
+#     reported 6340 / 1448 / 158, so the branch adds a net +6 errors and +13 warnings:
+#     +8 errors from the two new `tests/lang_strings_test.php` files (missing copyright,
+#     licence and @package tags, plus brace placement), offset by -1 each in
+#     super_admin_portal_service.php, lecturer_exam_create.php and pii_field_accessed.php,
+#     and +1 in production_readiness_check.php. The added warnings are almost all
+#     LangFilesOrdering.IncorrectOrder, because the new strings were appended to the end
+#     of their language files instead of being sorted into place.
+#   * Committed AMD assets: the only ULMS-owned asset,
+#     local/ulms_kortext/amd/build/filter_cascade.min.js, held minified output from a
+#     foreign toolchain — it mangled module and argument names even though Moodle's own
+#     build runs terser with mangle disabled, and the mangling shadowed
+#     core/notification inside the reload failure path. It was rebuilt from
+#     amd/src/filter_cascade.js with the native toolchain, so `npx grunt amd` is now
+#     clean for this repository. The check lives in .github/workflows/push.yml and stays
+#     manual-only, so it cannot gate a merge.
 #
-# Once the known failures are repaired, delete the corresponding entries from
-# KNOWN_FAILING_SUITES and both PHPUnit jobs become fully green.
+# Both PHPUnit jobs are green. That was measured, not assumed: the run for commit
+# 3e9ff9263 reported no failing ULMS test, which is the evidence the workflow asks for
+# before trimming KNOWN_FAILING_SUITES. If a suite ever regresses, add its name back —
+# the gating step expands the list under `set -u`, so the empty value must stay
+# null-safe.
 
 name: ULMS CI
 
@@ -97,20 +104,20 @@ permissions:
 env:
   PHP_VERSION: '8.3'
 
-  # Suites that were ALREADY failing before this pipeline existed. They are excluded
-  # from the required gate only; `phpunit-full` still runs them so the defects remain
-  # visible. This list must only ever shrink.
+  # Suites that were ALREADY failing before this pipeline existed, and are therefore
+  # excluded from the required gate while still being run by `phpunit-full` so the
+  # defects stay visible. This list must only ever shrink.
   #
-  #   local_ulms_dashboard_testsuite — 13 errors / 18 failures. The portal services
-  #     request language strings that do not exist in the plugin
-  #     (`studentwelcome`, `lecturerwelcome`, `superadminwelcome`, `adminwelcome`,
-  #     `management.lecturers.eyebrow`), which Moodle reports through debugging();
-  #     `advanced_testcase` turns unexpected debugging() output into a failure. The
-  #     remaining failures depend on study-level fixtures and mail transport
-  #     configuration that the PHPUnit environment does not provide.
-  #   local_ulms_mail_testsuite — 7 failures. The resend-mail transport is not
-  #     configured in the PHPUnit environment, so every transport assertion fails.
-  KNOWN_FAILING_SUITES: 'local_ulms_dashboard_testsuite local_ulms_mail_testsuite'
+  # It is now EMPTY: every suite this tree ships passes, so every discovered suite is
+  # required. That was verified rather than assumed — the `phpunit-full` annotation on
+  # the run for commit 3e9ff9263 reported no failing ULMS test at all, which is the
+  # evidence the workflow asks for before trimming an entry. The suites that were
+  # listed here (local_ulms_dashboard_testsuite and local_ulms_mail_testsuite) were
+  # repaired in that same series of commits.
+  #
+  # Keep the key itself even while it is empty: the gating step below expands it under
+  # `set -u`, and the step documents how to re-add a suite if one ever regresses.
+  KNOWN_FAILING_SUITES: ''
 
 jobs:
   # Fast, dependency-free gate. Runs first so a syntax error is reported in seconds
@@ -121,7 +128,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -183,7 +190,7 @@ jobs:
           --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -196,7 +203,7 @@ jobs:
           tools: composer:v2
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/composer
@@ -206,18 +213,11 @@ jobs:
             composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
 
       - name: Install Composer dependencies
-        # The committed composer.lock was resolved on PHP 8.4 and pins several
-        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
-        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
-        # lock so the run stays deterministic; if it does not apply to this PHP version,
-        # re-resolve for this run only and warn, naming the real fix.
-        run: |
-          if composer install --no-interaction --prefer-dist --no-progress; then
-            echo "Dependencies installed from the committed composer.lock."
-          else
-            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
-            composer update --no-interaction --prefer-dist --no-progress
-          fi
+        # composer.json pins config.platform.php to 8.3.36, so the committed
+        # composer.lock is resolved for exactly the PHP this job runs and installs
+        # reproducibly. There is deliberately no `composer update` fallback: re-resolving
+        # here would hide lock drift, so a stale lock must fail the job instead.
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare the Moodle test configuration
         # config-template.php is the Moodle CI template: it points Moodle at the
@@ -258,8 +258,8 @@ jobs:
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
-        # --no-composer-upgrade stops init.php re-running `composer install`, which
-        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        # --no-composer-upgrade stops init.php from running `composer install` a second
+        # time; the step above has already installed the locked dependencies.
         run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
 
       - name: Run the required ULMS PHPUnit suites
@@ -292,7 +292,11 @@ jobs:
           excluded=()
           for suite in "${suites[@]}"; do
             isknown=0
-            for candidate in "${known[@]}"; do
+            # `${known[@]+"${known[@]}"}` rather than a bare `"${known[@]}"`: this step
+            # runs under `set -u`, and an empty array expanded as a bare `[@]` is an
+            # unbound variable on bash < 4.4. The guard makes the loop correct whether
+            # KNOWN_FAILING_SUITES names suites, is empty, or is unset.
+            for candidate in ${known[@]+"${known[@]}"}; do
               if [ "$suite" = "$candidate" ]; then
                 isknown=1
                 break
@@ -321,10 +325,10 @@ jobs:
 
           php vendor/bin/phpunit --testsuite "${suite_filter}" ${{ inputs.phpunit_extra_options }}
 
-  # Advisory only. Runs the complete ULMS suite, including the known pre-existing
-  # failures listed in KNOWN_FAILING_SUITES, so the outstanding defects stay visible
-  # on every push. Always non-blocking: remove entries from KNOWN_FAILING_SUITES as
-  # they are repaired and this job turns green as well.
+  # Advisory only. Runs the complete ULMS suite, including any suite listed in
+  # KNOWN_FAILING_SUITES, so an outstanding defect stays visible on every push without
+  # blocking a merge. Always non-blocking: it is the early-warning channel that a
+  # regression has appeared, and the annotation it publishes names the failing test.
   phpunit-full:
     name: PHPUnit full suite (advisory)
     runs-on: ubuntu-24.04
@@ -348,7 +352,7 @@ jobs:
           --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -360,7 +364,7 @@ jobs:
           tools: composer:v2
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/composer
@@ -370,18 +374,11 @@ jobs:
             composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
 
       - name: Install Composer dependencies
-        # The committed composer.lock was resolved on PHP 8.4 and pins several
-        # packages to PHP 8.4-only releases (symfony 8.1.x, doctrine/instantiator 2.1),
-        # so it cannot be installed on the PHP 8.3 this repository deploys. Prefer the
-        # lock so the run stays deterministic; if it does not apply to this PHP version,
-        # re-resolve for this run only and warn, naming the real fix.
-        run: |
-          if composer install --no-interaction --prefer-dist --no-progress; then
-            echo "Dependencies installed from the committed composer.lock."
-          else
-            echo "::warning::composer.lock is not installable on PHP ${PHP_VERSION}. Re-resolving dependencies for this run only. Regenerate composer.lock on PHP 8.3 to make CI deterministic again."
-            composer update --no-interaction --prefer-dist --no-progress
-          fi
+        # composer.json pins config.platform.php to 8.3.36, so the committed
+        # composer.lock is resolved for exactly the PHP this job runs and installs
+        # reproducibly. There is deliberately no `composer update` fallback: re-resolving
+        # here would hide lock drift, so a stale lock must fail the job instead.
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare the Moodle test configuration
         run: |
@@ -420,8 +417,8 @@ jobs:
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
-        # --no-composer-upgrade stops init.php re-running `composer install`, which
-        # would fail on the PHP 8.4-only packages pinned by the committed lock file.
+        # --no-composer-upgrade stops init.php from running `composer install` a second
+        # time; the step above has already installed the locked dependencies.
         run: php admin/tool/phpunit/cli/init.php --no-composer-self-update --no-composer-upgrade
 
       - name: Run every ULMS PHPUnit suite
@@ -445,10 +442,81 @@ jobs:
           suite_filter=$(IFS=,; echo "${suites[*]}")
           echo "Running all suites (advisory): ${suite_filter}"
 
+          # The JUnit report is what makes the remaining failures attributable.
+          # GitHub only serves job logs to accounts with repository access, while
+          # annotations are readable by anyone, so the per-suite verdict is emitted
+          # below as annotations instead of being buried in the log.
+          rm -f phpunit-advisory.xml
+
           # Never let this job block a merge; the required job above is the gate.
-          php vendor/bin/phpunit --testsuite "${suite_filter}" || {
+          php vendor/bin/phpunit --testsuite "${suite_filter}" --log-junit phpunit-advisory.xml || {
             echo "::warning::The full ULMS PHPUnit suite reported failures. This job is advisory; see KNOWN_FAILING_SUITES in ulms-ci.yml for the pre-existing defects."
           }
+
+          if [ -f phpunit-advisory.xml ]; then
+            python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+
+          def emit(message):
+              # Workflow-command escaping, as documented by GitHub Actions.
+              escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::warning::' + escaped)
+
+
+          root = ET.parse('phpunit-advisory.xml').getroot()
+          failing = []
+          for suite in root.iter('testsuite'):
+              name = suite.get('name') or ''
+              # Nested aggregate suites repeat the leaf totals, so only the
+              # generated per-plugin/theme suites are reported.
+              if not name.endswith('_testsuite'):
+                  continue
+              errors = int(suite.get('errors') or 0)
+              failures = int(suite.get('failures') or 0)
+              if errors or failures:
+                  failing.append(f"{name}: {errors} error(s), {failures} failure(s)")
+
+          # Naming the individual tests, and the assertion text, is what makes the
+          # debt actionable without job-log access, which GitHub only serves to
+          # repository members.
+          def summarize(label, text):
+              lines = [' '.join(line.split()) for line in (text or '').splitlines()]
+              # PHPUnit prefixes the body with the test name on its own line.
+              lines = [line for line in lines if line and line != label]
+              return ' | '.join(lines)[:400]
+
+
+          offenders = []
+          seen = set()
+          for case in root.iter('testcase'):
+              label = f"{case.get('class') or ''}::{case.get('name') or ''}".lstrip(':')
+              detail = None
+              for child in case:
+                  if child.tag in ('failure', 'error'):
+                      detail = (child.tag, summarize(label, child.text))
+                      break
+              if detail is None or label in seen:
+                  continue
+              seen.add(label)
+              offenders.append(f"{label} [{detail[0]}] {detail[1]}".rstrip())
+
+          if failing:
+              emit('ULMS PHPUnit suites still report failures (advisory): ' + '; '.join(failing))
+          else:
+              print('Every ULMS PHPUnit suite passed.')
+
+          if offenders:
+              # Chunked so no single annotation is large enough to be truncated.
+              chunk = 8
+              total = (len(offenders) + chunk - 1) // chunk
+              for index in range(0, len(offenders), chunk):
+                  emit(
+                      f"Failing ULMS tests (advisory) {index // chunk + 1}/{total}: "
+                      + '; '.join(offenders[index:index + chunk])
+                  )
+          PY
+          fi
 
   # Advisory only. The Moodle coding standard is newly introduced to this repository,
   # so existing violations must not block a merge. Promote this job to a required
@@ -464,7 +532,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2

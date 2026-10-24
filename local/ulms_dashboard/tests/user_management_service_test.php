@@ -101,6 +101,9 @@ final class user_management_service_testable_service extends user_management_ser
  * @covers \local_ulms_dashboard\local\service\user_management_service
  */
 final class user_management_service_test extends \advanced_testcase {
+    /** @var array{facultyid: int, departmentid: int, programmeid: int}|null */
+    private ?array $academicfixtureids = null;
+
     /**
      * Suppress third-party PHP 8.4 deprecations during a focused assertion.
      *
@@ -170,6 +173,79 @@ final class user_management_service_test extends \advanced_testcase {
             $logtable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
             $dbman->create_table($logtable);
         }
+
+        $this->seed_study_levels();
+    }
+
+    /**
+     * Seeds the study levels the shared create fixture refers to.
+     *
+     * local_ulms_levels is declared by the dashboard install.xml, so the table exists in
+     * the test database but carries no rows. A submitted study level still has to resolve
+     * to a code the user form actually offered.
+     */
+    private function seed_study_levels(): void {
+        global $DB;
+
+        foreach (['100', '200', '300', '400'] as $sortorder => $code) {
+            if ($DB->record_exists('local_ulms_levels', ['code' => $code])) {
+                continue;
+            }
+
+            $DB->insert_record('local_ulms_levels', (object)[
+                'code' => $code,
+                'name' => 'Level ' . $code,
+                'description' => '',
+                'status' => 'active',
+                'sortorder' => $sortorder,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+        }
+    }
+
+    /**
+     * Returns the active college -> department -> programme chain used by the create fixture.
+     *
+     * The student programme mandate requires an active programme, so the fixture supplies a
+     * real hierarchy instead of programmeid = 0. The ids are cached because several tests
+     * read the fixture more than once.
+     *
+     * @return array{facultyid: int, departmentid: int, programmeid: int}
+     */
+    private function get_academic_fixture_ids(): array {
+        if ($this->academicfixtureids !== null) {
+            return $this->academicfixtureids;
+        }
+
+        $repository = new \local_ulms_academics\local\repository\academic_repository();
+        $facultyid = $repository->save_record('faculties', (object)[
+            'code' => 'TEST-COLLEGE',
+            'name' => 'Test College',
+            'status' => 'active',
+        ]);
+        $departmentid = $repository->save_record('departments', (object)[
+            'code' => 'TEST-DEPARTMENT',
+            'name' => 'Test Department',
+            'status' => 'active',
+            'facultyid' => $facultyid,
+        ]);
+        $programmeid = $repository->save_record('programmes', (object)[
+            'code' => 'TEST-PROGRAMME',
+            'name' => 'Test Programme',
+            'status' => 'active',
+            'departmentid' => $departmentid,
+            'awardtype' => 'BSc',
+            'durationyears' => 4,
+        ]);
+
+        $this->academicfixtureids = [
+            'facultyid' => $facultyid,
+            'departmentid' => $departmentid,
+            'programmeid' => $programmeid,
+        ];
+
+        return $this->academicfixtureids;
     }
 
     private function create_service(resend_mail_service $mailservice): user_management_service_testable_service {
@@ -203,6 +279,8 @@ final class user_management_service_test extends \advanced_testcase {
     }
 
     private function get_valid_create_data(array $overrides = []): array {
+        $academicids = $this->get_academic_fixture_ids();
+
         return array_merge([
             'firstname' => 'John',
             'middlename' => 'T',
@@ -212,9 +290,9 @@ final class user_management_service_test extends \advanced_testcase {
             'idnumber' => 'STU-UM-001',
             'role' => 'student',
             'status' => 'active',
-            'facultyid' => 0,
-            'departmentid' => 0,
-            'programmeid' => 0,
+            'facultyid' => $academicids['facultyid'],
+            'departmentid' => $academicids['departmentid'],
+            'programmeid' => $academicids['programmeid'],
             'studylevel' => '100',
             'staffid' => '',
             'password' => 'ValidPassword123!',
@@ -535,6 +613,8 @@ final class user_management_service_test extends \advanced_testcase {
             'error' => '',
         ]));
 
+        $academicids = $this->get_academic_fixture_ids();
+
         $result = $service->update_user((int)$user->id, [
             'firstname' => 'Legacy',
             'middlename' => '',
@@ -544,10 +624,10 @@ final class user_management_service_test extends \advanced_testcase {
             'idnumber' => 'ADM-LEGACY-001',
             'role' => 'student',
             'status' => 'active',
-            'facultyid' => 0,
-            'departmentid' => 0,
-            'programmeid' => 0,
-            'studylevel' => '',
+            'facultyid' => $academicids['facultyid'],
+            'departmentid' => $academicids['departmentid'],
+            'programmeid' => $academicids['programmeid'],
+            'studylevel' => '100',
             'staffid' => '',
         ]);
 

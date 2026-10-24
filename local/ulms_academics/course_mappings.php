@@ -173,7 +173,11 @@ if ($export === 'csv') {
     exit;
 }
 
-if ($action === 'delete' && $deleteid && confirm_sesskey()) {
+if ($action === 'delete' && $deleteid) {
+    // Fail loudly on a stale or invalid session token. confirm_sesskey() returns
+    // false without raising anything, so following an expired delete link reloaded
+    // the page and silently discarded the action.
+    require_sesskey();
     $result = $service->delete_course_mapping($deleteid);
     redirect(
         $contexturl,
@@ -185,7 +189,10 @@ if ($action === 'delete' && $deleteid && confirm_sesskey()) {
     );
 }
 
-if ($previewimport && confirm_sesskey()) {
+if ($previewimport) {
+    // See the delete branch above: a stale token must surface as an error instead
+    // of a silent no-op.
+    require_sesskey();
     if (empty($_FILES['csvfile']['tmp_name']) || !is_uploaded_file($_FILES['csvfile']['tmp_name'])) {
         $errors[] = get_string('required');
     } else {
@@ -208,7 +215,9 @@ if ($previewimport && confirm_sesskey()) {
     }
 }
 
-if ($confirmimport && confirm_sesskey()) {
+if ($confirmimport) {
+    // See the delete branch above: a confirmed import must never be silently skipped.
+    require_sesskey();
     $payload = required_param('importpayload', PARAM_RAW_TRIMMED);
     $confirmstate = $service->execute_confirmed_preview_import(
         $payload,
@@ -228,7 +237,10 @@ if ($confirmimport && confirm_sesskey()) {
     }
 }
 
-if (optional_param('savemapping', 0, PARAM_BOOL) && confirm_sesskey()) {
+if (optional_param('savemapping', 0, PARAM_BOOL)) {
+    // See the delete branch above: a stale token must surface as an error instead
+    // of a silent no-op that discards the submitted mapping.
+    require_sesskey();
     $result = $service->save_course_mapping([
         'mappingid' => optional_param('mappingid', 0, PARAM_INT),
         'programmeid' => optional_param('programmeid', 0, PARAM_INT),

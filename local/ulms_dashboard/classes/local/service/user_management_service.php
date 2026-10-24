@@ -1258,6 +1258,12 @@ class user_management_service {
             'email' => $cleaned['email'],
             'idnumber' => $cleaned['idnumber'],
             'password' => $cleaned['password'],
+            // The provisioning service applies the student programme mandate itself, so the
+            // validated programme has to travel with the request. Without it every student
+            // was rejected as "programme required" even though one had just been chosen.
+            // Faculty and department are not sent: provisioning re-derives them from the
+            // programme so the two can never disagree.
+            'programmeid' => $cleaned['programmeid'],
             'institution' => $institution,
             'department' => $department,
         ];
@@ -2119,6 +2125,14 @@ class user_management_service {
 
         if ($cleaned['studylevel'] !== '' && \core_text::strlen($cleaned['studylevel']) > 50) {
             $errors['studylevel'] = get_string('maximumchars', '', 50);
+        }
+
+        // Study level must be one the form offered, the same way faculty, department and
+        // programme are checked below. Without this the value travelled as far as
+        // save_profile_record(), which threw after the account had already been created.
+        if ($cleaned['studylevel'] !== '' && !array_key_exists($cleaned['studylevel'], $this->get_level_options())) {
+            $errors['studylevel'] = get_string('invaliddata');
+            $cleaned['studylevel'] = '';
         }
 
         if ($cleaned['staffid'] !== '' && \core_text::strlen($cleaned['staffid']) > 100) {

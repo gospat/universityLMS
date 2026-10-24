@@ -62,7 +62,11 @@ $PAGE->requires->js_call_amd('local_ulms_kortext/filter_cascade', 'init', [
 
 $redirectback = new \moodle_url('/local/ulms_kortext/adoptions.php', $filters + ['action' => 'list']);
 
-if ($export === 'csv' && confirm_sesskey()) {
+if ($export === 'csv') {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so an expired export link silently returned
+    // the page instead of the CSV.
+    require_sesskey();
     $csv = $service->csv_export($filters);
     $filename = 'ulms_kortext_adoptions_' . date('Ymd_Hi');
     header('Content-Type: text/csv; charset=utf-8');
@@ -72,7 +76,10 @@ if ($export === 'csv' && confirm_sesskey()) {
     exit;
 }
 
-if ($action === 'archive' && $id > 0 && confirm_sesskey()) {
+if ($action === 'archive' && $id > 0) {
+    // See the export branch above: an expired archive link must not silently
+    // discard the action.
+    require_sesskey();
     try {
         $service->archive_adoption($id, (int)$USER->id);
         redirect($redirectback, get_string('adoption_archived', 'local_ulms_kortext'), null, \core\output\notification::NOTIFY_SUCCESS);
@@ -84,7 +91,10 @@ if ($action === 'archive' && $id > 0 && confirm_sesskey()) {
 $flashmsg = '';
 $flashtype = \core\output\notification::NOTIFY_INFO;
 
-if ($action === 'save' && data_submitted() && confirm_sesskey()) {
+if ($action === 'save' && data_submitted()) {
+    // See the export branch above: a stale token must not silently discard the
+    // submitted adoption.
+    require_sesskey();
     $data = [
         'programmeid'    => required_param('programmeid', PARAM_INT),
         'moodlecourseid' => required_param('moodlecourseid', PARAM_INT),
@@ -118,7 +128,10 @@ if ($action === 'save' && data_submitted() && confirm_sesskey()) {
     }
 }
 
-if ($action === 'import' && data_submitted() && confirm_sesskey()) {
+if ($action === 'import' && data_submitted()) {
+    // See the export branch above: a stale token must not silently discard the
+    // uploaded import.
+    require_sesskey();
     $dryrun = optional_param('dryrun', 0, PARAM_INT) === 1;
     $importpreview = optional_param('preview_rows', '', PARAM_RAW);
     $rows = [];

@@ -98,7 +98,12 @@ if ($download && isset($templates[$entity])) {
     exit;
 }
 
-if ($previewimport && confirm_sesskey()) {
+if ($previewimport) {
+    // Fail loudly on a stale or invalid session token. confirm_sesskey() returns
+    // false without raising anything, so a re-submitted or expired form produced
+    // no response and no error at all — the same "Preview does nothing" symptom
+    // reported on the user provisioning page.
+    require_sesskey();
     if (empty($_FILES['csvfile']['tmp_name']) || !is_uploaded_file($_FILES['csvfile']['tmp_name'])) {
         $errors[] = get_string('required');
     } else {
@@ -122,7 +127,10 @@ if ($previewimport && confirm_sesskey()) {
     }
 }
 
-if ($confirmimport && confirm_sesskey()) {
+if ($confirmimport) {
+    // See $previewimport above: a stale token must surface as an error rather
+    // than a silent no-op, and a confirmed import must never be silently skipped.
+    require_sesskey();
     $payload = required_param('importpayload', PARAM_RAW_TRIMMED);
     $confirmstate = $service->execute_confirmed_preview_import(
         $payload,

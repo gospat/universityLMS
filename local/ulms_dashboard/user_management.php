@@ -58,7 +58,11 @@ $PAGE->set_pagelayout('ulmsdashboard');
 $action = optional_param('action', '', PARAM_ALPHA);
 $actionuserid = optional_param('userid', 0, PARAM_INT);
 
-if ($action !== '' && $actionuserid > 0 && data_submitted() && confirm_sesskey()) {
+if ($action !== '' && $actionuserid > 0 && data_submitted()) {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so an expired list page silently discarded
+    // suspend / unsuspend / delete / reset-password requests.
+    require_sesskey();
     $redirectparams = $service->get_filter_url_params($filters);
     $redirecturl = $routingservice->get_url_for_route('management.users', $redirectparams);
 

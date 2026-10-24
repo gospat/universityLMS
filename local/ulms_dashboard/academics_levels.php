@@ -66,7 +66,11 @@ local_ulms_dashboard_prepare_page(
 
 $notifications = [];
 
-if ($action === 'delete' && $deleteid > 0 && $confirm && confirm_sesskey()) {
+if ($action === 'delete' && $deleteid > 0 && $confirm) {
+    // Fail loudly on a stale or mismatched session token. confirm_sesskey() returns
+    // false without raising anything, so an expired confirmed-delete link silently
+    // reloaded the page and kept the level.
+    require_sesskey();
     $result = $usersvc->delete_level($deleteid);
     $notifications[] = [
         'message' => $result['message'],
@@ -77,7 +81,10 @@ if ($action === 'delete' && $deleteid > 0 && $confirm && confirm_sesskey()) {
     redirect($contexturl, $result['message'], null, end($notifications)['type']);
 }
 
-if ($action === 'toggle' && $toggleid > 0 && confirm_sesskey()) {
+if ($action === 'toggle' && $toggleid > 0) {
+    // See the delete branch above: an expired toggle link must not silently
+    // discard the status change.
+    require_sesskey();
     $result = $usersvc->toggle_level_status($toggleid);
     $notifications[] = [
         'message' => $result['message'],
@@ -97,7 +104,10 @@ $formdefaults = [
     'status' => $editrecord->status ?? 'active',
 ];
 
-if (optional_param('savelevel', 0, PARAM_BOOL) && confirm_sesskey()) {
+if (optional_param('savelevel', 0, PARAM_BOOL)) {
+    // See the delete branch above: a stale token must not silently discard the
+    // submitted level.
+    require_sesskey();
     $payload = [
         'id' => optional_param('id', 0, PARAM_INT),
         'code' => trim(optional_param('code', '', PARAM_TEXT)),

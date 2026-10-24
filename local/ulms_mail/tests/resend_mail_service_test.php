@@ -48,6 +48,16 @@ final class resend_mail_service_test_logger extends AbstractLogger {
  * @covers \local_ulms_mail\local\service\resend_mail_service
  */
 final class resend_mail_service_test extends \advanced_testcase {
+    /**
+     * Fixture API key.
+     *
+     * This must satisfy resend_mail_service::is_valid_resend_api_key(), which
+     * rejects anything shorter than 32 characters.  A short placeholder made
+     * every test stop at the format check and return the "not configured"
+     * failure, so the transport itself was never exercised.
+     */
+    private const TEST_API_KEY = 're_test_secret_key_0123456789abcdef';
+
     protected function setUp(): void {
         parent::setUp();
         error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
@@ -85,7 +95,7 @@ final class resend_mail_service_test extends \advanced_testcase {
         global $CFG;
 
         $CFG->ulmsmailtransport = 'resend';
-        $CFG->resendapikey = 're_test_secret';
+        $CFG->resendapikey = self::TEST_API_KEY;
         $CFG->resendfromemail = 'no-reply@example.com';
         $CFG->resendfromname = 'ULMS Mailer';
     }
@@ -111,6 +121,26 @@ final class resend_mail_service_test extends \advanced_testcase {
 
         $this->assertFalse($result['success']);
         $this->assertSame(get_string('errormissingapikey', 'local_ulms_mail'), $result['error']);
+    }
+
+    public function test_malformed_api_key_is_reported_distinctly_from_a_missing_key(): void {
+        global $CFG;
+
+        $this->resetAfterTest(true);
+        $this->configure_resend_transport();
+        $CFG->resendapikey = 're_too_short';
+
+        // A logger is supplied so the format-check diagnostic goes to the log
+        // rather than to debugging(), which the test framework treats as an
+        // unexpected call.
+        $logger = $this->create_collecting_logger();
+        $service = new resend_mail_service(new MockHttpClient(), $logger);
+        $result = $service->send_transactional_email($this->get_message_payload());
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(get_string('errorinvalidapikey', 'local_ulms_mail'), $result['error']);
+        $this->assertNotSame(get_string('errormissingapikey', 'local_ulms_mail'), $result['error']);
+        $this->assertNotEmpty($logger->records);
     }
 
     public function test_sender_configuration_is_validated(): void {
@@ -183,7 +213,7 @@ final class resend_mail_service_test extends \advanced_testcase {
         $logger = $this->create_collecting_logger();
 
         $client = new MockHttpClient(static function(): void {
-            throw new TransportException('Bearer re_test_secret connection timed out');
+            throw new TransportException('Bearer ' . self::TEST_API_KEY . ' connection timed out');
         });
 
         $service = new resend_mail_service($client, $logger);
@@ -192,7 +222,7 @@ final class resend_mail_service_test extends \advanced_testcase {
         $this->assertFalse($result['success']);
         $this->assertSame(get_string('errorsendfailed', 'local_ulms_mail'), $result['error']);
         $this->assertNotEmpty($logger->records);
-        $this->assertStringNotContainsString('re_test_secret', json_encode($logger->records));
+        $this->assertStringNotContainsString(self::TEST_API_KEY, json_encode($logger->records));
     }
 
     public function test_reply_to_and_bodies_are_passed_correctly(): void {
