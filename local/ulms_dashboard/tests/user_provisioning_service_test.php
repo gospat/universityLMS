@@ -1559,7 +1559,7 @@ final class user_provisioning_service_test extends \advanced_testcase {
         ]));
 
         $this->assertFalse($result['success']);
-        $this->assertContains(get_string('invaliddata'), $result['errors']);
+        $this->assertContains(get_string('invaliddata', 'error'), $result['errors']);
     }
 
     /**

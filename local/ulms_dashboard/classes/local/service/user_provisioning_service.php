@@ -758,11 +758,13 @@ class user_provisioning_service {
             // department always resolves to the college that actually owns it.
             if ($targetrole !== 'student') {
                 if ($staffdepartmentid > 0 && !$DB->record_exists('local_ulms_departments', ['id' => $staffdepartmentid])) {
-                    $errors[] = get_string('invaliddata');
+                    // 'invaliddata' is a core string in the `error` component, which is also
+                    // where moodle_exception resolves it from elsewhere in this plugin.
+                    $errors[] = get_string('invaliddata', 'error');
                     $staffdepartmentid = 0;
                 }
                 if ($stafffacultyid > 0 && !$DB->record_exists('local_ulms_faculties', ['id' => $stafffacultyid])) {
-                    $errors[] = get_string('invaliddata');
+                    $errors[] = get_string('invaliddata', 'error');
                     $stafffacultyid = 0;
                 }
                 if ($staffdepartmentid > 0) {

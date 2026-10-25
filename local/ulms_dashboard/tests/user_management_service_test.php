@@ -691,9 +691,11 @@ final class user_management_service_test extends \advanced_testcase {
             'username' => 'jane.admin',
             'email' => 'jane.admin@example.com',
             // An administrator is staff, so it is identified by a Staff ID rather than by a
-            // learner matriculation number.
+            // learner matriculation number, and it holds no student programme or study level.
             'idnumber' => '',
             'staffid' => 'ADM-UM-001',
+            'programmeid' => 0,
+            'studylevel' => '',
         ]));
 
         $suspend = $service->suspend_user((int)$create['userid']);
@@ -723,9 +725,11 @@ final class user_management_service_test extends \advanced_testcase {
             'username' => 'delete.admin',
             'email' => 'delete.admin@example.com',
             // An administrator is staff, so it is identified by a Staff ID rather than by a
-            // learner matriculation number.
+            // learner matriculation number, and it holds no student programme or study level.
             'idnumber' => '',
             'staffid' => 'ADM-UM-002',
+            'programmeid' => 0,
+            'studylevel' => '',
         ]));
 
         $result = $service->delete_user_account((int)$create['userid']);

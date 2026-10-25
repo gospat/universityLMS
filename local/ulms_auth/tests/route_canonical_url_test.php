@@ -463,6 +463,10 @@ final class route_canonical_url_test extends advanced_testcase {
         $validemail = 'route.preview.valid@example.edu';
         $invalidemail = 'not-an-email-address';
 
+        // The preview is targeted at a staff account type, so each row carries the Staff ID
+        // that a staff account requires. The only difference between the two rows is the email
+        // address, which keeps this a test of validation-versus-creation rather than of the
+        // account-type rules themselves.
         $rows = [
             [
                 'firstname' => 'Route',
@@ -470,6 +474,7 @@ final class route_canonical_url_test extends advanced_testcase {
                 'email' => $validemail,
                 'username' => 'route.preview.valid',
                 'idnumber' => 'ROUTE-PREVIEW-1',
+                'staffid' => 'ROUTE-PREVIEW-STAFF-1',
                 'programmecode' => '',
             ],
             [
@@ -478,6 +483,7 @@ final class route_canonical_url_test extends advanced_testcase {
                 'email' => $invalidemail,
                 'username' => 'route.preview.invalid',
                 'idnumber' => 'ROUTE-PREVIEW-2',
+                'staffid' => 'ROUTE-PREVIEW-STAFF-2',
                 'programmecode' => '',
             ],
         ];
