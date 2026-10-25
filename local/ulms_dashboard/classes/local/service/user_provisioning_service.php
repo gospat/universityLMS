@@ -38,6 +38,12 @@ class user_provisioning_service {
     /** @var int Hard ceiling for a bulk-upload CSV (5 MiB). */
     public const CSV_UPLOAD_MAX_BYTES = 5242880;
 
+    /** @var string[] Fields that only a learner academic profile may carry. */
+    private const STUDENT_ONLY_FIELDS = ['programme', 'programmecode', 'studylevel'];
+
+    /** @var string[] Fields that only a staff account may carry. */
+    private const STAFF_ONLY_FIELDS = ['staffid'];
+
     /**
      * Returns target role labels available to the current admin.
      *
@@ -102,6 +108,121 @@ class user_provisioning_service {
     }
 
     /**
+     * Returns the account-type field specification used by the account form.
+     *
+     * One authoritative matrix decides which fields an account type owns, so the form
+     * (which renders from it), the validator and the persistence layer cannot disagree
+     * about what a Student, Lecturer or Admin account is made of. A learner owns the
+     * programme-based academic hierarchy and a study level; a staff account owns a
+     * Staff ID plus the institutional college/department assignment instead.
+     *
+     * @param string $targetrole
+     * @return array<string, array{visible: bool, required: bool}>
+     */
+    public function get_account_field_spec(string $targetrole): array {
+        $spec = [
+            'firstname' => ['visible' => true, 'required' => true],
+            'middlename' => ['visible' => true, 'required' => false],
+            'lastname' => ['visible' => true, 'required' => true],
+            'email' => ['visible' => true, 'required' => true],
+            'username' => ['visible' => true, 'required' => false],
+            'idnumber' => ['visible' => false, 'required' => false],
+            'staffid' => ['visible' => false, 'required' => false],
+            'programme' => ['visible' => false, 'required' => false],
+            'college' => ['visible' => false, 'required' => false],
+            'department' => ['visible' => false, 'required' => false],
+            'studylevel' => ['visible' => false, 'required' => false],
+        ];
+
+        switch ($targetrole) {
+            case 'student':
+                $spec['idnumber'] = ['visible' => true, 'required' => false];
+                $spec['programme'] = ['visible' => true, 'required' => true];
+                // College and Department are read-only projections of the programme.
+                $spec['college'] = ['visible' => true, 'required' => false];
+                $spec['department'] = ['visible' => true, 'required' => false];
+                $spec['studylevel'] = ['visible' => true, 'required' => false];
+                break;
+            case 'lecturer':
+            case 'admin':
+                // Established staff provisioning rule (see provisioningrolelecturerrequiresstaffid
+                // and provisioningroleadminrequiresstaffid): a staff account is identified by a
+                // Staff ID and assigned to a college and department. It is never a student
+                // enrolment, so no programme and no study level are offered or required.
+                $spec['staffid'] = ['visible' => true, 'required' => true];
+                $spec['college'] = ['visible' => true, 'required' => false];
+                $spec['department'] = ['visible' => true, 'required' => false];
+                break;
+        }
+
+        return $spec;
+    }
+
+    /**
+     * Returns the institutional college and department vocabulary for staff assignment.
+     *
+     * Read directly from the live academic structure so a staff account is always
+     * assigned to a real college and a real department of that college.
+     *
+     * @return array{colleges: array<int, string>, departments: array<int, string>, departmentcollege: array<int, int>}
+     */
+    public function get_staff_assignment_options(): array {
+        $options = [
+            'colleges' => [],
+            'departments' => [],
+            'departmentcollege' => [],
+        ];
+
+        try {
+            $repository = new \local_ulms_academics\local\repository\academic_repository();
+            foreach ($repository->get_records('faculties') as $faculty) {
+                $options['colleges'][(int)$faculty->id] = (string)($faculty->name ?? '');
+            }
+            foreach ($repository->get_records('departments') as $department) {
+                $id = (int)$department->id;
+                $options['departments'][$id] = (string)($department->name ?? '');
+                $options['departmentcollege'][$id] = max(0, (int)($department->facultyid ?? 0));
+            }
+        } catch (\Throwable $exception) {
+            if (function_exists('local_ulms_dashboard_log_operational_error')) {
+                local_ulms_dashboard_log_operational_error(
+                    $exception,
+                    'user_provisioning_service::get_staff_assignment_options',
+                    []
+                );
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * Removes academic values that do not apply to the account type.
+     *
+     * This is the persistence boundary for the role-specific academic model: a learner
+     * row can never carry a Staff ID, and a staff row can never carry a programme
+     * enrolment, a student study level or a learner matriculation identifier. Callers
+     * reach it through validate_row(), and create_user_account() applies it again so no
+     * other code path can write a misplaced academic value into the ULMS profile table.
+     *
+     * @param string $targetrole
+     * @param array $record
+     * @return array
+     */
+    public function normalise_account_type_record(string $targetrole, array $record): array {
+        if ($targetrole === 'student') {
+            $record['staffid'] = '';
+            return $record;
+        }
+
+        $record['programmeid'] = 0;
+        $record['studylevel'] = '';
+        $record['idnumber'] = '';
+
+        return $record;
+    }
+
+    /**
      * Returns starter rows for a CSV template.
      *
      * The extra columns (middlename, studylevel, staffid) are optional and may be omitted
@@ -113,10 +234,14 @@ class user_provisioning_service {
     public function get_csv_template_rows(string $targetrole): array {
         $this->assert_target_role_access($targetrole);
 
+        // Columns: firstname, middlename, lastname, email, username, idnumber,
+        // programmecode, studylevel, staffid. A learner row carries the matriculation
+        // identifier, the programme and the study level; a staff row carries the Staff ID
+        // only, because a staff account is not a student enrolment.
         $samples = [
             'student' => ['Ada', '', 'Okafor', 'ada.okafor@student.example.edu', 'ada.okafor', 'STU-001', 'BCHEM-2024', '', ''],
-            'lecturer' => ['Kemi', '', 'Adebayo', 'kemi.adebayo@lecturer.example.edu', 'kemi.adebayo', 'LEC-001', '', '', 'LEC-001'],
-            'admin' => ['Ibrahim', '', 'Musa', 'ibrahim.musa@admin.example.edu', 'ibrahim.musa', 'ADM-001', '', '', 'ADM-001'],
+            'lecturer' => ['Kemi', '', 'Adebayo', 'kemi.adebayo@lecturer.example.edu', 'kemi.adebayo', '', '', '', 'LEC-001'],
+            'admin' => ['Ibrahim', '', 'Musa', 'ibrahim.musa@admin.example.edu', 'ibrahim.musa', '', '', '', 'ADM-001'],
         ];
 
         return [
@@ -586,7 +711,75 @@ class user_provisioning_service {
         $studylevel = trim((string)($row['studylevel'] ?? ''));
         $programmecode = trim((string)($row['programmecode'] ?? ''));
         $programmeid = max(0, (int)($row['programmeid'] ?? 0));
+        $stafffacultyid = max(0, (int)($row['facultyid'] ?? 0));
+        $staffdepartmentid = max(0, (int)($row['departmentid'] ?? 0));
         $inactiveprogramme = null;
+
+        // Account-type-aware field enforcement. The same specification that renders the
+        // account form decides which values are legitimate for this account type, so a
+        // direct POST cannot smuggle a student identifier onto a staff account, or a staff
+        // identifier and a student study level onto a learner.
+        if ($targetrole !== '') {
+            $spec = $this->get_account_field_spec($targetrole);
+
+            if (!$spec['staffid']['visible'] && $staffid !== '') {
+                $errors[] = get_string('provisioningerrorstaffidnotapplicable', 'local_ulms_dashboard');
+                $staffid = '';
+            }
+
+            if (!$spec['idnumber']['visible']) {
+                // The generic ID number is the learner matriculation identifier, so it is
+                // never written against a staff account.
+                $idnumber = '';
+            }
+
+            if (!$spec['programme']['visible']) {
+                if ($programmeid > 0 || $programmecode !== '') {
+                    $errors[] = get_string('provisioningerrorprogrammenotapplicable', 'local_ulms_dashboard');
+                }
+                $programmeid = 0;
+                $programmecode = '';
+            }
+
+            if (!$spec['studylevel']['visible']) {
+                if ($studylevel !== '') {
+                    $errors[] = get_string('provisioningerrorstudylevelnotapplicable', 'local_ulms_dashboard');
+                }
+                $studylevel = '';
+            }
+
+            if ($spec['staffid']['required'] && $staffid === '') {
+                $errors[] = get_string('provisioningrole' . $targetrole . 'requiresstaffid', 'local_ulms_dashboard');
+            }
+
+            // Staff accounts own a College and Department assignment instead of a student
+            // programme enrolment. Both are re-verified against the live structure here so
+            // the assignment can never point at a record that does not exist, and a
+            // department always resolves to the college that actually owns it.
+            if ($targetrole !== 'student') {
+                if ($staffdepartmentid > 0 && !$DB->record_exists('local_ulms_departments', ['id' => $staffdepartmentid])) {
+                    // 'invaliddata' is a core string in the `error` component, which is also
+                    // where moodle_exception resolves it from elsewhere in this plugin.
+                    $errors[] = get_string('invaliddata', 'error');
+                    $staffdepartmentid = 0;
+                }
+                if ($stafffacultyid > 0 && !$DB->record_exists('local_ulms_faculties', ['id' => $stafffacultyid])) {
+                    $errors[] = get_string('invaliddata', 'error');
+                    $stafffacultyid = 0;
+                }
+                if ($staffdepartmentid > 0) {
+                    $ownercollege = (int)($DB->get_field(
+                        'local_ulms_departments',
+                        'facultyid',
+                        ['id' => $staffdepartmentid],
+                        IGNORE_MISSING
+                    ) ?? 0);
+                    if ($ownercollege > 0) {
+                        $stafffacultyid = $ownercollege;
+                    }
+                }
+            }
+        }
 
         // Student programme requirement (FR-A3 / AC-A3).
         if ($targetrole === 'student') {
@@ -707,7 +900,9 @@ class user_provisioning_service {
             $seen['idnumbers'][$idnumber] = true;
         }
 
-        // Cascade facultyid/departmentid from programmeid when programme is set.
+        // Student accounts derive College and Department from the selected programme. Staff
+        // accounts keep the explicit College/Department assignment validated above, so the
+        // two account types never share a single academic-profile shape.
         $facultyid = 0;
         $departmentid = 0;
         if ($programmeid > 0) {
@@ -722,6 +917,9 @@ class user_provisioning_service {
                 $facultyid = max(0, (int)($hierarchy->facultyid ?? 0));
                 $departmentid = max(0, (int)($hierarchy->departmentid ?? 0));
             }
+        } else if ($targetrole !== '' && $targetrole !== 'student') {
+            $facultyid = $stafffacultyid;
+            $departmentid = $staffdepartmentid;
         }
         $institutionlabel = $facultyid > 0 ? (string)($DB->get_field('local_ulms_faculties', 'name', ['id' => $facultyid], IGNORE_MISSING) ?? '') : '';
         $departmentlabel = $departmentid > 0 ? (string)($DB->get_field('local_ulms_departments', 'name', ['id' => $departmentid], IGNORE_MISSING) ?? '') : '';
@@ -850,6 +1048,12 @@ class user_provisioning_service {
         global $DB, $CFG, $USER;
 
         $roleconfig = $this->get_role_config($targetrole);
+        // Final persistence boundary. validate_row() already enforces the account-type field
+        // specification, but create_user_account() is reachable from every creation path, so
+        // the role-specific model is applied here too: a staff identifier can never be
+        // written onto a learner, and a learner enrolment, study level or matriculation
+        // identifier can never be written onto a staff account.
+        $record = $this->normalise_account_type_record($targetrole, $record);
         $password = trim((string)($record['password'] ?? ''));
         if ($password === '') {
             $password = generate_password(16);

@@ -1178,16 +1178,63 @@ class user_management_service {
             }
         }
 
+        // Account-type-aware field enforcement. The specification is the same one that renders
+        // the provisioning form and that user_provisioning_service::validate_row() enforces, so
+        // User Management and User Provisioning accept exactly the same payload for every
+        // account type. A value posted for a different account type is rejected here instead of
+        // being written to the profile row, which is what stops a stale student matriculation
+        // number, programme or study level reaching a staff account.
+        //
+        // This runs before the identifier uniqueness checks and before the academic metadata
+        // cascade, so a value that does not belong to the account type is removed rather than
+        // validated, and a staff account can never have its faculty or department derived from a
+        // student programme enrolment.
+        //
+        // Only the account types that the provisioning service offers as creation targets are
+        // covered. Any other role value (for example the platform-level super-admin marker) keeps
+        // its existing academic handling, so no existing governance path changes.
+        if (array_key_exists($cleaned['role'], $this->provisioningservice->get_available_target_roles())) {
+            $accountspec = $this->provisioningservice->get_account_field_spec((string)$cleaned['role']);
+
+            if (!$accountspec['idnumber']['visible']) {
+                // The idnumber is the learner matriculation identifier, so it is never stored
+                // against a staff account.
+                $cleaned['idnumber'] = '';
+            }
+
+            if (!$accountspec['programme']['visible'] && (int)$cleaned['programmeid'] > 0) {
+                $errors['programmeid'] = get_string('provisioningerrorprogrammenotapplicable', 'local_ulms_dashboard');
+                $cleaned['programmeid'] = 0;
+            }
+
+            if (!$accountspec['studylevel']['visible'] && $cleaned['studylevel'] !== '') {
+                $errors['studylevel'] = get_string('provisioningerrorstudylevelnotapplicable', 'local_ulms_dashboard');
+                $cleaned['studylevel'] = '';
+            }
+
+            if (!$accountspec['staffid']['visible'] && $cleaned['staffid'] !== '') {
+                $errors['staffid'] = get_string('provisioningerrorstaffidnotapplicable', 'local_ulms_dashboard');
+                $cleaned['staffid'] = '';
+            }
+
+            // A Staff ID identifies a staff account, so it is mandatory when such an account is
+            // created. Existing staff accounts are not blocked from being edited, so the
+            // requirement is applied to creation only.
+            if ($iscreate && $accountspec['staffid']['required'] && $cleaned['staffid'] === '') {
+                $errors['staffid'] = get_string('provisioningrole' . $cleaned['role'] . 'requiresstaffid', 'local_ulms_dashboard');
+            }
+        }
+
         if ($cleaned['idnumber'] !== '' && $this->idnumber_exists($cleaned['idnumber'], $userid)) {
             $errors['idnumber'] = get_string('provisioningerrorexistingidnumber', 'local_ulms_dashboard', $cleaned['idnumber']);
         }
 
         if (!array_key_exists($cleaned['role'], $availableroles)) {
-            $errors['role'] = get_string('invaliddata');
+            $errors['role'] = get_string('invaliddata', 'error');
         }
 
         if (!array_key_exists($cleaned['status'], $this->get_status_options(false))) {
-            $errors['status'] = get_string('invaliddata');
+            $errors['status'] = get_string('invaliddata', 'error');
         }
 
         [$academicerrors, $academiccleaned, $academicwarning] = $this->validate_academic_metadata($cleaned);
@@ -1257,13 +1304,18 @@ class user_management_service {
             'username' => $cleaned['username'],
             'email' => $cleaned['email'],
             'idnumber' => $cleaned['idnumber'],
+            'staffid' => $cleaned['staffid'],
             'password' => $cleaned['password'],
             // The provisioning service applies the student programme mandate itself, so the
             // validated programme has to travel with the request. Without it every student
             // was rejected as "programme required" even though one had just been chosen.
-            // Faculty and department are not sent: provisioning re-derives them from the
-            // programme so the two can never disagree.
             'programmeid' => $cleaned['programmeid'],
+            // A student account derives College and Department from its programme, so those two
+            // values are ignored for learners. A staff account has no programme, so its
+            // validated College and Department assignment has to travel explicitly and is
+            // re-verified against the live academic structure on the way in.
+            'facultyid' => $cleaned['facultyid'],
+            'departmentid' => $cleaned['departmentid'],
             'institution' => $institution,
             'department' => $department,
         ];
@@ -1368,6 +1420,13 @@ class user_management_service {
 
         $cleaned = $validation['cleaned'];
         $this->assert_admin_protection($current, $cleaned['role'], $cleaned['status']);
+        if ($current['rolekey'] !== $cleaned['role']) {
+            // Authorise the role move before any account field is written, so an operator who
+            // may not move this account between portal roles fails without leaving a partial
+            // update behind. apply_role_change() re-asserts the same rule at the mutation
+            // boundary.
+            $this->assert_role_change_authorized((string)$cleaned['role'], (string)$current['rolekey']);
+        }
         [$institution, $department] = $this->get_core_academic_labels($cleaned['facultyid'], $cleaned['departmentid']);
 
         $payload = (object)[
@@ -1651,7 +1710,12 @@ class user_management_service {
         $suspendallowed = $canupdate && !$deleted && empty($user['suspended']);
         $unsuspendallowed = $canupdate && !$deleted && !empty($user['suspended']);
 
-        if ($user['rolekey'] === 'admin') {
+        // An account that currently holds administrator access is only movable by an operator
+        // who is authorised to manage administrator accounts. Keying this on the target's
+        // current role is what stops a non-site-admin from demoting an administrator or a
+        // super administrator through the Change Role action. This mirrors the server-side
+        // rule enforced by assert_role_change_authorized().
+        if (in_array($user['rolekey'], ['admin', 'superadmin'], true)) {
             $rolechangeallowed = $rolechangeallowed && $this->can_manage_admin_accounts();
         }
 
@@ -1990,6 +2054,10 @@ class user_management_service {
             'timecreatedformatted' => !empty($record->timecreated)
                 ? userdate((int)$record->timecreated, get_string('strftimedatetimeshort'))
                 : get_string('never'),
+            'timemodified' => (int)($record->timemodified ?? 0),
+            'timemodifiedformatted' => !empty($record->timemodified)
+                ? userdate((int)$record->timemodified, get_string('strftimedatetimeshort'))
+                : get_string('never'),
             'lastaccess' => (int)($record->lastaccess ?? 0),
             'lastaccessformatted' => $formattedlastaccess,
             'neverloggedin' => $neverloggedin,
@@ -2131,7 +2199,7 @@ class user_management_service {
         // programme are checked below. Without this the value travelled as far as
         // save_profile_record(), which threw after the account had already been created.
         if ($cleaned['studylevel'] !== '' && !array_key_exists($cleaned['studylevel'], $this->get_level_options())) {
-            $errors['studylevel'] = get_string('invaliddata');
+            $errors['studylevel'] = get_string('invaliddata', 'error');
             $cleaned['studylevel'] = '';
         }
 
@@ -2157,14 +2225,14 @@ class user_management_service {
                 $cleaned['departmentid'] = $cascadeDept;
             } else {
                 // Cascade failed -> programme invalid or inactive.
-                $errors['programmeid'] = get_string('invaliddata');
+                $errors['programmeid'] = get_string('invaliddata', 'error');
                 $cleaned['programmeid'] = 0;
             }
             // A programme whose department is not linked to a college cannot produce a
             // complete assignment. Reject it server-side rather than storing a partial
             // hierarchy, mirroring user_provisioning_service::programme_hierarchy_is_complete().
             if ($cleaned['programmeid'] > 0 && ($cascadeFac <= 0 || $cascadeDept <= 0)) {
-                $errors['programmeid'] = get_string('invaliddata');
+                $errors['programmeid'] = get_string('invaliddata', 'error');
                 $cleaned['programmeid'] = 0;
                 $cleaned['facultyid'] = 0;
                 $cleaned['departmentid'] = 0;
@@ -2173,13 +2241,13 @@ class user_management_service {
 
         $facultyoptions = $this->get_academic_form_options()['faculties'];
         if ($cleaned['facultyid'] > 0 && !array_key_exists($cleaned['facultyid'], $facultyoptions)) {
-            $errors['facultyid'] = get_string('invaliddata');
+            $errors['facultyid'] = get_string('invaliddata', 'error');
             $cleaned['facultyid'] = 0;
         }
 
         $departmentoptions = $this->get_academic_form_options($cleaned['facultyid'])['departments'];
         if ($cleaned['departmentid'] > 0 && !array_key_exists($cleaned['departmentid'], $departmentoptions)) {
-            $errors['departmentid'] = get_string('invaliddata');
+            $errors['departmentid'] = get_string('invaliddata', 'error');
             $cleaned['departmentid'] = 0;
         }
 
@@ -2187,7 +2255,7 @@ class user_management_service {
         if ($cleaned['programmeid'] > 0) {
             $programmeoptions = $this->get_academic_form_options($cleaned['facultyid'], $cleaned['departmentid'])['programmes'];
             if (!array_key_exists($cleaned['programmeid'], $programmeoptions)) {
-                $errors['programmeid'] = get_string('invaliddata');
+                $errors['programmeid'] = get_string('invaliddata', 'error');
                 $cleaned['programmeid'] = 0;
             }
         }
@@ -2261,6 +2329,10 @@ class user_management_service {
     private function apply_role_change(int $userid, string $newrole, string $oldrole): void {
         global $DB, $CFG;
 
+        // Mutation-boundary precondition. The caller is authorised again here rather than
+        // relying on update_user() having validated the submitted role, so any future caller
+        // of this method inherits the same least-privilege rule.
+        $this->assert_role_change_authorized($newrole, $oldrole);
         $this->assert_no_self_mutation($userid, 'rolechange');
         if ($oldrole === 'superadmin' && $newrole !== 'superadmin') {
             $this->assert_last_superadmin_protection($userid, 'demote');
@@ -2324,6 +2396,41 @@ class user_management_service {
                 'newrole' => $newrole,
             ]
         );
+    }
+
+    /**
+     * Requires the caller to be authorised to move an account between portal roles.
+     *
+     * Two independent rules are enforced:
+     *
+     * 1. A role the operator is not offered can never be assigned. get_available_role_options()
+     *    is permission-filtered, so an operator who is not a site administrator is offered only
+     *    the learner and lecturer roles and therefore cannot promote anyone to administrator or
+     *    super administrator.
+     * 2. An account that already holds administrator access can only be moved by an operator who
+     *    is themselves a site administrator. Without this rule an operator holding
+     *    moodle/user:update could demote an existing administrator or super administrator, which
+     *    is a privilege change the Change Role action must not permit.
+     *
+     * @param string $newrole The role being assigned.
+     * @param string $oldrole The role currently held by the target account.
+     * @return void
+     */
+    private function assert_role_change_authorized(string $newrole, string $oldrole): void {
+        if (!array_key_exists($newrole, $this->get_available_role_options())) {
+            throw new \moodle_exception('invaliddata');
+        }
+
+        $protectedroles = ['admin', 'superadmin'];
+        $touchesadmin = in_array($oldrole, $protectedroles, true) || in_array($newrole, $protectedroles, true);
+        if ($touchesadmin && !$this->can_manage_admin_accounts()) {
+            throw new \required_capability_exception(
+                \context::instance_by_id(\context_system::instance()->id),
+                'moodle/user:update',
+                'nopermissions',
+                ''
+            );
+        }
     }
 
     /**

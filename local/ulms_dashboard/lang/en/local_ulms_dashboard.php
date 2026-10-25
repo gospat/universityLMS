@@ -1031,6 +1031,13 @@ $string['provisioningrolecondhintstudent'] = 'Programme and study-level fields a
 $string['provisioningrolecondhintlecturer'] = 'Staff ID and department affiliation fields appear for lecturer accounts.';
 $string['provisioningrolecondhintadmin'] = 'Staff ID field appears for admin accounts. Academic fields are hidden.';
 $string['provisioningrolecondhintsuperadmin'] = 'Platform-level administration only. Academic and staff fields are not required.';
+$string['provisioningfieldmatriculation'] = 'Matriculation Number';
+$string['provisioningfieldstaffcollege'] = 'College (staff assignment)';
+$string['provisioningfieldstaffdepartment'] = 'Department (staff assignment)';
+$string['provisioningstaffassignmenthint'] = 'A staff account is attached to a College and a Department. It is not enrolled on a student programme and no study level is stored against it.';
+$string['provisioningerrorstaffidnotapplicable'] = 'A Staff ID cannot be saved against a student account. Staff IDs belong to staff accounts only.';
+$string['provisioningerrorprogrammenotapplicable'] = 'A programme cannot be saved against a staff account. Programme enrolment belongs to student accounts only.';
+$string['provisioningerrorstudylevelnotapplicable'] = 'A study level cannot be saved against a staff account. Study levels belong to student accounts only.';
 
 $string['usermanagementunsuspendaction'] = 'Unsuspend account';
 $string['usermanagementimpersonateaction'] = 'Impersonate';

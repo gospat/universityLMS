@@ -76,7 +76,8 @@ if ($action !== '' && $actionuserid > 0 && data_submitted()) {
             default => [
                 'success' => false,
                 'warning' => false,
-                'message' => get_string('invaliddata'),
+                // 'invaliddata' is a core string that lives in the `error` component.
+                'message' => get_string('invaliddata', 'error'),
             ],
         };
     } catch (\Throwable $exception) {

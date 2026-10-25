@@ -295,5 +295,82 @@ function xmldb_local_ulms_academics_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026100102, 'local', 'ulms_academics');
     }
 
+    if ($oldversion < 2026101802) {
+        // 2026101802: repair the academic hierarchy schema on installations that never
+        // ran savepoint 2026091501.
+        //
+        // Savepoint 2026091501 introduced {local_ulms_programme_courses}.levelid, the
+        // 4-column hierarchy unique index and the level scope index, but version.php
+        // already reported a higher plugin version when that code shipped. Any
+        // installation whose stored plugin version was already >= 2026091501 therefore
+        // satisfies every "$oldversion < 2026091501" guard, so that block can never run
+        // there: the table keeps its pre-hierarchy shape (no levelid) while
+        // db/install.xml and academic_repository.php both expect the column. The Course
+        // Mapping page then fails with a dml_read_exception inside
+        // academic_repository::count_course_mappings().
+        //
+        // This savepoint is higher than every previously released plugin version, so it
+        // is reachable from any existing installation. Every operation is existence
+        // guarded, which makes the step idempotent and harmless where the schema is
+        // already correct. Existing rows keep levelid = 0 ("programme-wide / any level"),
+        // so no mapping is lost and the default listing (levelid = 0) still shows them.
+        // The best-effort levelid inference of savepoint 2026091501 is deliberately not
+        // repeated here: it would silently re-scope existing mappings and hide them from
+        // the default listing.
+
+        $dbman = $DB->get_manager();
+        $table = new xmldb_table('local_ulms_programme_courses');
+
+        if ($dbman->table_exists($table)) {
+            $levelidfield = new xmldb_field(
+                'levelid',
+                XMLDB_TYPE_INTEGER,
+                '10',
+                null,
+                XMLDB_NOTNULL,
+                null,
+                '0'
+            );
+            if (!$dbman->field_exists($table, $levelidfield)) {
+                $dbman->add_field($table, $levelidfield);
+            }
+
+            // Legacy 2/3-column uniquenesses prevent the level-scoped mappings this table
+            // exists for (the same course may be mapped to a programme at several levels),
+            // so they are replaced by the 4-column hierarchy index declared in install.xml.
+            $legacyUniqueCandidates = [
+                ['programme_course_unique',              ['programmeid', 'moodlecourseid']],
+                ['programme_course_per_semester_unique', ['programmeid', 'semesterid', 'moodlecourseid']],
+                ['programme_course_per_semester_unique', ['programmeid', 'moodlecourseid', 'semesterid']],
+            ];
+            foreach ($legacyUniqueCandidates as [$legacyName, $legacyCols]) {
+                $legacyIdx = new xmldb_index($legacyName, XMLDB_INDEX_UNIQUE, $legacyCols);
+                if ($dbman->index_exists($table, $legacyIdx)) {
+                    $dbman->drop_index($table, $legacyIdx);
+                }
+            }
+
+            $hierarchyunique = new xmldb_index(
+                'programme_course_full_hierarchy_unique',
+                XMLDB_INDEX_UNIQUE,
+                ['programmeid', 'moodlecourseid', 'semesterid', 'levelid']
+            );
+            if (!$dbman->index_exists($table, $hierarchyunique)) {
+                $dbman->add_index($table, $hierarchyunique);
+            }
+
+            $scopeindex = new xmldb_index(
+                'level_programme_semester_scope_idx',
+                XMLDB_INDEX_NOTUNIQUE,
+                ['levelid', 'programmeid', 'semesterid']
+            );
+            if (!$dbman->index_exists($table, $scopeindex)) {
+                $dbman->add_index($table, $scopeindex);
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026101802, 'local', 'ulms_academics');
+    }
+
     return true;
 }
