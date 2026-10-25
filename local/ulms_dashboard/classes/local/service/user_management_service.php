@@ -1178,6 +1178,53 @@ class user_management_service {
             }
         }
 
+        // Account-type-aware field enforcement. The specification is the same one that renders
+        // the provisioning form and that user_provisioning_service::validate_row() enforces, so
+        // User Management and User Provisioning accept exactly the same payload for every
+        // account type. A value posted for a different account type is rejected here instead of
+        // being written to the profile row, which is what stops a stale student matriculation
+        // number, programme or study level reaching a staff account.
+        //
+        // This runs before the identifier uniqueness checks and before the academic metadata
+        // cascade, so a value that does not belong to the account type is removed rather than
+        // validated, and a staff account can never have its faculty or department derived from a
+        // student programme enrolment.
+        //
+        // Only the account types that the provisioning service offers as creation targets are
+        // covered. Any other role value (for example the platform-level super-admin marker) keeps
+        // its existing academic handling, so no existing governance path changes.
+        if (array_key_exists($cleaned['role'], $this->provisioningservice->get_available_target_roles())) {
+            $accountspec = $this->provisioningservice->get_account_field_spec((string)$cleaned['role']);
+
+            if (!$accountspec['idnumber']['visible']) {
+                // The idnumber is the learner matriculation identifier, so it is never stored
+                // against a staff account.
+                $cleaned['idnumber'] = '';
+            }
+
+            if (!$accountspec['programme']['visible'] && (int)$cleaned['programmeid'] > 0) {
+                $errors['programmeid'] = get_string('provisioningerrorprogrammenotapplicable', 'local_ulms_dashboard');
+                $cleaned['programmeid'] = 0;
+            }
+
+            if (!$accountspec['studylevel']['visible'] && $cleaned['studylevel'] !== '') {
+                $errors['studylevel'] = get_string('provisioningerrorstudylevelnotapplicable', 'local_ulms_dashboard');
+                $cleaned['studylevel'] = '';
+            }
+
+            if (!$accountspec['staffid']['visible'] && $cleaned['staffid'] !== '') {
+                $errors['staffid'] = get_string('provisioningerrorstaffidnotapplicable', 'local_ulms_dashboard');
+                $cleaned['staffid'] = '';
+            }
+
+            // A Staff ID identifies a staff account, so it is mandatory when such an account is
+            // created. Existing staff accounts are not blocked from being edited, so the
+            // requirement is applied to creation only.
+            if ($iscreate && $accountspec['staffid']['required'] && $cleaned['staffid'] === '') {
+                $errors['staffid'] = get_string('provisioningrole' . $cleaned['role'] . 'requiresstaffid', 'local_ulms_dashboard');
+            }
+        }
+
         if ($cleaned['idnumber'] !== '' && $this->idnumber_exists($cleaned['idnumber'], $userid)) {
             $errors['idnumber'] = get_string('provisioningerrorexistingidnumber', 'local_ulms_dashboard', $cleaned['idnumber']);
         }
@@ -1257,13 +1304,18 @@ class user_management_service {
             'username' => $cleaned['username'],
             'email' => $cleaned['email'],
             'idnumber' => $cleaned['idnumber'],
+            'staffid' => $cleaned['staffid'],
             'password' => $cleaned['password'],
             // The provisioning service applies the student programme mandate itself, so the
             // validated programme has to travel with the request. Without it every student
             // was rejected as "programme required" even though one had just been chosen.
-            // Faculty and department are not sent: provisioning re-derives them from the
-            // programme so the two can never disagree.
             'programmeid' => $cleaned['programmeid'],
+            // A student account derives College and Department from its programme, so those two
+            // values are ignored for learners. A staff account has no programme, so its
+            // validated College and Department assignment has to travel explicitly and is
+            // re-verified against the live academic structure on the way in.
+            'facultyid' => $cleaned['facultyid'],
+            'departmentid' => $cleaned['departmentid'],
             'institution' => $institution,
             'department' => $department,
         ];

@@ -690,7 +690,10 @@ final class user_management_service_test extends \advanced_testcase {
             'role' => 'admin',
             'username' => 'jane.admin',
             'email' => 'jane.admin@example.com',
-            'idnumber' => 'ADM-UM-001',
+            // An administrator is staff, so it is identified by a Staff ID rather than by a
+            // learner matriculation number.
+            'idnumber' => '',
+            'staffid' => 'ADM-UM-001',
         ]));
 
         $suspend = $service->suspend_user((int)$create['userid']);
@@ -719,7 +722,10 @@ final class user_management_service_test extends \advanced_testcase {
             'role' => 'admin',
             'username' => 'delete.admin',
             'email' => 'delete.admin@example.com',
-            'idnumber' => 'ADM-UM-002',
+            // An administrator is staff, so it is identified by a Staff ID rather than by a
+            // learner matriculation number.
+            'idnumber' => '',
+            'staffid' => 'ADM-UM-002',
         ]));
 
         $result = $service->delete_user_account((int)$create['userid']);
@@ -727,6 +733,163 @@ final class user_management_service_test extends \advanced_testcase {
         $this->assertTrue($result['success']);
         $deleted = $DB->get_record('user', ['id' => (int)$create['userid']], '*', MUST_EXIST);
         $this->assertSame(1, (int)$deleted->deleted);
+    }
+
+    /**
+     * A staff account is identified by a Staff ID, so User Management must reject a staff
+     * creation that omits one. This is the same rule the provisioning service enforces, which
+     * is what keeps the two account-creation interfaces interchangeable.
+     */
+    public function test_create_staff_account_without_a_staff_id_is_rejected(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $result = $service->create_user($this->get_valid_create_data([
+            'role' => 'admin',
+            'username' => 'no.staff.id.admin',
+            'email' => 'no.staff.id.admin@example.com',
+            'idnumber' => '',
+            'staffid' => '',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertArrayHasKey('staffid', $result['errors']);
+        $this->assertSame(
+            get_string('provisioningroleadminrequiresstaffid', 'local_ulms_dashboard'),
+            $result['errors']['staffid']
+        );
+    }
+
+    /**
+     * A learner matriculation number posted against a staff account must be discarded rather
+     * than stored, so a value that does not belong to the account type cannot reach the
+     * Moodle user record through User Management either.
+     */
+    public function test_create_staff_account_discards_a_learner_matriculation_number(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $result = $service->create_user($this->get_valid_create_data([
+            'role' => 'lecturer',
+            'username' => 'clean.lecturer',
+            'email' => 'clean.lecturer@example.com',
+            'idnumber' => 'STU-CLEAN-1',
+            'programmeid' => 0,
+            'studylevel' => '',
+            'staffid' => 'STAFF-CLEAN-1',
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'clean.lecturer'], '*', MUST_EXIST);
+        $this->assertSame('', (string)$user->idnumber);
+
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame('STAFF-CLEAN-1', (string)$profile->staffid);
+        $this->assertSame(0, (int)$profile->programmeid);
+        $this->assertSame('', (string)$profile->studylevel);
+    }
+
+    /**
+     * A staff account is never a student programme enrolment, so a programme posted against a
+     * staff account is rejected instead of being allowed to cascade a college and a department
+     * onto the staff profile.
+     */
+    public function test_create_staff_account_rejects_a_student_programme(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $academicids = $this->get_academic_fixture_ids();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $result = $service->create_user($this->get_valid_create_data([
+            'role' => 'lecturer',
+            'username' => 'programme.lecturer',
+            'email' => 'programme.lecturer@example.com',
+            'idnumber' => '',
+            'staffid' => 'STAFF-PRG-1',
+            'programmeid' => $academicids['programmeid'],
+            'studylevel' => '',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertArrayHasKey('programmeid', $result['errors']);
+        $this->assertSame(
+            get_string('provisioningerrorprogrammenotapplicable', 'local_ulms_dashboard'),
+            $result['errors']['programmeid']
+        );
+    }
+
+    /**
+     * The Staff ID requirement is an account-creation rule. An existing staff account that does
+     * not carry one must remain editable, so editing must not be blocked by the creation rule.
+     */
+    public function test_editing_a_staff_account_does_not_require_a_staff_id(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $user = $this->getDataGenerator()->create_user([
+            'firstname' => 'Existing',
+            'lastname' => 'Staff',
+            'email' => 'existing.staff@example.com',
+            'username' => 'existing.staff',
+        ]);
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $result = $service->update_user((int)$user->id, [
+            'firstname' => 'Existing',
+            'middlename' => '',
+            'lastname' => 'Staff',
+            'username' => 'existing.staff',
+            'email' => 'existing.staff@example.com',
+            'idnumber' => '',
+            'role' => 'lecturer',
+            'status' => 'active',
+            'facultyid' => 0,
+            'departmentid' => 0,
+            'programmeid' => 0,
+            'studylevel' => '',
+            'staffid' => '',
+        ]);
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+        $this->assertSame('lecturer', $service->get_user_details((int)$user->id)['rolekey']);
     }
 
     public function test_resend_welcome_email_returns_warning_when_mail_fails(): void {

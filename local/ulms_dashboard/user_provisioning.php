@@ -61,6 +61,9 @@ $singlevalues = [
     'staffid' => optional_param('staffid', '', PARAM_RAW_TRIMMED),
     'studylevel' => optional_param('studylevel', '', PARAM_ALPHANUMEXT),
     'programmecode' => optional_param('programmecode', '', PARAM_ALPHANUMEXT),
+    // Staff academic assignment. A staff account owns an explicit Department (and, through
+    // it, a College) instead of a student programme enrolment.
+    'departmentid' => optional_param('departmentid', 0, PARAM_INT),
 ];
 // Master study-level vocabulary (local_ulms_levels). Empty when the levels table is
 // not present, in which case the field is hidden rather than guessed.
@@ -171,6 +174,7 @@ if ($createsingle) {
             $singlevalues['staffid'] = '';
             $singlevalues['studylevel'] = '';
             $singlevalues['programmecode'] = '';
+            $singlevalues['departmentid'] = 0;
             $selectedhierarchy = null;
             $recentactivity = $provisioningservice->get_recent_activity(8);
         } else {
@@ -423,14 +427,31 @@ if ($section === 'manual') {
     ]);
     echo html_writer::end_div();
 
+    // The field specification below is produced by the same service method that
+    // user_provisioning_service::validate_row() uses on the server. One matrix therefore
+    // decides what the form shows AND what the service accepts, so the two can never drift.
+    $accountspec = $provisioningservice->get_account_field_spec($singlevalues['targetrole']);
+    $staffassignment = $provisioningservice->get_staff_assignment_options();
+    $staffdepartmentoptions = ['' => get_string('usermanagementnotset', 'local_ulms_dashboard')];
+    foreach ($staffassignment['departments'] as $staffdepartmentid => $staffdepartmentname) {
+        $staffdepartmentoptions[(int)$staffdepartmentid] = (string)$staffdepartmentname;
+    }
+    $selectedstaffdepartment = max(0, (int)$singlevalues['departmentid']);
+    $selectedstaffcollege = $selectedstaffdepartment > 0
+        ? max(0, (int)($staffassignment['departmentcollege'][$selectedstaffdepartment] ?? 0))
+        : 0;
+    $selectedstaffcollegename = $selectedstaffcollege > 0
+        ? (string)($staffassignment['colleges'][$selectedstaffcollege] ?? '')
+        : '';
+
+    // Shared personal information. These fields belong to every account type, so they are
+    // never hidden, disabled or cleared when the account type changes.
     foreach ([
         ['name' => 'firstname', 'label' => get_string('provisioningfieldfirstname', 'local_ulms_dashboard'), 'value' => $singlevalues['firstname'], 'required' => true],
         ['name' => 'middlename', 'label' => get_string('provisioningfieldmiddlename', 'local_ulms_dashboard'), 'value' => $singlevalues['middlename'], 'required' => false],
         ['name' => 'lastname', 'label' => get_string('provisioningfieldlastname', 'local_ulms_dashboard'), 'value' => $singlevalues['lastname'], 'required' => true],
         ['name' => 'email', 'label' => get_string('provisioningfieldemail', 'local_ulms_dashboard'), 'value' => $singlevalues['email'], 'required' => true],
         ['name' => 'username', 'label' => get_string('provisioningfieldusername', 'local_ulms_dashboard'), 'value' => $singlevalues['username'], 'required' => false],
-        ['name' => 'idnumber', 'label' => get_string('provisioningfieldidnumber', 'local_ulms_dashboard'), 'value' => $singlevalues['idnumber'], 'required' => false],
-        ['name' => 'staffid', 'label' => get_string('provisioningfieldstaffid', 'local_ulms_dashboard'), 'value' => $singlevalues['staffid'], 'required' => false],
     ] as $field) {
         echo html_writer::start_div('col-md-6 mb-3');
         echo html_writer::label(
@@ -454,13 +475,64 @@ if ($section === 'manual') {
         echo html_writer::end_div();
     }
 
-    echo html_writer::start_div('col-12 mb-3');
-    echo html_writer::label(get_string('provisioningfieldprogrammecode', 'local_ulms_dashboard'), 'id_programmecode');
+    // Contextual guidance for the selected account type. The account-type script below keeps
+    // this in step with the selector and announces the change through aria-live.
+    $rolehints = [];
+    foreach (array_keys($roleoptions) as $hintrole) {
+        $rolehints[$hintrole] = get_string('provisioningrolecondhint' . $hintrole, 'local_ulms_dashboard');
+    }
+    echo html_writer::tag('p', $rolehints[$singlevalues['targetrole']] ?? '', [
+        'id' => 'id_role_cond_hint',
+        'class' => 'form-text text-muted ml-3 mb-3',
+        'role' => 'status',
+        'aria-live' => 'polite',
+    ]);
+
+    // -------------------------------------------------------------------------------------
+    // Learner academic fields (student accounts only).
+    //
+    // A learner account is enrolled on a Programme, from which Department and College are
+    // derived. There is no Staff ID here: a Staff ID belongs to a staff account and is
+    // rejected by the service if it is posted with a student account type.
+    // -------------------------------------------------------------------------------------
+    $studentactive = (bool)$accountspec['programme']['visible'];
+    $studentblockattributes = ['data-ulms-role-block' => 'student'];
+    if (!$studentactive) {
+        $studentblockattributes['hidden'] = 'hidden';
+        $studentblockattributes['aria-hidden'] = 'true';
+        $studentblockattributes['style'] = 'display:none;';
+    }
+    $studentinputattributes = $studentactive ? [] : ['disabled' => 'disabled'];
+
+    echo html_writer::start_div('col-12', $studentblockattributes);
+    echo html_writer::start_div('row');
+
+    echo html_writer::start_div('col-md-6 mb-3');
+    echo html_writer::label(get_string('provisioningfieldmatriculation', 'local_ulms_dashboard'), 'id_idnumber');
+    echo html_writer::empty_tag('input', [
+        'type' => 'text',
+        'name' => 'idnumber',
+        'id' => 'id_idnumber',
+        'value' => $singlevalues['idnumber'],
+        'class' => 'form-control',
+        'aria-required' => 'false',
+    ] + $studentinputattributes);
+    echo html_writer::end_div();
+
+    echo html_writer::start_div('col-md-6 mb-3');
+    echo html_writer::label(
+        get_string('provisioningfieldprogrammecode', 'local_ulms_dashboard')
+            . ' <span class="ulms-required-mark" aria-hidden="true">*</span>',
+        'id_programmecode'
+    );
     echo html_writer::select($programmeoptions, 'programmecode', $singlevalues['programmecode'], false, [
         'id' => 'id_programmecode',
         'class' => 'custom-select',
         'data-ulms-programme-select' => 'true',
-    ]);
+        'data-ulms-field-required' => 'true',
+        'required' => 'required',
+        'aria-required' => 'true',
+    ] + $studentinputattributes);
     echo html_writer::tag('small', get_string('provisioningprogrammestudenthint', 'local_ulms_dashboard'), [
         'class' => 'form-text text-muted',
     ]);
@@ -477,6 +549,9 @@ if ($section === 'manual') {
     );
     echo html_writer::end_div();
 
+    // Department and College are read-only projections of the selected Programme. They carry
+    // no name attribute because the server derives them from the programme relationship, so
+    // they can never be submitted as an independent academic assignment.
     echo html_writer::start_div('col-md-6 mb-3');
     echo html_writer::label(get_string('provisioningfieldprogrammedepartment', 'local_ulms_dashboard'), 'id_programme_dept');
     echo html_writer::empty_tag('input', [
@@ -507,7 +582,8 @@ if ($section === 'manual') {
 
     if ($studyleveloptions !== []) {
         // Master study-level vocabulary. Left empty by default: the service never
-        // invents an academic assignment for an account that was not given one.
+        // invents an academic assignment for an account that was not given one. This control
+        // exists only in the learner block, so a staff account can never be given a level.
         echo html_writer::start_div('col-md-6 mb-3');
         echo html_writer::label(get_string('provisioningfieldstudylevel', 'local_ulms_dashboard'), 'id_studylevel');
         echo html_writer::select(
@@ -515,10 +591,85 @@ if ($section === 'manual') {
             'studylevel',
             $singlevalues['studylevel'],
             false,
-            ['id' => 'id_studylevel', 'class' => 'custom-select']
+            ['id' => 'id_studylevel', 'class' => 'custom-select'] + $studentinputattributes
         );
         echo html_writer::end_div();
     }
+
+    echo html_writer::end_div();
+    echo html_writer::end_div();
+
+    // -------------------------------------------------------------------------------------
+    // Staff academic fields (lecturer and administrator accounts).
+    //
+    // A staff account is identified by a Staff ID and attached to a Department, which owns
+    // the College. It is not a student enrolment, so no Programme and no study level are
+    // offered. The college is derived from the department here and re-derived on the server,
+    // so the two can never disagree.
+    // -------------------------------------------------------------------------------------
+    $staffactive = (bool)$accountspec['staffid']['visible'];
+    $staffblockattributes = ['data-ulms-role-block' => 'lecturer admin'];
+    if (!$staffactive) {
+        $staffblockattributes['hidden'] = 'hidden';
+        $staffblockattributes['aria-hidden'] = 'true';
+        $staffblockattributes['style'] = 'display:none;';
+    }
+    $staffinputattributes = $staffactive ? [] : ['disabled' => 'disabled'];
+
+    echo html_writer::start_div('col-12', $staffblockattributes);
+    echo html_writer::start_div('row');
+
+    echo html_writer::start_div('col-md-6 mb-3');
+    echo html_writer::label(
+        get_string('provisioningfieldstaffid', 'local_ulms_dashboard')
+            . ' <span class="ulms-required-mark" aria-hidden="true">*</span>',
+        'id_staffid'
+    );
+    echo html_writer::empty_tag('input', [
+        'type' => 'text',
+        'name' => 'staffid',
+        'id' => 'id_staffid',
+        'value' => $singlevalues['staffid'],
+        'class' => 'form-control',
+        'data-ulms-field-required' => 'true',
+        'required' => 'required',
+        'aria-required' => 'true',
+    ] + $staffinputattributes);
+    echo html_writer::end_div();
+
+    echo html_writer::start_div('col-md-6 mb-3');
+    echo html_writer::label(get_string('provisioningfieldstaffdepartment', 'local_ulms_dashboard'), 'id_departmentid');
+    echo html_writer::select(
+        $staffdepartmentoptions,
+        'departmentid',
+        $selectedstaffdepartment > 0 ? (string)$selectedstaffdepartment : '',
+        false,
+        ['id' => 'id_departmentid', 'class' => 'custom-select', 'data-ulms-staff-department' => 'true'] + $staffinputattributes
+    );
+    echo html_writer::end_div();
+
+    echo html_writer::start_div('col-md-6 mb-3');
+    echo html_writer::label(get_string('provisioningfieldstaffcollege', 'local_ulms_dashboard'), 'id_staff_college');
+    echo html_writer::empty_tag('input', [
+        'type' => 'text',
+        'id' => 'id_staff_college',
+        'value' => s($selectedstaffcollegename),
+        'class' => 'form-control',
+        'readonly' => 'readonly',
+        'tabindex' => '-1',
+        'aria-disabled' => 'true',
+        'data-ulms-staff-college' => 'true',
+    ]);
+    echo html_writer::end_div();
+
+    echo html_writer::start_div('col-12 mb-3');
+    echo html_writer::tag('small', get_string('provisioningstaffassignmenthint', 'local_ulms_dashboard'), [
+        'class' => 'form-text text-muted',
+    ]);
+    echo html_writer::end_div();
+
+    echo html_writer::end_div();
+    echo html_writer::end_div();
 
     // Client-side cascade: reflect the resolved Department/College for the selected
     // programme immediately, without a round trip. The values come from the live academic
@@ -565,6 +716,94 @@ if ($section === 'manual') {
 
             select.addEventListener("change", syncHierarchy);
             syncHierarchy();
+        })();',
+        true
+    );
+
+    // Account-type switching. Fields are shown or hidden by account type and the controls
+    // inside a hidden block are disabled, so a value entered for one account type can never
+    // be submitted with another. Shared personal information is never touched. The same
+    // account-type rules are enforced again on the server in
+    // user_provisioning_service::validate_row(), so this script is presentational only.
+    $PAGE->requires->js_init_code(
+        '(function() {
+            var roleSelect = document.querySelector("[data-ulms-provisioning-role=\"true\"]");
+            if (!roleSelect) {
+                return;
+            }
+
+            var blocks = Array.prototype.slice.call(document.querySelectorAll("[data-ulms-role-block]"));
+            var hint = document.getElementById("id_role_cond_hint");
+            var hints = ' . json_encode(
+            $rolehints,
+            JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        ) . ';
+            var departmentCollege = ' . json_encode(
+            $staffassignment['departmentcollege'],
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        ) . ';
+            var collegeNames = ' . json_encode(
+            $staffassignment['colleges'],
+            JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        ) . ';
+            var staffDepartmentField = document.querySelector("[data-ulms-staff-department=\"true\"]");
+            var staffCollegeField = document.querySelector("[data-ulms-staff-college=\"true\"]");
+
+            // The College of a staff account is the college that owns the chosen Department,
+            // mirroring the derivation the service performs when the form is submitted.
+            var syncStaffCollege = function() {
+                if (!staffDepartmentField || !staffCollegeField) {
+                    return;
+                }
+                var departmentId = String(staffDepartmentField.value || "");
+                var collegeId = Object.prototype.hasOwnProperty.call(departmentCollege, departmentId)
+                    ? String(departmentCollege[departmentId])
+                    : "";
+                staffCollegeField.value = collegeId !== "" && Object.prototype.hasOwnProperty.call(collegeNames, collegeId)
+                    ? collegeNames[collegeId]
+                    : "";
+            };
+
+            var applyRole = function() {
+                var role = String(roleSelect.value || "");
+
+                blocks.forEach(function(block) {
+                    var roles = String(block.getAttribute("data-ulms-role-block") || "").split(/\s+/).filter(Boolean);
+                    var applicable = roles.indexOf(role) !== -1;
+
+                    block.hidden = !applicable;
+                    block.style.display = applicable ? "" : "none";
+                    block.setAttribute("aria-hidden", applicable ? "false" : "true");
+
+                    Array.prototype.slice.call(block.querySelectorAll("input, select, textarea")).forEach(function(control) {
+                        if (applicable) {
+                            control.removeAttribute("disabled");
+                            if (control.getAttribute("data-ulms-field-required") === "true") {
+                                control.setAttribute("required", "required");
+                                control.setAttribute("aria-required", "true");
+                            }
+                        } else {
+                            control.setAttribute("disabled", "disabled");
+                            control.removeAttribute("required");
+                            if (control.hasAttribute("aria-required")) {
+                                control.setAttribute("aria-required", "false");
+                            }
+                        }
+                    });
+                });
+
+                if (hint && Object.prototype.hasOwnProperty.call(hints, role)) {
+                    hint.textContent = hints[role];
+                }
+
+                syncStaffCollege();
+            };
+
+            roleSelect.addEventListener("change", applyRole);
+            if (staffDepartmentField) {
+                staffDepartmentField.addEventListener("change", syncStaffCollege);
+            }
+            applyRole();
         })();',
         true
     );

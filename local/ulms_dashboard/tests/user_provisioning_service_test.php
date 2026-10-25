@@ -437,7 +437,9 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $result = $service->create_single_user('lecturer', $this->get_valid_data([
             'username' => 'lecturer.role.user',
             'email' => 'lecturer.role@example.com',
-            'idnumber' => 'LEC-1001',
+            // A lecturer is identified by a Staff ID, not by a learner matriculation number.
+            'idnumber' => '',
+            'staffid' => 'LEC-1001',
         ]));
 
         $this->assertTrue($result['success']);
@@ -462,7 +464,9 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $result = $service->create_single_user('admin', $this->get_valid_data([
             'username' => 'admin.role.user',
             'email' => 'admin.role@example.com',
-            'idnumber' => 'ADM-1001',
+            // An admin account is a staff account, so it carries a Staff ID.
+            'idnumber' => '',
+            'staffid' => 'ADM-1001',
         ]));
 
         $this->assertTrue($result['success']);
@@ -627,7 +631,8 @@ final class user_provisioning_service_test extends \advanced_testcase {
             'lastname' => 'Lecturer One',
             'email' => 'bulk.lecturer.one@example.com',
             'username' => 'bulk.lecturer.one',
-            'idnumber' => 'BULK-LEC-1',
+            'idnumber' => '',
+            'staffid' => 'BULK-LEC-1',
         ]]);
         $adminresult = $service->import_bulk_rows('admin', [[
             'linenumber' => 4,
@@ -635,7 +640,8 @@ final class user_provisioning_service_test extends \advanced_testcase {
             'lastname' => 'Admin One',
             'email' => 'bulk.admin.one@example.com',
             'username' => 'bulk.admin.one',
-            'idnumber' => 'BULK-ADM-1',
+            'idnumber' => '',
+            'staffid' => 'BULK-ADM-1',
         ]]);
 
         $this->assertSame(1, $studentresult['created']);
@@ -1255,10 +1261,10 @@ final class user_provisioning_service_test extends \advanced_testcase {
     }
 
     /**
-     * An account created with no academic data must not receive a profile row, so the
-     * "Not set" display reflects genuine absence rather than a fabricated assignment.
+     * A staff account is identified by a Staff ID, so a staff account created without one is
+     * rejected outright rather than being stored as an unidentified account.
      */
-    public function test_admin_provisioning_without_academic_data_writes_no_profile_row(): void {
+    public function test_admin_provisioning_without_a_staff_id_is_rejected(): void {
         global $DB;
 
         $this->resetAfterTest(true);
@@ -1269,13 +1275,383 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $result = $service->create_single_user('admin', $this->get_valid_data([
             'username' => 'plain.admin',
             'email' => 'plain.admin@example.com',
-            'idnumber' => 'ADM-9001',
+            'idnumber' => '',
+            'staffid' => '',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertContains(
+            get_string('provisioningroleadminrequiresstaffid', 'local_ulms_dashboard'),
+            $result['errors']
+        );
+        $this->assertFalse($DB->record_exists('user', ['username' => 'plain.admin']));
+    }
+
+    /**
+     * An account created with no academic assignment must not receive a fabricated academic
+     * assignment, so the "Not set" display reflects genuine absence. A staff account carries a
+     * Staff ID, so the row exists, but every academic column stays empty.
+     */
+    public function test_admin_provisioning_with_only_a_staff_id_records_no_academic_assignment(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('admin', $this->get_valid_data([
+            'username' => 'plain.admin',
+            'email' => 'plain.admin@example.com',
+            'idnumber' => '',
+            'staffid' => 'ADM-9001',
         ]));
 
         $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
 
         $user = $DB->get_record('user', ['username' => 'plain.admin'], '*', MUST_EXIST);
-        $this->assertFalse($DB->record_exists('local_ulms_user_profile', ['userid' => $user->id]));
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame('ADM-9001', (string)$profile->staffid);
+        $this->assertSame(0, (int)$profile->facultyid);
+        $this->assertSame(0, (int)$profile->departmentid);
+        $this->assertSame(0, (int)$profile->programmeid);
+        $this->assertSame('', (string)$profile->studylevel);
+        $this->assertSame('', (string)$user->idnumber);
+    }
+
+    /**
+     * The account-type field specification is the single source of truth for which account
+     * fields exist. A learner owns the programme-based academic model, a staff account owns a
+     * Staff ID instead, and an unrecognised account type owns no account-type-specific field.
+     */
+    public function test_account_field_spec_distinguishes_learner_and_staff_models(): void {
+        $this->resetAfterTest(true);
+        $service = $this->get_service($this->get_success_mailer());
+
+        $student = $service->get_account_field_spec('student');
+        $this->assertTrue($student['idnumber']['visible']);
+        $this->assertTrue($student['programme']['visible']);
+        $this->assertTrue($student['programme']['required']);
+        $this->assertTrue($student['studylevel']['visible']);
+        $this->assertFalse($student['staffid']['visible']);
+
+        $lecturer = $service->get_account_field_spec('lecturer');
+        $this->assertTrue($lecturer['staffid']['visible']);
+        $this->assertTrue($lecturer['staffid']['required']);
+        $this->assertTrue($lecturer['college']['visible']);
+        $this->assertTrue($lecturer['department']['visible']);
+        $this->assertFalse($lecturer['idnumber']['visible']);
+        $this->assertFalse($lecturer['programme']['visible']);
+        $this->assertFalse($lecturer['studylevel']['visible']);
+
+        $admin = $service->get_account_field_spec('admin');
+        $this->assertTrue($admin['staffid']['visible']);
+        $this->assertFalse($admin['idnumber']['visible']);
+        $this->assertFalse($admin['programme']['visible']);
+        $this->assertFalse($admin['studylevel']['visible']);
+
+        // An unrecognised account type must not inherit any account-type-specific field.
+        $unknown = $service->get_account_field_spec('not-a-real-account-type');
+        $this->assertFalse($unknown['idnumber']['visible']);
+        $this->assertFalse($unknown['staffid']['visible']);
+        $this->assertFalse($unknown['programme']['visible']);
+        $this->assertFalse($unknown['studylevel']['visible']);
+    }
+
+    /**
+     * A staff identifier posted against a learner account must be rejected and never written,
+     * so an account created through a direct POST cannot bypass the account-type rules.
+     */
+    public function test_student_account_rejects_a_staff_id(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
+
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'username' => 'learner.with.staffid',
+            'email' => 'learner.with.staffid@example.com',
+            'idnumber' => 'STU-6001',
+            'staffid' => 'LEC-6001',
+            'programmecode' => $programme['code'],
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertContains(
+            get_string('provisioningerrorstaffidnotapplicable', 'local_ulms_dashboard'),
+            $result['errors']
+        );
+        $this->assertFalse($DB->record_exists('user', ['username' => 'learner.with.staffid']));
+    }
+
+    /**
+     * A learner matriculation number posted against a staff account must be discarded rather
+     * than stored, so the staff account keeps the staff identity model only.
+     */
+    public function test_staff_account_never_stores_a_learner_matriculation_number(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'staff.matric.attempt',
+            'email' => 'staff.matric.attempt@example.com',
+            'idnumber' => 'STU-7001',
+            'staffid' => 'LEC-7001',
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'staff.matric.attempt'], '*', MUST_EXIST);
+        $this->assertSame('', (string)$user->idnumber);
+
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame('LEC-7001', (string)$profile->staffid);
+        $this->assertSame(0, (int)$profile->programmeid);
+        $this->assertSame('', (string)$profile->studylevel);
+    }
+
+    /**
+     * A student study level must never be assigned to a member of staff, so a study level
+     * posted against a staff account is rejected instead of being stored.
+     */
+    public function test_staff_account_rejects_a_study_level(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'staff.with.level',
+            'email' => 'staff.with.level@example.com',
+            'idnumber' => '',
+            'staffid' => 'LEC-8001',
+            'studylevel' => '100',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertContains(
+            get_string('provisioningerrorstudylevelnotapplicable', 'local_ulms_dashboard'),
+            $result['errors']
+        );
+        $this->assertFalse($DB->record_exists('user', ['username' => 'staff.with.level']));
+    }
+
+    /**
+     * A staff account is never a student programme enrolment, so a programme posted against a
+     * staff account is rejected and cannot cascade a college and department onto the account.
+     */
+    public function test_staff_account_rejects_a_student_programme(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
+
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'staff.with.programme',
+            'email' => 'staff.with.programme@example.com',
+            'idnumber' => '',
+            'staffid' => 'LEC-9001',
+            'programmecode' => $programme['code'],
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertContains(
+            get_string('provisioningerrorprogrammenotapplicable', 'local_ulms_dashboard'),
+            $result['errors']
+        );
+        $this->assertFalse($DB->record_exists('user', ['username' => 'staff.with.programme']));
+    }
+
+    /**
+     * A lecturer is identified by a Staff ID, so a lecturer created without one is rejected
+     * outright rather than stored as an unidentified staff account.
+     */
+    public function test_lecturer_provisioning_requires_a_staff_id(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'unidentified.lecturer',
+            'email' => 'unidentified.lecturer@example.com',
+            'idnumber' => '',
+            'staffid' => '',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertContains(
+            get_string('provisioningrolelecturerrequiresstaffid', 'local_ulms_dashboard'),
+            $result['errors']
+        );
+        $this->assertFalse($DB->record_exists('user', ['username' => 'unidentified.lecturer']));
+    }
+
+    /**
+     * A staff assignment is a College and Department pair rather than a student programme.
+     * When only the department is supplied the owning college must be derived from that
+     * department, and no programme enrolment may be invented.
+     */
+    public function test_staff_college_and_department_are_resolved_to_the_owning_college(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $programme = $this->create_programme_fixture('active');
+
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'assigned.lecturer',
+            'email' => 'assigned.lecturer@example.com',
+            'idnumber' => '',
+            'staffid' => 'LEC-1101',
+            'departmentid' => $programme['departmentid'],
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'assigned.lecturer'], '*', MUST_EXIST);
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame($programme['facultyid'], (int)$profile->facultyid);
+        $this->assertSame($programme['departmentid'], (int)$profile->departmentid);
+        $this->assertSame(0, (int)$profile->programmeid);
+        $this->assertSame('', (string)$profile->studylevel);
+    }
+
+    /**
+     * A staff assignment is re-verified against the live academic structure, so it can never
+     * point at a department or college record that does not exist.
+     */
+    public function test_staff_assignment_is_re_verified_against_the_live_structure(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'bogus.assignment.lecturer',
+            'email' => 'bogus.assignment.lecturer@example.com',
+            'idnumber' => '',
+            'staffid' => 'LEC-1201',
+            'departmentid' => 999999,
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertContains(get_string('invaliddata'), $result['errors']);
+    }
+
+    /**
+     * The CSV path runs the same account-type rules as the single-account form: a staff row is
+     * valid with a Staff ID, and a staff row carrying a student study level and no Staff ID is
+     * reported invalid rather than imported.
+     */
+    public function test_bulk_preview_applies_the_account_type_rules_to_staff_rows(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $valid = $service->preview_bulk_import('lecturer', [[
+            'firstname' => 'Valid',
+            'lastname' => 'Lecturer',
+            'email' => 'valid.lecturer@example.com',
+            'username' => 'valid.lecturer',
+            'idnumber' => '',
+            'staffid' => 'BULK-LEC-OK',
+        ]]);
+        $this->assertSame(1, $valid['valid']);
+        $this->assertSame(0, $valid['invalid']);
+
+        $invalid = $service->preview_bulk_import('lecturer', [[
+            'firstname' => 'Invalid',
+            'lastname' => 'Lecturer',
+            'email' => 'invalid.lecturer@example.com',
+            'username' => 'invalid.lecturer',
+            'idnumber' => 'STU-BULK-1',
+            'studylevel' => '100',
+            'staffid' => '',
+        ]]);
+        $this->assertSame(0, $invalid['valid']);
+        $this->assertSame(1, $invalid['invalid']);
+        $this->assertContains(
+            get_string('provisioningrolelecturerrequiresstaffid', 'local_ulms_dashboard'),
+            $invalid['errors']
+        );
+        $this->assertContains(
+            get_string('provisioningerrorstudylevelnotapplicable', 'local_ulms_dashboard'),
+            $invalid['errors']
+        );
+    }
+
+    /**
+     * The platform-level super-admin marker is never an assignable creation target, so it
+     * cannot be reached through the provisioning service at all. This is the check that stops
+     * the account-type switch from becoming a privilege-escalation path.
+     */
+    public function test_superadmin_is_not_an_available_creation_target(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $this->assertSame(
+            ['student', 'lecturer', 'admin'],
+            array_keys($service->get_available_target_roles())
+        );
+
+        $this->expectException(\required_capability_exception::class);
+        $service->create_single_user('superadmin', $this->get_valid_data([
+            'username' => 'escalated.user',
+            'email' => 'escalated.user@example.com',
+            'idnumber' => '',
+            'staffid' => 'ESC-0001',
+        ]));
+    }
+
+    /**
+     * Admin account creation is offered only to a site administrator, and the server refuses it
+     * for everybody else even when the request is made directly.
+     */
+    public function test_admin_target_is_unavailable_without_site_admin(): void {
+        $this->resetAfterTest(true);
+        $this->setUser($this->getDataGenerator()->create_user());
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $this->assertSame(['student', 'lecturer'], array_keys($service->get_available_target_roles()));
+
+        $this->expectException(\required_capability_exception::class);
+        $service->create_single_user('admin', $this->get_valid_data([
+            'username' => 'sneaky.admin',
+            'email' => 'sneaky.admin@example.com',
+            'idnumber' => '',
+            'staffid' => 'ESC-0002',
+        ]));
     }
 
     /**

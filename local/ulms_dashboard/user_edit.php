@@ -120,6 +120,31 @@ $statusoptions = [
 ];
 $levellist = $service->get_level_options();
 
+// Account-type-aware field groups. The specification comes from the provisioning service,
+// which is also what enforces these rules server-side, so this form and the single-account
+// provisioning form accept exactly the same payload per account type.
+$provisioningservice = new \local_ulms_dashboard\local\service\user_provisioning_service();
+$targetroles = array_keys($provisioningservice->get_available_target_roles());
+$accountspec = in_array((string)$values['role'], $targetroles, true)
+    ? $provisioningservice->get_account_field_spec((string)$values['role'])
+    : $provisioningservice->get_account_field_spec('');
+// Which account-type specific field groups this role owns. A role outside the provisioning
+// targets (the platform-level super-admin marker, and any legacy role value) is unrestricted
+// and keeps the full academic panel it has today, preserving that existing governance path.
+$rolestudent = (bool)$accountspec['programme']['visible'];
+$rolestaff = (bool)$accountspec['staffid']['visible'];
+$roleunrestricted = !$rolestudent && !$rolestaff;
+// The Staff ID requirement is an account-creation requirement: existing staff accounts that
+// do not carry one must still be editable. This mirrors
+// user_management_service::validate_user_form_data(), which applies it on creation only.
+$staffidrequired = $iscreate && (bool)$accountspec['staffid']['required'];
+// Account-type guidance, announced through a live region so switching the account type is
+// perceivable without relying on a visual-only change.
+$rolehints = [];
+foreach (array_keys($roleoptions) as $hintrole) {
+    $rolehints[$hintrole] = get_string('provisioningrolecondhint' . $hintrole, 'local_ulms_dashboard');
+}
+
 echo $OUTPUT->header();
 $adminservice = new \local_ulms_dashboard\local\service\admin_portal_service();
 $headercontext = $adminservice->get_header_context_for_section('users');
@@ -177,14 +202,16 @@ echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel__body');
 echo html_writer::start_div('ulms-form-grid');
 
+// Shared personal information. These fields belong to every account type, so they are
+// never hidden, disabled or cleared when the account type changes. The learner
+// matriculation number and the staff identifier are account-type specific and are
+// rendered inside the role-scoped groups further down instead.
 $fields = [
     ['name' => 'firstname', 'label' => get_string('firstname'), 'type' => 'text', 'required' => true],
     ['name' => 'middlename', 'label' => get_string('usermanagementmiddlenamelabel', 'local_ulms_dashboard'), 'type' => 'text', 'required' => false],
     ['name' => 'lastname', 'label' => get_string('lastname'), 'type' => 'text', 'required' => true],
     ['name' => 'email', 'label' => get_string('email'), 'type' => 'email', 'required' => true],
     ['name' => 'username', 'label' => get_string('username'), 'type' => 'text', 'required' => false],
-    ['name' => 'idnumber', 'label' => get_string('usermanagementidnumberlabel', 'local_ulms_dashboard'), 'type' => 'text', 'required' => false],
-    ['name' => 'staffid', 'label' => get_string('usermanagementstaffidlabel', 'local_ulms_dashboard'), 'type' => 'text', 'required' => false],
 ];
 
 foreach ($fields as $field) {
@@ -206,24 +233,53 @@ foreach ($fields as $field) {
     echo html_writer::end_div();
 }
 
-foreach ([
-    ['name' => 'role', 'label' => get_string('usermanagementrolelabel', 'local_ulms_dashboard'), 'options' => $roleoptions],
-    ['name' => 'status', 'label' => get_string('usermanagementstatuslabel', 'local_ulms_dashboard'), 'options' => $statusoptions],
-] as $field) {
-    echo html_writer::start_div('ulms-form-field');
-    echo html_writer::label($field['label'] . ' *', 'id_' . $field['name']);
-    echo html_writer::select(
-        $field['options'],
-        $field['name'],
-        $values[$field['name']],
-        false,
-        ['id' => 'id_' . $field['name'], 'class' => 'custom-select' . (!empty($errors[$field['name']]) ? ' is-invalid' : '')]
-    );
-    if (!empty($errors[$field['name']])) {
-        echo html_writer::tag('div', s($errors[$field['name']]), ['class' => 'invalid-feedback d-block']);
-    }
-    echo html_writer::end_div();
+// Account type. Changing it re-scopes the field groups below: groups that do not belong
+// to the selected account type are hidden and their controls disabled, so a value
+// entered for one account type can never be saved against another.
+echo html_writer::start_div('ulms-form-field');
+echo html_writer::label(get_string('usermanagementrolelabel', 'local_ulms_dashboard') . ' *', 'id_role');
+echo html_writer::select(
+    $roleoptions,
+    'role',
+    $values['role'],
+    false,
+    [
+        'id' => 'id_role',
+        'class' => 'custom-select' . (!empty($errors['role']) ? ' is-invalid' : ''),
+        'data-ulms-provisioning-role' => 'true',
+    ]
+);
+if (!empty($errors['role'])) {
+    echo html_writer::tag('div', s($errors['role']), ['class' => 'invalid-feedback d-block']);
 }
+echo html_writer::end_div();
+
+echo html_writer::start_div('ulms-form-field');
+echo html_writer::label(get_string('usermanagementstatuslabel', 'local_ulms_dashboard') . ' *', 'id_status');
+echo html_writer::select(
+    $statusoptions,
+    'status',
+    $values['status'],
+    false,
+    ['id' => 'id_status', 'class' => 'custom-select' . (!empty($errors['status']) ? ' is-invalid' : '')]
+);
+if (!empty($errors['status'])) {
+    echo html_writer::tag('div', s($errors['status']), ['class' => 'invalid-feedback d-block']);
+}
+echo html_writer::end_div();
+
+// Account-type guidance is announced through a live region so switching the account
+// type is perceivable without a sighted-only visual change.
+echo html_writer::tag(
+    'p',
+    (string)($rolehints[(string)$values['role']] ?? ''),
+    [
+        'id' => 'id_role_cond_hint',
+        'class' => 'form-text text-muted ml-3 mb-3',
+        'role' => 'status',
+        'aria-live' => 'polite',
+    ]
+);
 
 if ($iscreate) {
     foreach ([
@@ -259,40 +315,273 @@ echo html_writer::tag('p', get_string('usermanagementacademicinformationdesc', '
 echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel__body');
-echo html_writer::start_div('ulms-form-grid');
+// Learner academic enrolment. The programme resolves the College and Department, and the
+// study level comes from the student vocabulary only.
+$studentblockattributes = ['data-ulms-role-block' => 'student'];
+if (!$rolestudent) {
+    $studentblockattributes['hidden'] = 'hidden';
+    $studentblockattributes['aria-hidden'] = 'true';
+    $studentblockattributes['style'] = 'display:none;';
+}
 
-foreach ([
-    ['name' => 'facultyid', 'label' => get_string('assignedfacultylabel', 'local_ulms_dashboard'), 'options' => $academicoptions['faculties']],
-    ['name' => 'departmentid', 'label' => get_string('assigneddepartmentlabel', 'local_ulms_dashboard'), 'options' => $academicoptions['departments']],
-    ['name' => 'programmeid', 'label' => get_string('programmesummary', 'local_ulms_dashboard'), 'options' => $academicoptions['programmes']],
-    ['name' => 'studylevel', 'label' => get_string('usermanagementlevellabel', 'local_ulms_dashboard')],
-] as $field) {
-    echo html_writer::start_div('ulms-form-field');
-    echo html_writer::label($field['label'], 'id_' . $field['name']);
-    if ($field['name'] === 'studylevel') {
-        echo html_writer::select(
-            ['' => get_string('usermanagementnotset', 'local_ulms_dashboard')] + $levellist,
-            'studylevel',
-            (string)$values['studylevel'],
-            false,
-            ['id' => 'id_studylevel', 'class' => 'custom-select' . (!empty($errors['studylevel']) ? ' is-invalid' : '')]
-        );
-    } else {
-        echo html_writer::select(
-            $field['options'],
-            $field['name'],
-            (int)$values[$field['name']],
-            false,
-            ['id' => 'id_' . $field['name'], 'class' => 'custom-select' . (!empty($errors[$field['name']]) ? ' is-invalid' : '')]
-        );
+// Staff academic assignment. A staff account owns a College and a Department; it is never
+// enrolled on a student programme and no study level is stored against it.
+$staffblockattributes = ['data-ulms-role-block' => 'lecturer admin'];
+if (!$rolestaff) {
+    $staffblockattributes['hidden'] = 'hidden';
+    $staffblockattributes['aria-hidden'] = 'true';
+    $staffblockattributes['style'] = 'display:none;';
+}
+
+// Any role outside the provisioning targets keeps the full academic panel it has today.
+$legacyroles = array_values(array_diff(array_keys($roleoptions), $targetroles));
+if ($roleunrestricted && !in_array((string)$values['role'], $legacyroles, true)) {
+    $legacyroles[] = (string)$values['role'];
+}
+$legacyblockattributes = ['data-ulms-role-block' => implode(' ', $legacyroles)];
+if (!$roleunrestricted) {
+    $legacyblockattributes['hidden'] = 'hidden';
+    $legacyblockattributes['aria-hidden'] = 'true';
+    $legacyblockattributes['style'] = 'display:none;';
+}
+
+/**
+ * Renders one account-type-specific select field.
+ *
+ * @param string $name Field name submitted to the server.
+ * @param string $label Visible label.
+ * @param array $options Select options.
+ * @param mixed $selected Selected value.
+ * @param string $id Element id.
+ * @param bool $required Whether the field is mandatory.
+ * @param string $error Validation message, if any.
+ * @param bool $disabled Whether the field belongs to an inactive account type.
+ * @return string
+ */
+$renderroleselect = function (
+    string $name,
+    string $label,
+    array $options,
+    $selected,
+    string $id,
+    bool $required = false,
+    string $error = '',
+    bool $disabled = false
+): string {
+    $attributes = [
+        'id' => $id,
+        'class' => 'custom-select' . ($error !== '' ? ' is-invalid' : ''),
+    ];
+    if ($required) {
+        // Marked so the account-type switcher can restore the requirement when the field
+        // becomes applicable again.
+        $attributes['data-ulms-field-required'] = 'true';
+        $attributes['required'] = 'required';
+        $attributes['aria-required'] = 'true';
     }
-    if (!empty($errors[$field['name']])) {
-        echo html_writer::tag('div', s($errors[$field['name']]), ['class' => 'invalid-feedback d-block']);
+    if ($disabled) {
+        // A disabled control is never submitted. The learner and staff groups both carry
+        // facultyid/departmentid, so without this the inactive group would overwrite the
+        // value of the active account type.
+        $attributes['disabled'] = 'disabled';
+    }
+    $html = html_writer::start_div('ulms-form-field');
+    $html .= html_writer::label($label . ($required ? ' *' : ''), $id);
+    $html .= html_writer::select($options, $name, $selected, false, $attributes);
+    if ($error !== '') {
+        $html .= html_writer::tag('div', s($error), ['class' => 'invalid-feedback d-block']);
+    }
+    $html .= html_writer::end_div();
+
+    return $html;
+};
+
+// Learner group.
+echo html_writer::start_div('ulms-form-grid', $studentblockattributes);
+
+$studentinputattributes = [
+    'type' => 'text',
+    'name' => 'idnumber',
+    'id' => 'id_idnumber',
+    'value' => (string)($values['idnumber'] ?? ''),
+    'class' => 'form-control' . (!empty($errors['idnumber']) ? ' is-invalid' : ''),
+];
+if (!$rolestudent) {
+    // A disabled control is never submitted, so a stale learner value cannot travel with a
+    // staff account even if the inline account-type switcher never runs.
+    $studentinputattributes['disabled'] = 'disabled';
+}
+echo html_writer::start_div('ulms-form-field');
+echo html_writer::label(get_string('provisioningfieldmatriculation', 'local_ulms_dashboard'), 'id_idnumber');
+echo html_writer::empty_tag('input', $studentinputattributes);
+if (!empty($errors['idnumber'])) {
+    echo html_writer::tag('div', s($errors['idnumber']), ['class' => 'invalid-feedback d-block']);
+}
+echo html_writer::end_div();
+
+echo $renderroleselect(
+    'programmeid',
+    get_string('programmesummary', 'local_ulms_dashboard'),
+    $academicoptions['programmes'],
+    (int)$values['programmeid'],
+    'id_programmeid',
+    (bool)$accountspec['programme']['required'],
+    (string)($errors['programmeid'] ?? ''),
+    !$rolestudent
+);
+echo html_writer::tag('p', get_string('provisioningprogrammestudenthint', 'local_ulms_dashboard'), ['class' => 'form-text text-muted']);
+echo $renderroleselect(
+    'facultyid',
+    get_string('assignedfacultylabel', 'local_ulms_dashboard'),
+    $academicoptions['faculties'],
+    (int)$values['facultyid'],
+    'id_facultyid',
+    false,
+    (string)($errors['facultyid'] ?? ''),
+    !$rolestudent
+);
+echo $renderroleselect(
+    'departmentid',
+    get_string('assigneddepartmentlabel', 'local_ulms_dashboard'),
+    $academicoptions['departments'],
+    (int)$values['departmentid'],
+    'id_departmentid',
+    false,
+    (string)($errors['departmentid'] ?? ''),
+    !$rolestudent
+);
+echo $renderroleselect(
+    'studylevel',
+    get_string('usermanagementlevellabel', 'local_ulms_dashboard'),
+    ['' => get_string('usermanagementnotset', 'local_ulms_dashboard')] + $levellist,
+    (string)$values['studylevel'],
+    'id_studylevel',
+    false,
+    (string)($errors['studylevel'] ?? ''),
+    !$rolestudent
+);
+
+echo html_writer::end_div();
+
+// Staff group.
+echo html_writer::start_div('ulms-form-grid', $staffblockattributes);
+
+$staffinputattributes = [
+    'type' => 'text',
+    'name' => 'staffid',
+    'id' => 'id_staffid',
+    'value' => (string)($values['staffid'] ?? ''),
+    'class' => 'form-control' . (!empty($errors['staffid']) ? ' is-invalid' : ''),
+];
+if ($staffidrequired) {
+    $staffinputattributes['data-ulms-field-required'] = 'true';
+    $staffinputattributes['required'] = 'required';
+    $staffinputattributes['aria-required'] = 'true';
+}
+if (!$rolestaff) {
+    $staffinputattributes['disabled'] = 'disabled';
+}
+echo html_writer::start_div('ulms-form-field');
+echo html_writer::label(
+    get_string('provisioningfieldstaffid', 'local_ulms_dashboard') . ($staffidrequired ? ' *' : ''),
+    'id_staffid'
+);
+echo html_writer::empty_tag('input', $staffinputattributes);
+if (!empty($errors['staffid'])) {
+    echo html_writer::tag('div', s($errors['staffid']), ['class' => 'invalid-feedback d-block']);
+}
+echo html_writer::end_div();
+
+echo $renderroleselect(
+    'facultyid',
+    get_string('provisioningfieldstaffcollege', 'local_ulms_dashboard'),
+    $academicoptions['faculties'],
+    (int)$values['facultyid'],
+    'id_staff_facultyid',
+    false,
+    (string)($errors['facultyid'] ?? ''),
+    !$rolestaff
+);
+echo $renderroleselect(
+    'departmentid',
+    get_string('provisioningfieldstaffdepartment', 'local_ulms_dashboard'),
+    $academicoptions['departments'],
+    (int)$values['departmentid'],
+    'id_staff_departmentid',
+    false,
+    (string)($errors['departmentid'] ?? ''),
+    !$rolestaff
+);
+echo html_writer::tag('p', get_string('provisioningstaffassignmenthint', 'local_ulms_dashboard'), ['class' => 'form-text text-muted']);
+
+echo html_writer::end_div();
+
+// Unrestricted group: unchanged full academic panel for roles outside the provisioning targets.
+echo html_writer::start_div('ulms-form-grid', $legacyblockattributes);
+
+$legacyinputattributes = ['type' => 'text', 'class' => 'form-control'];
+foreach ([
+    ['name' => 'idnumber', 'label' => get_string('usermanagementidnumberlabel', 'local_ulms_dashboard')],
+    ['name' => 'staffid', 'label' => get_string('usermanagementstaffidlabel', 'local_ulms_dashboard')],
+] as $legacyfield) {
+    echo html_writer::start_div('ulms-form-field');
+    echo html_writer::label($legacyfield['label'], 'id_legacy_' . $legacyfield['name']);
+    echo html_writer::empty_tag('input', array_merge($legacyinputattributes, [
+        'name' => $legacyfield['name'],
+        'id' => 'id_legacy_' . $legacyfield['name'],
+        'value' => (string)($values[$legacyfield['name']] ?? ''),
+        'class' => 'form-control' . (!empty($errors[$legacyfield['name']]) ? ' is-invalid' : ''),
+        'disabled' => $roleunrestricted ? null : 'disabled',
+    ]));
+    if (!empty($errors[$legacyfield['name']])) {
+        echo html_writer::tag('div', s($errors[$legacyfield['name']]), ['class' => 'invalid-feedback d-block']);
     }
     echo html_writer::end_div();
 }
 
+echo $renderroleselect(
+    'facultyid',
+    get_string('assignedfacultylabel', 'local_ulms_dashboard'),
+    $academicoptions['faculties'],
+    (int)$values['facultyid'],
+    'id_legacy_facultyid',
+    false,
+    $roleunrestricted ? (string)($errors['facultyid'] ?? '') : '',
+    !$roleunrestricted
+);
+echo $renderroleselect(
+    'departmentid',
+    get_string('assigneddepartmentlabel', 'local_ulms_dashboard'),
+    $academicoptions['departments'],
+    (int)$values['departmentid'],
+    'id_legacy_departmentid',
+    false,
+    $roleunrestricted ? (string)($errors['departmentid'] ?? '') : '',
+    !$roleunrestricted
+);
+echo $renderroleselect(
+    'programmeid',
+    get_string('programmesummary', 'local_ulms_dashboard'),
+    $academicoptions['programmes'],
+    (int)$values['programmeid'],
+    'id_legacy_programmeid',
+    false,
+    $roleunrestricted ? (string)($errors['programmeid'] ?? '') : '',
+    !$roleunrestricted
+);
+echo $renderroleselect(
+    'studylevel',
+    get_string('usermanagementlevellabel', 'local_ulms_dashboard'),
+    ['' => get_string('usermanagementnotset', 'local_ulms_dashboard')] + $levellist,
+    (string)$values['studylevel'],
+    'id_legacy_studylevel',
+    false,
+    $roleunrestricted ? (string)($errors['studylevel'] ?? '') : '',
+    !$roleunrestricted
+);
+
 echo html_writer::end_div();
+
 echo html_writer::end_div();
 echo html_writer::end_div();
 
@@ -318,5 +607,55 @@ echo html_writer::div(
 );
 
 echo html_writer::end_tag('form');
+
+// Account-type switcher. The server already rendered the correct groups for the current
+// account type, so this only keeps the form in step when the operator changes the dropdown.
+// A group that does not apply is hidden and its controls disabled, which is also what stops
+// a stale learner value travelling with a staff account.
+$PAGE->requires->js_init_code(
+    '(function() {
+        var roleSelect = document.querySelector("[data-ulms-provisioning-role=\"true\"]");
+        if (!roleSelect) {
+            return;
+        }
+        var blocks = Array.prototype.slice.call(document.querySelectorAll("[data-ulms-role-block]"));
+        var hint = document.getElementById("id_role_cond_hint");
+        var hints = ' . json_encode(
+        $rolehints,
+        JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+    ) . ';
+        var applyRole = function() {
+            var role = String(roleSelect.value || "");
+            blocks.forEach(function(block) {
+                var roles = String(block.getAttribute("data-ulms-role-block") || "").split(/\s+/).filter(Boolean);
+                var applicable = roles.indexOf(role) !== -1;
+                block.hidden = !applicable;
+                block.style.display = applicable ? "" : "none";
+                block.setAttribute("aria-hidden", applicable ? "false" : "true");
+                Array.prototype.slice.call(block.querySelectorAll("input, select, textarea")).forEach(function(control) {
+                    if (applicable) {
+                        control.removeAttribute("disabled");
+                        if (control.getAttribute("data-ulms-field-required") === "true") {
+                            control.setAttribute("required", "required");
+                            control.setAttribute("aria-required", "true");
+                        }
+                    } else {
+                        control.setAttribute("disabled", "disabled");
+                        control.removeAttribute("required");
+                        if (control.hasAttribute("aria-required")) {
+                            control.setAttribute("aria-required", "false");
+                        }
+                    }
+                });
+            });
+            if (hint && Object.prototype.hasOwnProperty.call(hints, role)) {
+                hint.textContent = hints[role];
+            }
+        };
+        roleSelect.addEventListener("change", applyRole);
+        applyRole();
+    }());'
+);
+
 local_ulms_dashboard_end_shell_wrap();
 echo $OUTPUT->footer();
