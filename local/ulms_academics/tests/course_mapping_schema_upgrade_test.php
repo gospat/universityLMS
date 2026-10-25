@@ -379,13 +379,17 @@ final class course_mapping_schema_upgrade_test extends advanced_testcase {
      * Runs the plugin upgrade function from a simulated stored plugin version.
      *
      * upgrade_plugin_savepoint() refuses to move backwards, so the stored config_plugins
-     * version has to be lowered before the upgrade path can be exercised.
+     * version has to be lowered before the upgrade path can be exercised. The upgrade
+     * library is not autoloaded (the real upgrade runner includes it explicitly), so it
+     * has to be required here before the plugin upgrade file is loaded.
      *
      * @param int $storedversion
      * @return bool
      */
     private function run_upgrade(int $storedversion): bool {
         global $CFG;
+
+        require_once($CFG->libdir . '/upgradelib.php');
 
         set_config('version', $storedversion, 'local_ulms_academics');
         require_once($CFG->dirroot . '/local/ulms_academics/db/upgrade.php');
