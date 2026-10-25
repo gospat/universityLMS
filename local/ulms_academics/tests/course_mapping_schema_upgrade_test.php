@@ -209,11 +209,13 @@ final class course_mapping_schema_upgrade_test extends advanced_testcase {
         $coursebeta = $this->create_moodle_course('Beta Mapping');
 
         $this->simulate_legacy_schema();
+        $this->assertTrue($this->run_upgrade(2026100102));
+
+        // Inserted after the repair so the level scopes are actually persisted: while the
+        // column was missing these rows would all have been stored as levelid = 0.
         $this->insert_mapping((int)$programme->programmeid, (int)$coursewide->id);
         $this->insert_mapping((int)$programme->programmeid, (int)$coursealpha->id, $levela);
         $this->insert_mapping((int)$programme->programmeid, (int)$coursebeta->id, $levelb);
-
-        $this->assertTrue($this->run_upgrade(2026100102));
 
         $repository = new academic_repository();
         $programmeid = (int)$programme->programmeid;
