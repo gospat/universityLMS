@@ -72,7 +72,8 @@ if ($action !== '' && data_submitted()) {
                 default => [
                     'success' => false,
                     'warning' => false,
-                    'message' => get_string('invaliddata'),
+                    // 'invaliddata' is a core string that lives in the `error` component.
+                    'message' => get_string('invaliddata', 'error'),
                 ],
             };
         }
@@ -178,7 +179,9 @@ foreach ($academicrows as $academicrow) {
 $accountitems = [];
 $accountrows = [
     get_string('usermanagementcreatedlabel', 'local_ulms_dashboard') => $user['timecreatedformatted'],
-    get_string('timemodified') => !empty($user['timemodified']) ? userdate((int)$user['timemodified'], get_string('strftimedatetimeshort')) : get_string('never'),
+    // 'lastmodified' is the core label for this timestamp; 'timemodified' is not a string
+    // identifier in any component and rendered as a raw [[timemodified]] placeholder.
+    get_string('lastmodified') => $user['timemodifiedformatted'],
     get_string('lastaccess') => $user['lastaccessformatted'],
     get_string('usermanagementauthenticationlabel', 'local_ulms_dashboard') => $user['auth'],
 ];

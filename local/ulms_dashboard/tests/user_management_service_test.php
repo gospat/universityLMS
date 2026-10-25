@@ -969,4 +969,416 @@ final class user_management_service_test extends \advanced_testcase {
         $this->assertNotNull($message);
         $this->assertStringContainsString('/reset-password/?token=', (string)($message['text'] ?? ''));
     }
+
+    /**
+     * Creates and switches to an operator who holds the manager role but is not a site
+     * administrator.
+     *
+     * This is the least-privileged operator that can still reach the user management services,
+     * because manager carries moodle/user:update and local/ulms_dashboard:viewadmindashboard at
+     * the system context. It is therefore the operator the Change Role rules must contain.
+     *
+     * @return \stdClass
+     */
+    private function become_manager_operator(): \stdClass {
+        global $DB;
+
+        $operator = $this->getDataGenerator()->create_user([
+            'firstname' => 'Operator',
+            'lastname' => 'Manager',
+            'username' => 'operator.manager',
+            'email' => 'operator.manager@example.com',
+        ]);
+        $managerrole = $DB->get_record('role', ['shortname' => 'manager'], 'id', MUST_EXIST);
+        role_assign((int)$managerrole->id, (int)$operator->id, \context_system::instance()->id);
+        $this->setUser($operator);
+
+        return $operator;
+    }
+
+    /**
+     * Returns the minimal user shape that get_user_actions() reads.
+     *
+     * @param string $rolekey
+     * @return array<string, mixed>
+     */
+    private function get_action_target(string $rolekey): array {
+        return [
+            'id' => 999999,
+            'rolekey' => $rolekey,
+            'deleted' => 0,
+            'suspended' => 0,
+        ];
+    }
+
+    public function test_last_modified_metadata_is_formatted_for_the_account_panel(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $create = $service->create_user($this->get_valid_create_data());
+        $this->assertTrue($create['success']);
+        $userid = (int)$create['userid'];
+
+        $known = 1700000000;
+        $DB->set_field('user', 'timemodified', $known, ['id' => $userid]);
+
+        $details = $service->get_user_details($userid);
+        $this->assertSame($known, $details['timemodified']);
+        $this->assertSame(
+            userdate($known, get_string('strftimedatetimeshort')),
+            $details['timemodifiedformatted']
+        );
+
+        $DB->set_field('user', 'timemodified', 0, ['id' => $userid]);
+        $details = $service->get_user_details($userid);
+        $this->assertSame(get_string('never'), $details['timemodifiedformatted']);
+    }
+
+    public function test_account_information_last_modified_label_is_a_resolved_string(): void {
+        // 'timemodified' is not a string identifier in any component, so the Account Information
+        // panel rendered a raw [[timemodified]] placeholder. The label now comes from the core
+        // 'lastmodified' string, which must resolve rather than degrade to a placeholder.
+        $this->assertTrue(get_string_manager()->string_exists('lastmodified', 'moodle'));
+        $this->assertStringNotContainsString('[[', get_string('lastmodified'));
+
+        $source = file_get_contents(__DIR__ . '/../user_view.php');
+        $this->assertIsString($source);
+        $this->assertStringNotContainsString("get_string('timemodified')", $source);
+        $this->assertStringContainsString("get_string('lastmodified')", $source);
+    }
+
+    public function test_role_change_is_audit_logged_against_the_acting_operator(): void {
+        global $DB, $USER;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $academicids = $this->get_academic_fixture_ids();
+        $create = $service->create_user($this->get_valid_create_data([
+            'username' => 'audit.rolechange',
+            'email' => 'audit.rolechange@example.com',
+            'idnumber' => 'STU-UM-AUD-1',
+        ]));
+        $this->assertTrue($create['success']);
+        $userid = (int)$create['userid'];
+
+        $result = $service->update_user($userid, $this->get_valid_create_data([
+            'role' => 'lecturer',
+            'username' => 'audit.rolechange',
+            'email' => 'audit.rolechange@example.com',
+            // A lecturer is staff: a Staff ID is held instead of a learner matriculation
+            // number, and no student programme or study level is stored.
+            'idnumber' => '',
+            'staffid' => 'STAFF-AUD-001',
+            'facultyid' => $academicids['facultyid'],
+            'departmentid' => $academicids['departmentid'],
+            'programmeid' => 0,
+            'studylevel' => '',
+        ]));
+        $this->assertTrue($result['success']);
+
+        $log = $DB->get_record('local_ulms_user_management_log', [
+            'targetuserid' => $userid,
+            'action' => 'ROLE_CHANGED',
+        ], '*', MUST_EXIST);
+        $this->assertSame((int)$USER->id, (int)$log->actorid);
+        $this->assertSame('success', $log->status);
+
+        $details = json_decode((string)$log->detailsjson, true);
+        $this->assertIsArray($details);
+        $this->assertSame('student', $details['oldrole']);
+        $this->assertSame('lecturer', $details['newrole']);
+    }
+
+    public function test_changerole_action_requires_site_admin_for_administrator_targets(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        foreach (['admin', 'superadmin'] as $rolekey) {
+            $this->assertTrue(
+                $service->get_user_actions($this->get_action_target($rolekey))['changerole'],
+                'A site administrator may change the role of an ' . $rolekey . ' account.'
+            );
+        }
+
+        $this->assertTrue($service->can_manage_admin_accounts());
+        $this->assertArrayHasKey('admin', $service->get_available_role_options());
+
+        $this->become_manager_operator();
+
+        $this->assertFalse($service->can_manage_admin_accounts());
+        $this->assertArrayNotHasKey('admin', $service->get_available_role_options());
+
+        foreach (['admin', 'superadmin'] as $rolekey) {
+            $this->assertFalse(
+                $service->get_user_actions($this->get_action_target($rolekey))['changerole'],
+                'An operator without site administrator rights must not be offered a role change for '
+                    . 'an ' . $rolekey . ' account.'
+            );
+        }
+
+        $this->assertTrue(
+            $service->get_user_actions($this->get_action_target('student'))['changerole'],
+            'The administrator rule must not restrict role changes to ordinary accounts.'
+        );
+    }
+
+    public function test_non_siteadmin_cannot_change_an_administrator_role(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $target = $this->getDataGenerator()->create_user([
+            'firstname' => 'Target',
+            'lastname' => 'Administrator',
+            'username' => 'target.admin',
+            'email' => 'target.admin@example.com',
+        ]);
+        $managerrole = $DB->get_record('role', ['shortname' => 'manager'], 'id', MUST_EXIST);
+        role_assign((int)$managerrole->id, (int)$target->id, \context_system::instance()->id);
+        $this->assertSame('admin', $service->get_user_details((int)$target->id)['rolekey']);
+        $modifiedbefore = (int)$DB->get_field('user', 'timemodified', ['id' => $target->id]);
+
+        $operator = $this->become_manager_operator();
+
+        // Preconditions. Without these the required_capability_exception asserted below could be
+        // thrown by the moodle/user:update gate inside require_update_capability() rather than by
+        // the role-change authorisation rule this test exists to prove.
+        $this->assertFalse(is_siteadmin((int)$operator->id));
+        $this->assertTrue(
+            has_capability('moodle/user:update', \context::instance_by_id(\context_system::instance()->id)),
+            'The operator must hold moodle/user:update for this test to exercise the role rule.'
+        );
+        $this->assertArrayNotHasKey('admin', $service->get_available_role_options());
+        $this->assertFalse($service->can_manage_admin_accounts());
+        $this->assertTrue(
+            $DB->record_exists('role_assignments', [
+                'userid' => $operator->id,
+                'roleid' => (int)$managerrole->id,
+                'contextid' => \context_system::instance()->id,
+            ]),
+            'The operator carries administrator access, so the last-admin guard cannot be the rejector.'
+        );
+
+        try {
+            $service->update_user((int)$target->id, $this->get_valid_create_data([
+                'role' => 'student',
+                'username' => 'target.admin',
+                'email' => 'target.admin@example.com',
+                'idnumber' => 'ADM-TARGET-001',
+            ]));
+            $this->fail('A non-site-admin must not be allowed to change an administrator role.');
+        } catch (\required_capability_exception $exception) {
+            $this->assertSame('nopermissions', $exception->errorcode);
+        }
+
+        // The refusal must happen before any account field is written.
+        $this->assertSame('admin', $service->get_user_details((int)$target->id)['rolekey']);
+        $this->assertSame($modifiedbefore, (int)$DB->get_field('user', 'timemodified', ['id' => $target->id]));
+    }
+
+    public function test_non_siteadmin_cannot_change_a_superadmin_role(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $target = $this->getDataGenerator()->create_user([
+            'firstname' => 'Target',
+            'lastname' => 'Superadmin',
+            'username' => 'target.superadmin',
+            'email' => 'target.superadmin@example.com',
+        ]);
+
+        // Being listed in siteadmins is what makes an account a Super Administrator. A second
+        // Super Administrator is added as well, so the last-super-admin guard cannot be what
+        // rejects this request - only the role-change authorisation rule can be.
+        $peer = $this->getDataGenerator()->create_user([
+            'firstname' => 'Peer',
+            'lastname' => 'Superadmin',
+            'username' => 'peer.superadmin',
+            'email' => 'peer.superadmin@example.com',
+        ]);
+        $siteadmins = array_values(array_unique(array_filter(array_map(
+            'intval',
+            explode(',', (string)($CFG->siteadmins ?? ''))
+        ))));
+        $siteadmins[] = (int)$target->id;
+        $siteadmins[] = (int)$peer->id;
+        $CFG->siteadmins = implode(',', $siteadmins);
+        $this->assertTrue(is_siteadmin((int)$target->id));
+        $this->assertSame('superadmin', $service->get_user_details((int)$target->id)['rolekey']);
+        $this->assertGreaterThan(
+            0,
+            $service->count_active_superadmins_excluding((int)$target->id),
+            'Another active Super Administrator must exist so the last-super-admin guard is not the rejector.'
+        );
+
+        $operator = $this->become_manager_operator();
+
+        // Preconditions, as in the administrator-target test: the operator genuinely holds
+        // moodle/user:update, so the exception asserted below can only come from the
+        // role-change authorisation rule.
+        $this->assertFalse(is_siteadmin((int)$operator->id));
+        $this->assertTrue(
+            has_capability('moodle/user:update', \context::instance_by_id(\context_system::instance()->id)),
+            'The operator must hold moodle/user:update for this test to exercise the role rule.'
+        );
+        $this->assertArrayNotHasKey('superadmin', $service->get_available_role_options());
+        $this->assertFalse($service->can_manage_admin_accounts());
+
+        try {
+            $service->update_user((int)$target->id, $this->get_valid_create_data([
+                'role' => 'student',
+                'username' => 'target.superadmin',
+                'email' => 'target.superadmin@example.com',
+                'idnumber' => 'SUP-TARGET-001',
+            ]));
+            $this->fail('A non-site-admin must not be allowed to change a super administrator role.');
+        } catch (\required_capability_exception $exception) {
+            $this->assertSame('nopermissions', $exception->errorcode);
+        }
+
+        // The account must still be a Super Administrator after the refusal.
+        $this->assertTrue(is_siteadmin((int)$target->id));
+        $this->assertSame('superadmin', $service->get_user_details((int)$target->id)['rolekey']);
+    }
+
+    public function test_site_admin_can_still_change_an_administrator_role(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $target = $this->getDataGenerator()->create_user([
+            'firstname' => 'Target',
+            'lastname' => 'Downgrade',
+            'username' => 'target.downgrade',
+            'email' => 'target.downgrade@example.com',
+        ]);
+        $managerrole = $DB->get_record('role', ['shortname' => 'manager'], 'id', MUST_EXIST);
+        role_assign((int)$managerrole->id, (int)$target->id, \context_system::instance()->id);
+        $this->assertSame('admin', $service->get_user_details((int)$target->id)['rolekey']);
+
+        // A second administrator is created as well, so the last-admin guard is not the reason
+        // this demotion is allowed to proceed.
+        $peer = $this->getDataGenerator()->create_user([
+            'firstname' => 'Peer',
+            'lastname' => 'Administrator',
+            'username' => 'peer.admin',
+            'email' => 'peer.admin@example.com',
+        ]);
+        role_assign((int)$managerrole->id, (int)$peer->id, \context_system::instance()->id);
+
+        $result = $service->update_user((int)$target->id, $this->get_valid_create_data([
+            'role' => 'student',
+            'username' => 'target.downgrade',
+            'email' => 'target.downgrade@example.com',
+            'idnumber' => 'ADM-TARGET-002',
+        ]));
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('student', $service->get_user_details((int)$target->id)['rolekey']);
+    }
+
+    public function test_non_siteadmin_cannot_promote_a_user_to_administrator(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+        $this->ensure_user_management_tables();
+
+        $service = $this->create_service(new user_management_service_test_mailer([
+            'success' => true,
+            'messageid' => 'email_1',
+            'statuscode' => 200,
+            'error' => '',
+        ]));
+
+        $target = $this->getDataGenerator()->create_user([
+            'firstname' => 'Target',
+            'lastname' => 'Promotion',
+            'username' => 'target.promotion',
+            'email' => 'target.promotion@example.com',
+        ]);
+
+        $operator = $this->become_manager_operator();
+
+        // The operator holds moodle/user:update, so the rejection below can only come from the
+        // role surface: get_available_role_options() never offers administrator roles to an
+        // operator who is not a site administrator.
+        $this->assertFalse(is_siteadmin((int)$operator->id));
+        $this->assertTrue(
+            has_capability('moodle/user:update', \context::instance_by_id(\context_system::instance()->id)),
+            'The operator must hold moodle/user:update for this test to exercise the role surface.'
+        );
+        $this->assertArrayNotHasKey('admin', $service->get_available_role_options());
+        $this->assertArrayNotHasKey('superadmin', $service->get_available_role_options());
+
+        $result = $service->update_user((int)$target->id, $this->get_valid_create_data([
+            'role' => 'admin',
+            'username' => 'target.promotion',
+            'email' => 'target.promotion@example.com',
+            'idnumber' => 'ADM-PROMOTE-001',
+            'staffid' => 'STAFF-PROMOTE-001',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertArrayHasKey('role', $result['errors']);
+        $this->assertSame('other', $service->get_user_details((int)$target->id)['rolekey']);
+    }
 }
