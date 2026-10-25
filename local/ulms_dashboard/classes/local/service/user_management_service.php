@@ -2160,6 +2160,15 @@ class user_management_service {
                 $errors['programmeid'] = get_string('invaliddata');
                 $cleaned['programmeid'] = 0;
             }
+            // A programme whose department is not linked to a college cannot produce a
+            // complete assignment. Reject it server-side rather than storing a partial
+            // hierarchy, mirroring user_provisioning_service::programme_hierarchy_is_complete().
+            if ($cleaned['programmeid'] > 0 && ($cascadeFac <= 0 || $cascadeDept <= 0)) {
+                $errors['programmeid'] = get_string('invaliddata');
+                $cleaned['programmeid'] = 0;
+                $cleaned['facultyid'] = 0;
+                $cleaned['departmentid'] = 0;
+            }
         }
 
         $facultyoptions = $this->get_academic_form_options()['faculties'];

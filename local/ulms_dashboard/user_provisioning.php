@@ -53,12 +53,18 @@ $defaultrole = array_key_first($roleoptions) ?: 'student';
 $singlevalues = [
     'targetrole' => optional_param('singletargetrole', $defaultrole, PARAM_ALPHA),
     'firstname' => optional_param('firstname', '', PARAM_TEXT),
+    'middlename' => optional_param('middlename', '', PARAM_TEXT),
     'lastname' => optional_param('lastname', '', PARAM_TEXT),
     'email' => optional_param('email', '', PARAM_RAW_TRIMMED),
     'username' => optional_param('username', '', PARAM_RAW_TRIMMED),
     'idnumber' => optional_param('idnumber', '', PARAM_RAW_TRIMMED),
+    'staffid' => optional_param('staffid', '', PARAM_RAW_TRIMMED),
+    'studylevel' => optional_param('studylevel', '', PARAM_ALPHANUMEXT),
     'programmecode' => optional_param('programmecode', '', PARAM_ALPHANUMEXT),
 ];
+// Master study-level vocabulary (local_ulms_levels). Empty when the levels table is
+// not present, in which case the field is hidden rather than guessed.
+$studyleveloptions = $provisioningservice->get_study_level_options();
 
 $programmeoptions = ['' => get_string('provisioningprogrammeselectplaceholder', 'local_ulms_dashboard')];
 $programmehierarchymap = [];
@@ -101,6 +107,18 @@ try {
 $selectedhierarchy = null;
 if (!empty($singlevalues['programmecode']) && isset($programmehierarchymap[$singlevalues['programmecode']])) {
     $selectedhierarchy = $programmehierarchymap[$singlevalues['programmecode']];
+}
+
+// Payload for the client-side programme -> Department/College cascade. It is derived from
+// the live academic structure above, so no programme relationship is ever hard-coded. The
+// server-side relationship validation in user_provisioning_service::validate_row() remains
+// authoritative: the JavaScript only reflects the resolved hierarchy in the form.
+$programmehierarchyjs = [];
+foreach ($programmehierarchymap as $hierarchycode => $hierarchynode) {
+    $programmehierarchyjs[(string)$hierarchycode] = [
+        'department' => (string)($hierarchynode->department ?? ''),
+        'college' => (string)($hierarchynode->college ?? ''),
+    ];
 }
 $bulktargetrole = optional_param('bulktargetrole', $defaultrole, PARAM_ALPHA);
 $createsingle = optional_param('createsingle', '', PARAM_RAW_TRIMMED) !== '';
@@ -145,10 +163,13 @@ if ($createsingle) {
                 $warnings[] = $singleoutcome['message'];
             }
             $singlevalues['firstname'] = '';
+            $singlevalues['middlename'] = '';
             $singlevalues['lastname'] = '';
             $singlevalues['email'] = '';
             $singlevalues['username'] = '';
             $singlevalues['idnumber'] = '';
+            $singlevalues['staffid'] = '';
+            $singlevalues['studylevel'] = '';
             $singlevalues['programmecode'] = '';
             $selectedhierarchy = null;
             $recentactivity = $provisioningservice->get_recent_activity(8);
@@ -178,19 +199,26 @@ if ($previewimport) {
         if (empty($_FILES['csvfile']['tmp_name']) || !is_uploaded_file($_FILES['csvfile']['tmp_name'])) {
             $errors[] = get_string('provisioninguploadrequired', 'local_ulms_dashboard');
         } else {
-            $rows = $provisioningservice->parse_csv_upload($_FILES['csvfile']['tmp_name'], $errors);
-            if (empty($errors) && empty($rows)) {
-                $errors[] = get_string('provisioningcsvemptyfile', 'local_ulms_dashboard');
-            }
+            // Upload policy (size ceiling, CSV extension, binary sniff) is decided in
+            // one testable place before any parsing happens.
+            $uploaderror = $provisioningservice->validate_csv_upload($_FILES['csvfile']);
+            if ($uploaderror !== '') {
+                $errors[] = $uploaderror;
+            } else {
+                $rows = $provisioningservice->parse_csv_upload($_FILES['csvfile']['tmp_name'], $errors);
+                if (empty($errors) && empty($rows)) {
+                    $errors[] = get_string('provisioningcsvemptyfile', 'local_ulms_dashboard');
+                }
 
-            if (empty($errors)) {
-                $previewdata = $provisioningservice->preview_bulk_import($bulktargetrole, $rows);
-                $inactiveprogrammes = $previewdata['inactiveprogrammes'] ?? [];
-                $importtoken = $provisioningservice->store_pending_import($bulktargetrole, $rows);
-                $previewreporttoken = $provisioningservice->store_report(
-                    get_string('provisioningcsverrorreportfile', 'local_ulms_dashboard'),
-                    $previewdata['reportrows']
-                );
+                if (empty($errors)) {
+                    $previewdata = $provisioningservice->preview_bulk_import($bulktargetrole, $rows);
+                    $inactiveprogrammes = $previewdata['inactiveprogrammes'] ?? [];
+                    $importtoken = $provisioningservice->store_pending_import($bulktargetrole, $rows);
+                    $previewreporttoken = $provisioningservice->store_report(
+                        get_string('provisioningcsverrorreportfile', 'local_ulms_dashboard'),
+                        $previewdata['reportrows']
+                    );
+                }
             }
         }
     } catch (\Throwable $exception) {
@@ -379,28 +407,48 @@ if ($section === 'manual') {
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'section', 'value' => 'manual']);
 
+    echo html_writer::tag('p', get_string('provisioningrequiredfieldsnote', 'local_ulms_dashboard'), [
+        'class' => 'form-text text-muted ml-3 mb-1',
+    ]);
+    echo html_writer::tag('p', get_string('provisioningonboardinghelp', 'local_ulms_dashboard'), [
+        'class' => 'form-text text-muted ml-3 mb-3',
+    ]);
+
+    echo html_writer::start_div('col-md-6 mb-3');
+    echo html_writer::label(get_string('provisioningfieldtargetrole', 'local_ulms_dashboard'), 'id_singletargetrole');
+    echo html_writer::select($roleoptions, 'singletargetrole', $singlevalues['targetrole'], false, [
+        'id' => 'id_singletargetrole',
+        'class' => 'custom-select',
+        'data-ulms-provisioning-role' => 'true',
+    ]);
+    echo html_writer::end_div();
+
     foreach ([
-        ['name' => 'singletargetrole', 'label' => get_string('provisioningfieldtargetrole', 'local_ulms_dashboard'), 'type' => 'select', 'value' => $singlevalues['targetrole']],
-        ['name' => 'firstname', 'label' => get_string('provisioningfieldfirstname', 'local_ulms_dashboard'), 'type' => 'text', 'value' => $singlevalues['firstname']],
-        ['name' => 'lastname', 'label' => get_string('provisioningfieldlastname', 'local_ulms_dashboard'), 'type' => 'text', 'value' => $singlevalues['lastname']],
-        ['name' => 'email', 'label' => get_string('provisioningfieldemail', 'local_ulms_dashboard'), 'type' => 'email', 'value' => $singlevalues['email']],
-        ['name' => 'username', 'label' => get_string('provisioningfieldusername', 'local_ulms_dashboard'), 'type' => 'text', 'value' => $singlevalues['username']],
-        ['name' => 'idnumber', 'label' => get_string('provisioningfieldidnumber', 'local_ulms_dashboard'), 'type' => 'text', 'value' => $singlevalues['idnumber']],
+        ['name' => 'firstname', 'label' => get_string('provisioningfieldfirstname', 'local_ulms_dashboard'), 'value' => $singlevalues['firstname'], 'required' => true],
+        ['name' => 'middlename', 'label' => get_string('provisioningfieldmiddlename', 'local_ulms_dashboard'), 'value' => $singlevalues['middlename'], 'required' => false],
+        ['name' => 'lastname', 'label' => get_string('provisioningfieldlastname', 'local_ulms_dashboard'), 'value' => $singlevalues['lastname'], 'required' => true],
+        ['name' => 'email', 'label' => get_string('provisioningfieldemail', 'local_ulms_dashboard'), 'value' => $singlevalues['email'], 'required' => true],
+        ['name' => 'username', 'label' => get_string('provisioningfieldusername', 'local_ulms_dashboard'), 'value' => $singlevalues['username'], 'required' => false],
+        ['name' => 'idnumber', 'label' => get_string('provisioningfieldidnumber', 'local_ulms_dashboard'), 'value' => $singlevalues['idnumber'], 'required' => false],
+        ['name' => 'staffid', 'label' => get_string('provisioningfieldstaffid', 'local_ulms_dashboard'), 'value' => $singlevalues['staffid'], 'required' => false],
     ] as $field) {
         echo html_writer::start_div('col-md-6 mb-3');
-        echo html_writer::label($field['label'], 'id_' . $field['name']);
-        if ($field['type'] === 'select') {
-            echo html_writer::select($roleoptions, $field['name'], $field['value'], false, [
-                'id' => 'id_' . $field['name'],
-                'class' => 'custom-select',
-            ]);
-        } else {
-            echo html_writer::empty_tag('input', [
-                'type' => $field['type'],
-                'name' => $field['name'],
-                'id' => 'id_' . $field['name'],
-                'value' => $field['value'],
-                'class' => 'form-control',
+        echo html_writer::label(
+            $field['label'] . ($field['required'] ? ' *' : ''),
+            'id_' . $field['name']
+        );
+        echo html_writer::empty_tag('input', [
+            'type' => $field['name'] === 'email' ? 'email' : 'text',
+            'name' => $field['name'],
+            'id' => 'id_' . $field['name'],
+            'value' => $field['value'],
+            'class' => 'form-control',
+            'required' => $field['required'] ? 'required' : null,
+            'aria-required' => $field['required'] ? 'true' : 'false',
+        ]);
+        if ($field['name'] === 'username') {
+            echo html_writer::tag('small', get_string('provisioningusernamehelp', 'local_ulms_dashboard'), [
+                'class' => 'form-text text-muted',
             ]);
         }
         echo html_writer::end_div();
@@ -411,10 +459,22 @@ if ($section === 'manual') {
     echo html_writer::select($programmeoptions, 'programmecode', $singlevalues['programmecode'], false, [
         'id' => 'id_programmecode',
         'class' => 'custom-select',
+        'data-ulms-programme-select' => 'true',
     ]);
     echo html_writer::tag('small', get_string('provisioningprogrammestudenthint', 'local_ulms_dashboard'), [
         'class' => 'form-text text-muted',
     ]);
+    echo html_writer::tag(
+        'div',
+        s(get_string('provisioningprogrammehierarchyincomplete', 'local_ulms_dashboard')),
+        [
+            'id' => 'id_programme_hierarchy_notice',
+            'class' => 'alert alert-warning mt-2 d-none',
+            'role' => 'status',
+            'aria-live' => 'polite',
+            'hidden' => 'hidden',
+        ]
+    );
     echo html_writer::end_div();
 
     echo html_writer::start_div('col-md-6 mb-3');
@@ -427,6 +487,7 @@ if ($section === 'manual') {
         'readonly' => 'readonly',
         'tabindex' => '-1',
         'aria-disabled' => 'true',
+        'data-ulms-programme-department' => 'true',
     ]);
     echo html_writer::end_div();
 
@@ -440,8 +501,73 @@ if ($section === 'manual') {
         'readonly' => 'readonly',
         'tabindex' => '-1',
         'aria-disabled' => 'true',
+        'data-ulms-programme-college' => 'true',
     ]);
     echo html_writer::end_div();
+
+    if ($studyleveloptions !== []) {
+        // Master study-level vocabulary. Left empty by default: the service never
+        // invents an academic assignment for an account that was not given one.
+        echo html_writer::start_div('col-md-6 mb-3');
+        echo html_writer::label(get_string('provisioningfieldstudylevel', 'local_ulms_dashboard'), 'id_studylevel');
+        echo html_writer::select(
+            ['' => get_string('usermanagementnotset', 'local_ulms_dashboard')] + $studyleveloptions,
+            'studylevel',
+            $singlevalues['studylevel'],
+            false,
+            ['id' => 'id_studylevel', 'class' => 'custom-select']
+        );
+        echo html_writer::end_div();
+    }
+
+    // Client-side cascade: reflect the resolved Department/College for the selected
+    // programme immediately, without a round trip. The values come from the live academic
+    // structure and are re-validated on the server when the form is submitted.
+    $PAGE->requires->js_init_code(
+        '(function() {
+            var hierarchy = ' . json_encode(
+            $programmehierarchyjs,
+            JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        ) . ';
+            var select = document.querySelector("[data-ulms-programme-select=\"true\"]");
+            var departmentField = document.querySelector("[data-ulms-programme-department=\"true\"]");
+            var collegeField = document.querySelector("[data-ulms-programme-college=\"true\"]");
+            var notice = document.getElementById("id_programme_hierarchy_notice");
+
+            if (!select || !departmentField || !collegeField) {
+                return;
+            }
+
+            var syncHierarchy = function() {
+                var code = select.value || "";
+                var entry = Object.prototype.hasOwnProperty.call(hierarchy, code) ? hierarchy[code] : null;
+                var department = entry && entry.department ? entry.department : "";
+                var college = entry && entry.college ? entry.college : "";
+
+                departmentField.value = department;
+                collegeField.value = college;
+
+                var incomplete = code !== "" && (department === "" || college === "");
+                departmentField.setAttribute("aria-invalid", incomplete ? "true" : "false");
+                collegeField.setAttribute("aria-invalid", incomplete ? "true" : "false");
+                select.setAttribute("aria-invalid", incomplete ? "true" : "false");
+
+                if (notice) {
+                    if (incomplete) {
+                        notice.classList.remove("d-none");
+                        notice.removeAttribute("hidden");
+                    } else {
+                        notice.classList.add("d-none");
+                        notice.setAttribute("hidden", "hidden");
+                    }
+                }
+            };
+
+            select.addEventListener("change", syncHierarchy);
+            syncHierarchy();
+        })();',
+        true
+    );
 
     echo html_writer::start_div('col-12');
     echo html_writer::start_div('d-flex ulms-d-flex-gap-2 flex-wrap justify-content-between align-items-center');
@@ -493,6 +619,13 @@ if ($section === 'manual') {
     ]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'section', 'value' => 'bulk']);
+    // Advisory client-side ceiling; the server enforces the same limit in
+    // user_provisioning_service::validate_csv_upload().
+    echo html_writer::empty_tag('input', [
+        'type' => 'hidden',
+        'name' => 'MAX_FILE_SIZE',
+        'value' => \local_ulms_dashboard\local\service\user_provisioning_service::CSV_UPLOAD_MAX_BYTES,
+    ]);
     echo html_writer::start_div('row');
     echo html_writer::start_div('col-md-6 mb-3');
     echo html_writer::label(get_string('provisioningfieldtargetrole', 'local_ulms_dashboard'), 'id_bulktargetrole');
@@ -509,6 +642,9 @@ if ($section === 'manual') {
         'id' => 'id_csvfile',
         'accept' => '.csv,text/csv',
         'class' => 'form-control',
+    ]);
+    echo html_writer::tag('small', get_string('provisioninguploadformathelp', 'local_ulms_dashboard'), [
+        'class' => 'form-text text-muted',
     ]);
     echo html_writer::end_div();
     echo html_writer::end_div();

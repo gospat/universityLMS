@@ -1027,4 +1027,396 @@ final class user_provisioning_service_test extends \advanced_testcase {
         $this->assertSame(0, $importresult['created']);
         $this->assertSame(0, $DB->count_records('local_ulms_user_provisioning_log'));
     }
+
+    /**
+     * Creates a programme whose department link is missing.
+     *
+     * A programme with no resolvable College -> Department -> Programme chain can only
+     * exist where the schema's foreign keys are not enforced, which is the state of the
+     * deployed ULMS database. Foreign key checks are suspended for the fixture insert
+     * and always restored, so the assertions still exercise the real service code path.
+     *
+     * @return array{programmeid: int, code: string, name: string}
+     */
+    private function create_incomplete_programme_fixture(): array {
+        global $DB;
+
+        $suffix = random_string(6);
+        $now = time();
+        $code = 'PROV-ORPH-' . $suffix;
+        $name = 'Orphaned Programme ' . $suffix;
+
+        $disableforeignkeys = $DB->get_dbfamily() === 'mysql';
+        if ($disableforeignkeys) {
+            $DB->execute('SET FOREIGN_KEY_CHECKS = 0');
+        }
+        try {
+            $programmeid = $DB->insert_record('local_ulms_programmes', (object)[
+                'departmentid' => 0,
+                'code' => $code,
+                'name' => $name,
+                'awardtype' => 'BSc',
+                'durationyears' => 4,
+                'status' => 'active',
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ]);
+        } finally {
+            if ($disableforeignkeys) {
+                $DB->execute('SET FOREIGN_KEY_CHECKS = 1');
+            }
+        }
+
+        return [
+            'programmeid' => (int)$programmeid,
+            'code' => $code,
+            'name' => $name,
+        ];
+    }
+
+    /**
+     * Creates an active study level in the master levels vocabulary.
+     *
+     * @return string the level code
+     */
+    private function create_level_fixture(): string {
+        global $DB;
+
+        $now = time();
+        $code = 'LVL' . random_string(5);
+        $DB->insert_record('local_ulms_levels', (object)[
+            'code' => $code,
+            'name' => 'Provisioning Level ' . $code,
+            'description' => '',
+            'status' => 'active',
+            'sortorder' => 10,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+
+        return $code;
+    }
+
+    /**
+     * A programme with an incomplete hierarchy must be rejected server-side, with a
+     * message that names the programme, and no orphaned account may be created.
+     */
+    public function test_student_provisioning_rejects_programme_with_incomplete_hierarchy(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_incomplete_programme_fixture();
+        $usersbefore = $DB->count_records('user');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'username' => 'orphan.programme',
+            'email' => 'orphan.programme@example.com',
+            'idnumber' => 'ORPH-1',
+            'programmecode' => $programme['code'],
+        ]));
+
+        $this->assertFalse($result['success']);
+        $message = implode(' ', $result['errors']);
+        $this->assertStringContainsString('complete academic structure', $message);
+        $this->assertStringContainsString($programme['code'], $message);
+        $this->assertStringNotContainsString('currently inactive', $message);
+        $this->assertNull($result['inactiveprogramme']);
+
+        $this->assertSame($usersbefore, $DB->count_records('user'));
+        $this->assertFalse($DB->record_exists('user', ['username' => 'orphan.programme']));
+    }
+
+    /**
+     * The bulk preview must reject the same incomplete hierarchy without creating an
+     * account and without writing a provisioning log entry.
+     */
+    public function test_bulk_preview_rejects_programme_with_incomplete_hierarchy(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_incomplete_programme_fixture();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $preview = $service->preview_bulk_import('student', [[
+            'firstname' => 'Orphan',
+            'lastname' => 'Student',
+            'email' => 'preview.orphan@example.com',
+            'username' => 'preview.orphan',
+            'idnumber' => 'PREV-ORPH-1',
+            'programmecode' => $programme['code'],
+        ]]);
+
+        $this->assertSame(1, $preview['processed']);
+        $this->assertSame(0, $preview['valid']);
+        $this->assertSame(1, $preview['invalid']);
+        $this->assertSame([], $preview['validrows']);
+        $this->assertStringContainsString('complete academic structure', implode(' ', $preview['errors']));
+
+        $importresult = $service->import_bulk_rows('student', $preview['validrows']);
+        $this->assertSame(0, $importresult['created']);
+        $this->assertFalse($DB->record_exists('user', ['username' => 'preview.orphan']));
+        $this->assertSame(0, $DB->count_records('local_ulms_user_provisioning_log'));
+    }
+
+    /**
+     * A study level from the master levels vocabulary is accepted and persisted.
+     */
+    public function test_student_provisioning_persists_a_valid_study_level(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $programme = $this->create_programme_fixture('active');
+        $levelcode = $this->create_level_fixture();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'username' => 'level.persist',
+            'email' => 'level.persist@example.com',
+            'idnumber' => 'LVL-1',
+            'programmecode' => $programme['code'],
+            'studylevel' => $levelcode,
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'level.persist'], '*', MUST_EXIST);
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame($levelcode, (string)$profile->studylevel);
+        $this->assertSame($programme['programmeid'], (int)$profile->programmeid);
+    }
+
+    /**
+     * A study level outside the master vocabulary must be rejected before any account
+     * is created.
+     */
+    public function test_student_provisioning_rejects_unknown_study_level(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $this->create_level_fixture();
+        $programme = $this->create_programme_fixture('active');
+        $usersbefore = $DB->count_records('user');
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('student', $this->get_valid_data([
+            'username' => 'level.invalid',
+            'email' => 'level.invalid@example.com',
+            'idnumber' => 'LVL-2',
+            'programmecode' => $programme['code'],
+            'studylevel' => 'NOT-A-REAL-LEVEL',
+        ]));
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Invalid study level', implode(' ', $result['errors']));
+        $this->assertSame($usersbefore, $DB->count_records('user'));
+    }
+
+    /**
+     * Lecturer provisioning carries a staff ID and must not invent a programme or a
+     * study level that was never supplied.
+     */
+    public function test_lecturer_provisioning_persists_staff_id_without_inventing_a_programme(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('lecturer', $this->get_valid_data([
+            'username' => 'staff.id.lecturer',
+            'email' => 'staff.id.lecturer@example.com',
+            'idnumber' => 'LEC-5544',
+            'staffid' => 'LEC-5544',
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'staff.id.lecturer'], '*', MUST_EXIST);
+        $profile = $DB->get_record('local_ulms_user_profile', ['userid' => $user->id], '*', MUST_EXIST);
+        $this->assertSame('LEC-5544', (string)$profile->staffid);
+        $this->assertSame('', (string)$profile->studylevel);
+        $this->assertSame(0, (int)$profile->programmeid);
+        $this->assertSame(0, (int)$profile->departmentid);
+        $this->assertSame(0, (int)$profile->facultyid);
+    }
+
+    /**
+     * An account created with no academic data must not receive a profile row, so the
+     * "Not set" display reflects genuine absence rather than a fabricated assignment.
+     */
+    public function test_admin_provisioning_without_academic_data_writes_no_profile_row(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->configure_resend_transport();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $result = $service->create_single_user('admin', $this->get_valid_data([
+            'username' => 'plain.admin',
+            'email' => 'plain.admin@example.com',
+            'idnumber' => 'ADM-9001',
+        ]));
+
+        $this->assertTrue($result['success'], implode(' ', $result['errors'] ?? []));
+
+        $user = $DB->get_record('user', ['username' => 'plain.admin'], '*', MUST_EXIST);
+        $this->assertFalse($DB->record_exists('local_ulms_user_profile', ['userid' => $user->id]));
+    }
+
+    /**
+     * The downloadable CSV template must advertise the account fields the importer
+     * now accepts, so middle name, study level and staff ID round-trip.
+     */
+    public function test_csv_template_includes_middle_name_study_level_and_staff_id_columns(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $rows = $service->get_csv_template_rows('student');
+
+        $this->assertSame(
+            ['firstname', 'middlename', 'lastname', 'email', 'username', 'idnumber', 'programmecode', 'studylevel', 'staffid'],
+            $rows[0]
+        );
+        $this->assertCount(9, $rows[1]);
+    }
+
+    /**
+     * Upload policy: a well-formed CSV is accepted.
+     */
+    public function test_validate_csv_upload_accepts_a_valid_csv(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $path = $this->make_temp_csv("firstname,lastname,email\nAda,Okafor,ada@example.com\n");
+        try {
+            $service = $this->get_service($this->get_success_mailer());
+            $this->assertSame('', $service->validate_csv_upload([
+                'name' => 'users.csv',
+                'tmp_name' => $path,
+                'size' => (int)filesize($path),
+                'error' => UPLOAD_ERR_OK,
+            ]));
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * Upload policy: a missing upload is reported as required.
+     */
+    public function test_validate_csv_upload_rejects_a_missing_upload(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $service = $this->get_service($this->get_success_mailer());
+        $this->assertStringContainsString('choose a CSV file', $service->validate_csv_upload(null));
+        $this->assertStringContainsString('choose a CSV file', $service->validate_csv_upload(['tmp_name' => '']));
+    }
+
+    /**
+     * Upload policy: PHP-level and application-level size limits are both enforced.
+     */
+    public function test_validate_csv_upload_rejects_an_oversized_file(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $path = $this->make_temp_csv("firstname,lastname,email\nAda,Okafor,ada@example.com\n");
+        try {
+            $service = $this->get_service($this->get_success_mailer());
+
+            $phplimit = $service->validate_csv_upload([
+                'name' => 'users.csv',
+                'tmp_name' => $path,
+                'size' => 10,
+                'error' => UPLOAD_ERR_INI_SIZE,
+            ]);
+            $this->assertStringContainsString('exceeds', $phplimit);
+
+            $applimit = $service->validate_csv_upload([
+                'name' => 'users.csv',
+                'tmp_name' => $path,
+                'size' => user_provisioning_service::CSV_UPLOAD_MAX_BYTES + 1,
+                'error' => UPLOAD_ERR_OK,
+            ]);
+            $this->assertStringContainsString('exceeds', $applimit);
+
+            $failed = $service->validate_csv_upload([
+                'name' => 'users.csv',
+                'tmp_name' => $path,
+                'size' => 10,
+                'error' => UPLOAD_ERR_NO_FILE,
+            ]);
+            $this->assertStringContainsString('did not complete', $failed);
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * Upload policy: only CSV files with text content are accepted, and empty files
+     * are reported separately.
+     */
+    public function test_validate_csv_upload_rejects_wrong_type_binary_and_empty_files(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $service = $this->get_service($this->get_success_mailer());
+
+        $csvpath = $this->make_temp_csv("firstname,lastname,email\nAda,Okafor,ada@example.com\n");
+        $binarypath = $this->make_temp_csv("PK\x03\x04\x00\x00binary");
+        $emptypath = $this->make_temp_csv('');
+        try {
+            $this->assertStringContainsString('csv', $service->validate_csv_upload([
+                'name' => 'users.exe',
+                'tmp_name' => $csvpath,
+                'size' => (int)filesize($csvpath),
+                'error' => UPLOAD_ERR_OK,
+            ]));
+            $this->assertStringContainsString('csv', $service->validate_csv_upload([
+                'name' => 'users.csv',
+                'tmp_name' => $binarypath,
+                'size' => (int)filesize($binarypath),
+                'error' => UPLOAD_ERR_OK,
+            ]));
+            $this->assertStringContainsString('usable data rows', $service->validate_csv_upload([
+                'name' => 'users.csv',
+                'tmp_name' => $emptypath,
+                'size' => 0,
+                'error' => UPLOAD_ERR_OK,
+            ]));
+        } finally {
+            @unlink($csvpath);
+            @unlink($binarypath);
+            @unlink($emptypath);
+        }
+    }
+
+    /**
+     * Writes a throwaway file for upload-policy tests.
+     *
+     * @param string $contents
+     * @return string absolute path
+     */
+    private function make_temp_csv(string $contents): string {
+        $path = tempnam(sys_get_temp_dir(), 'ulmscsv');
+        file_put_contents($path, $contents);
+
+        return $path;
+    }
 }

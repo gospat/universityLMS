@@ -2983,29 +2983,41 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{display:block;font-size:.76rem
     position: relative;
     overflow: hidden;
     min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.4rem;
     @include ulms-fluid-space(padding, 0.95rem, 1.2rem);
     border: 1px solid $ulms-border;
     border-radius: $ulms-radius-md;
     background: $ulms-panel-alt;
 }
 
+/* Labels and values are emitted as <span>/<strong> or <div> depending on the caller.
+   Force block-level layout so the numeric value never renders beside its label. */
 .theme-ulms-university .ulms-kpi-card__label {
+    display: block;
+    margin: 0;
     color: $ulms-text-muted;
     @include ulms-fluid-font(0.78rem, 0.88rem);
     font-weight: 700;
     letter-spacing: 0.08em;
+    line-height: 1.35;
     text-transform: uppercase;
 }
 
 .theme-ulms-university .ulms-kpi-card__value {
-    margin-top: 0.5rem;
+    display: block;
+    margin-top: 0;
     @include ulms-fluid-font(1.4rem, 2.25rem);
     font-weight: 750;
     line-height: 1.1;
+    font-variant-numeric: tabular-nums;
 }
 
 .theme-ulms-university .ulms-kpi-card__meta {
-    margin-top: 0.55rem;
+    display: block;
+    margin-top: 0.15rem;
     color: $ulms-text-muted;
     @include ulms-fluid-font(0.8rem, 0.92rem);
     line-height: 1.55;
