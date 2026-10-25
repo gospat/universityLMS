@@ -121,17 +121,57 @@ foreach ($rows as $label => $value) {
 }
 
 $academicitems = [];
+// Roles decide whether an empty academic field means "not recorded yet" (actionable)
+// or "does not apply to this account type". A value that IS stored is always shown:
+// the view never hides real data and never invents an assignment that is absent.
+$roleshortnames = array_map(
+    static fn($shortname): string => strtolower((string)$shortname),
+    (array)($user['roleshortnames'] ?? [])
+);
+$isstudent = in_array('student', $roleshortnames, true);
+$isacademicstaff = (bool)array_intersect(
+    $roleshortnames,
+    ['editingteacher', 'teacher', 'manager', 'coursecreator']
+);
+$isacademicaccount = $isstudent || $isacademicstaff;
 $academicrows = [
-    get_string('assignedfacultylabel', 'local_ulms_dashboard') => $user['facultyname'],
-    get_string('assigneddepartmentlabel', 'local_ulms_dashboard') => $user['departmentname'],
-    get_string('programmesummary', 'local_ulms_dashboard') => $user['programmename'],
-    get_string('usermanagementlevellabel', 'local_ulms_dashboard') => $user['studylevel'],
-    get_string('usermanagementstaffidlabel', 'local_ulms_dashboard') => $user['staffid'],
+    [
+        'label' => get_string('assignedfacultylabel', 'local_ulms_dashboard'),
+        'value' => (string)$user['facultyname'],
+        'applicable' => $isacademicaccount,
+    ],
+    [
+        'label' => get_string('assigneddepartmentlabel', 'local_ulms_dashboard'),
+        'value' => (string)$user['departmentname'],
+        'applicable' => $isacademicaccount,
+    ],
+    [
+        'label' => get_string('programmesummary', 'local_ulms_dashboard'),
+        'value' => (string)$user['programmename'],
+        'applicable' => $isstudent,
+    ],
+    [
+        'label' => get_string('usermanagementlevellabel', 'local_ulms_dashboard'),
+        'value' => (string)$user['studylevel'],
+        'applicable' => $isstudent,
+    ],
+    [
+        'label' => get_string('usermanagementstaffidlabel', 'local_ulms_dashboard'),
+        'value' => (string)$user['staffid'],
+        'applicable' => $isacademicstaff,
+    ],
 ];
-foreach ($academicrows as $label => $value) {
+foreach ($academicrows as $academicrow) {
+    if ($academicrow['value'] !== '') {
+        $value = $academicrow['value'];
+    } else {
+        $value = $academicrow['applicable']
+            ? get_string('usermanagementnotset', 'local_ulms_dashboard')
+            : get_string('usermanagementnotapplicable', 'local_ulms_dashboard');
+    }
     $academicitems[] = [
-        'label' => $label,
-        'value' => $value !== '' ? (string)$value : get_string('usermanagementnotset', 'local_ulms_dashboard'),
+        'label' => $academicrow['label'],
+        'value' => $value,
     ];
 }
 

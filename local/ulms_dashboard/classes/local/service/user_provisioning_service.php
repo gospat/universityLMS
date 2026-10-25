@@ -35,6 +35,8 @@ class user_provisioning_service {
     private const PENDING_IMPORT_SESSION_KEY = 'local_ulms_dashboard_pending_imports';
     /** @var string */
     private const REPORT_SESSION_KEY = 'local_ulms_dashboard_provisioning_reports';
+    /** @var int Hard ceiling for a bulk-upload CSV (5 MiB). */
+    public const CSV_UPLOAD_MAX_BYTES = 5242880;
 
     /**
      * Returns target role labels available to the current admin.
@@ -66,7 +68,44 @@ class user_provisioning_service {
     }
 
     /**
+     * Returns the active study levels from the master levels table.
+     *
+     * Uses the same active-status filter as user_management_service::get_level_options()
+     * so both account-creation interfaces offer an identical study-level vocabulary.
+     *
+     * @return array<string, string> Level code => display label.
+     */
+    public function get_study_level_options(): array {
+        global $DB;
+
+        if (!$DB->get_manager()->table_exists(new \xmldb_table('local_ulms_levels'))) {
+            return [];
+        }
+
+        $options = [];
+        $records = $DB->get_records_sql(
+            "SELECT id, code, name
+               FROM {local_ulms_levels}
+              WHERE status = 'active'
+           ORDER BY sortorder ASC, code ASC"
+        );
+        foreach ($records as $record) {
+            $code = trim((string)($record->code ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $name = trim((string)($record->name ?? ''));
+            $options[$code] = $name !== '' ? $name : $code;
+        }
+
+        return $options;
+    }
+
+    /**
      * Returns starter rows for a CSV template.
+     *
+     * The extra columns (middlename, studylevel, staffid) are optional and may be omitted
+     * from an upload; the parser maps strictly by header name.
      *
      * @param string $targetrole
      * @return array
@@ -75,13 +114,13 @@ class user_provisioning_service {
         $this->assert_target_role_access($targetrole);
 
         $samples = [
-            'student' => ['Ada', 'Okafor', 'ada.okafor@student.example.edu', 'ada.okafor', 'STU-001', 'BCHEM-2024'],
-            'lecturer' => ['Kemi', 'Adebayo', 'kemi.adebayo@lecturer.example.edu', 'kemi.adebayo', 'LEC-001', ''],
-            'admin' => ['Ibrahim', 'Musa', 'ibrahim.musa@admin.example.edu', 'ibrahim.musa', 'ADM-001', ''],
+            'student' => ['Ada', '', 'Okafor', 'ada.okafor@student.example.edu', 'ada.okafor', 'STU-001', 'BCHEM-2024', '', ''],
+            'lecturer' => ['Kemi', '', 'Adebayo', 'kemi.adebayo@lecturer.example.edu', 'kemi.adebayo', 'LEC-001', '', '', 'LEC-001'],
+            'admin' => ['Ibrahim', '', 'Musa', 'ibrahim.musa@admin.example.edu', 'ibrahim.musa', 'ADM-001', '', '', 'ADM-001'],
         ];
 
         return [
-            ['firstname', 'lastname', 'email', 'username', 'idnumber', 'programmecode'],
+            ['firstname', 'middlename', 'lastname', 'email', 'username', 'idnumber', 'programmecode', 'studylevel', 'staffid'],
             $samples[$targetrole] ?? $samples['student'],
         ];
     }
@@ -130,6 +169,63 @@ class user_provisioning_service {
 
         fclose($handle);
         return $rows;
+    }
+
+    /**
+     * Validates the raw $_FILES entry for a bulk CSV upload before it is parsed.
+     *
+     * Enforces upload success, a hard size ceiling, and a CSV-only extension plus a
+     * binary-content sniff. The caller keeps its own is_uploaded_file() check before
+     * delegating here; this method is the single testable place for upload policy.
+     *
+     * @param array|null $file a single $_FILES entry
+     * @return string an empty string when acceptable, otherwise a user-facing message
+     */
+    public function validate_csv_upload(?array $file): string {
+        if (empty($file) || empty($file['tmp_name'])) {
+            return get_string('provisioninguploadrequired', 'local_ulms_dashboard');
+        }
+
+        $errorcode = (int)($file['error'] ?? UPLOAD_ERR_OK);
+        if ($errorcode !== UPLOAD_ERR_OK) {
+            if (in_array($errorcode, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+                return get_string(
+                    'provisioninguploadtoobig',
+                    'local_ulms_dashboard',
+                    display_size(self::CSV_UPLOAD_MAX_BYTES)
+                );
+            }
+            return get_string('provisioninguploadfailed', 'local_ulms_dashboard');
+        }
+
+        $size = (int)($file['size'] ?? 0);
+        if ($size <= 0) {
+            $size = (int)@filesize($file['tmp_name']);
+        }
+        if ($size > self::CSV_UPLOAD_MAX_BYTES) {
+            return get_string(
+                'provisioninguploadtoobig',
+                'local_ulms_dashboard',
+                display_size(self::CSV_UPLOAD_MAX_BYTES)
+            );
+        }
+        if ($size === 0) {
+            return get_string('provisioningcsvemptyfile', 'local_ulms_dashboard');
+        }
+
+        $name = (string)($file['name'] ?? '');
+        if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), ['csv'], true)) {
+            return get_string('provisioninguploadinvalidtype', 'local_ulms_dashboard');
+        }
+
+        // A CSV must be readable text. A NUL byte in the first block marks binary
+        // content that fgetcsv() would otherwise turn into unreadable rows.
+        $sample = (string)@file_get_contents($file['tmp_name'], false, null, 0, 512);
+        if ($sample === '' || strpos($sample, "\0") !== false) {
+            return get_string('provisioninguploadinvalidtype', 'local_ulms_dashboard');
+        }
+
+        return '';
     }
 
     /**
@@ -437,6 +533,38 @@ class user_provisioning_service {
     }
 
     /**
+     * Checks that a programme resolves through the complete academic taxonomy.
+     *
+     * A programme is only usable for provisioning when it is linked to a department
+     * and that department is linked to a college. The lookup is performed against the
+     * live academic structure, so no programme relationship is ever hard-coded.
+     *
+     * @param int $programmeid
+     * @return bool True when departmentid and facultyid both resolve to existing rows.
+     */
+    private function programme_hierarchy_is_complete(int $programmeid): bool {
+        global $DB;
+
+        if ($programmeid <= 0) {
+            return false;
+        }
+
+        $hierarchy = $DB->get_record_sql(
+            "SELECT p.departmentid, d.facultyid
+               FROM {local_ulms_programmes} p
+               JOIN {local_ulms_departments} d ON d.id = p.departmentid
+              WHERE p.id = :pid",
+            ['pid' => $programmeid]
+        );
+
+        if (!$hierarchy) {
+            return false;
+        }
+
+        return (int)($hierarchy->departmentid ?? 0) > 0 && (int)($hierarchy->facultyid ?? 0) > 0;
+    }
+
+    /**
      * Validates a CSV or single-entry row.
      *
      * @param array $row
@@ -449,10 +577,13 @@ class user_provisioning_service {
 
         $errors = [];
         $firstname = trim((string)($row['firstname'] ?? ''));
+        $middlename = trim((string)($row['middlename'] ?? ''));
         $lastname = trim((string)($row['lastname'] ?? ''));
         $email = trim((string)($row['email'] ?? ''));
         $username = trim((string)($row['username'] ?? ''));
         $idnumber = trim((string)($row['idnumber'] ?? ''));
+        $staffid = trim((string)($row['staffid'] ?? ''));
+        $studylevel = trim((string)($row['studylevel'] ?? ''));
         $programmecode = trim((string)($row['programmecode'] ?? ''));
         $programmeid = max(0, (int)($row['programmeid'] ?? 0));
         $inactiveprogramme = null;
@@ -501,6 +632,18 @@ class user_provisioning_service {
                     $programmeid = 0;
                 } else {
                     $programmeid = (int)$programmerecord->id;
+
+                    // The programme must resolve through the full College -> Department ->
+                    // Programme taxonomy. A programme whose department row (or its parent
+                    // college) is missing cannot produce a valid academic assignment, so the
+                    // row is rejected here instead of silently creating an orphaned account.
+                    if (!$this->programme_hierarchy_is_complete($programmeid)) {
+                        $errors[] = get_string('provisioningerrorprogrammehierarchyincomplete', 'local_ulms_dashboard', (object)[
+                            'name' => format_string((string)$programmerecord->name),
+                            'code' => (string)$programmerecord->code,
+                        ]);
+                        $programmeid = 0;
+                    }
                 }
             }
         }
@@ -530,6 +673,15 @@ class user_provisioning_service {
                 $errors[] = get_string('provisioningerrorexistingidnumber', 'local_ulms_dashboard', $idnumber);
             } else if (isset($seen['idnumbers'][$idnumber])) {
                 $errors[] = get_string('provisioningerrorduplicateidnumber', 'local_ulms_dashboard', $idnumber);
+            }
+        }
+
+        // Study level must match the master levels vocabulary when supplied. An empty
+        // value stays empty: the service never invents an academic assignment.
+        if ($studylevel !== '') {
+            $leveloptions = $this->get_study_level_options();
+            if (!empty($leveloptions) && !isset($leveloptions[$studylevel])) {
+                $errors[] = get_string('provisioningerrorinvalidstudylevel', 'local_ulms_dashboard', $studylevel);
             }
         }
 
@@ -589,11 +741,13 @@ class user_provisioning_service {
             'record' => [
                 'linenumber' => $linenumber,
                 'firstname' => $firstname,
-                'middlename' => trim((string)($row['middlename'] ?? '')),
+                'middlename' => $middlename,
                 'lastname' => $lastname,
                 'email' => $email,
                 'username' => $resolvedusername,
                 'idnumber' => $idnumber,
+                'studylevel' => $studylevel,
+                'staffid' => $staffid,
                 'facultyid' => $facultyid,
                 'departmentid' => $departmentid,
                 'programmeid' => $programmeid,
@@ -727,8 +881,18 @@ class user_provisioning_service {
             $newuser = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
             set_user_preference('auth_forcepasswordchange', 1, $newuser);
             set_user_preference('create_password', 1, $newuser);
-            // Save ULMS user profile for academic metadata when available.
-            if (!empty($record['programmeid']) || !empty($record['facultyid']) || !empty($record['departmentid'])) {
+            // Save the ULMS user profile so both account-creation paths persist the same
+            // academic metadata. A row is written whenever any academic field or staff
+            // identifier is supplied; nothing is invented when the values are absent.
+            $studylevel = trim((string)($record['studylevel'] ?? ''));
+            $staffid = trim((string)($record['staffid'] ?? ''));
+            if (
+                !empty($record['programmeid'])
+                || !empty($record['facultyid'])
+                || !empty($record['departmentid'])
+                || $studylevel !== ''
+                || $staffid !== ''
+            ) {
                 $existing = $DB->get_record('local_ulms_user_profile', ['userid' => $userid]);
                 $timestamp = time();
                 $payload = (object)[
@@ -736,8 +900,8 @@ class user_provisioning_service {
                     'facultyid' => max(0, (int)($record['facultyid'] ?? 0)),
                     'departmentid' => max(0, (int)($record['departmentid'] ?? 0)),
                     'programmeid' => max(0, (int)($record['programmeid'] ?? 0)),
-                    'studylevel' => (string)($record['studylevel'] ?? ''),
-                    'staffid' => (string)($record['staffid'] ?? ''),
+                    'studylevel' => $studylevel,
+                    'staffid' => $staffid,
                 ];
                 if ($existing) {
                     $payload->id = (int)$existing->id;
