@@ -1221,19 +1221,52 @@ class user_provisioning_service {
         global $CFG;
 
         $site = get_site();
+        $sitename = format_string($site->fullname);
+        $rolelabel = get_string('provisioningtarget' . $targetrole, 'local_ulms_dashboard');
+        $resetminutes = isset($CFG->pwresettime) ? (int)floor($CFG->pwresettime / MINSECS) : 30;
+        $expirynote = get_string('emailvalueexpiry', 'local_ulms_auth', $resetminutes);
+
         $data = (object)[
             'firstname' => fullname($user),
-            'rolelabel' => get_string('provisioningtarget' . $targetrole, 'local_ulms_dashboard'),
+            'rolelabel' => $rolelabel,
             'username' => $user->username,
             'activationlink' => $activationlink,
             'signinurl' => local_ulms_auth_get_unified_sign_in_url()->out(false),
-            'sitename' => format_string($site->fullname),
+            'sitename' => $sitename,
             'supportsignature' => generate_email_signoff(),
+            'expirynote' => $expirynote,
         ];
 
-        $subject = get_string('provisioningaccountemailsubject', 'local_ulms_dashboard', format_string($site->fullname));
+        $subject = get_string('provisioningaccountemailsubject', 'local_ulms_dashboard', $sitename);
         $messagetext = get_string('provisioningaccountemailbody', 'local_ulms_dashboard', $data);
-        $messagehtml = text_to_html($messagetext, false, false, true);
+        $messagehtml = local_ulms_auth_render_branded_email([
+            'preheader' => get_string('provisioningemailintro', 'local_ulms_dashboard', $data),
+            'heading' => get_string('provisioningemailheading', 'local_ulms_dashboard'),
+            'intro' => get_string('provisioningemailintro', 'local_ulms_dashboard', $data),
+            'details' => [
+                [
+                    'label' => get_string('emaillabelrole', 'local_ulms_auth'),
+                    'value' => $rolelabel,
+                    'emphasis' => true,
+                ],
+                [
+                    'label' => get_string('emaillabelusername', 'local_ulms_auth'),
+                    'value' => $user->username,
+                    'emphasis' => true,
+                ],
+                [
+                    'label' => get_string('emaillabellinkexpiry', 'local_ulms_auth'),
+                    'value' => $expirynote,
+                ],
+            ],
+            'cta' => [
+                'label' => get_string('provisioningemailcta', 'local_ulms_dashboard'),
+                'url' => $activationlink,
+            ],
+            'fallback' => get_string('emailtemplatebuttonfallback', 'local_ulms_auth'),
+            'notice' => get_string('provisioningemailsecurity', 'local_ulms_dashboard') . "\n\n"
+                . get_string('provisioningemailrenew', 'local_ulms_dashboard', $resetminutes),
+        ]);
         $idempotencykey = sha1(implode('|', [
             'ulms_account_provisioning',
             (string)$user->id,

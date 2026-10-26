@@ -7146,3 +7146,52 @@ body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .card 
 }
 
 /* End contrast fixes.  ^EOF */
+
+/* ====================================================================
+   ULMS MOBILE / SMALL-TABLET CORRECTION — Request H, Part A
+   --------------------------------------------------------------------
+   Scope: <=991.98px only. Desktop (>=1200px) matches nothing in this
+   block, no rule above is deleted or redefined, and drawer geometry
+   (offset, width, padding, radius, shadow, scrolling) is left exactly
+   as authored — so the established desktop and tablet layouts are
+   preserved and only the confirmed defect is corrected.
+
+   Root cause (established by cascade analysis of this file)
+   ---------------------------------------------------------
+   Three blocks declare the off-canvas sidebar at <=991.98px:
+
+     L1985  body.ulms-dashboard-shell .ulms-shell-sidebar  spec (0,2,1)
+            -> position:fixed, z-index:1100, background:#0f3d67
+     L2188  .theme-ulms-university .ulms-shell-sidebar     spec (0,2,0)
+            -> background:var(--ulms-sidebar-bg), border-right
+     L3260  body.ulms-dashboard-shell .ulms-shell-sidebar  spec (0,2,1)
+            -> z-index:50, background:transparent, border-right:0
+
+   L3260 has the same specificity as L1985 but sits later in the file,
+   so it wins for z-index, background and border-right. Those three
+   declarations are the defect:
+     * background:transparent drops the panel surface, so nav labels
+       render straight over the page content and become unreadable;
+     * border-right:0 drops the drawer edge;
+     * z-index:50 places the drawer BELOW its own backdrop
+       (.ulms-shell-overlay, z-index 1050) across the whole
+       768px-991.98px band, so the drawer and every control inside it
+       is unreachable there.
+   The theme's own ladder (--ulms-z-overlay:1050 <
+   --ulms-z-sidebar-drawer:1100, L917-918) shows L3260 contradicts the
+   design tokens. L3575 re-asserts z-index for <=767.98px only, which is
+   why the defect is fully live on small tablets and still strips the
+   background and border on phones.
+
+   Fix: re-assert only those three declarations, via the existing
+   tokens, at the breakpoint L3260 itself uses.
+   ==================================================================== */
+@media (max-width: 991.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+        z-index: var(--ulms-z-sidebar-drawer) !important;
+        background: var(--ulms-sidebar-bg) !important;
+        border-right: 1px solid var(--ulms-sidebar-border) !important;
+    }
+}
+
+/* End Request H mobile responsiveness correction.  ^EOF */
