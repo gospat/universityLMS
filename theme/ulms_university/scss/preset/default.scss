@@ -3957,125 +3957,6 @@ body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulm
     box-shadow: var(--ulms-card-shadow-md) !important;
     border-color: #dde7f5 !important;
 }
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div > div:first-child,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div > i:first-child,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div > .icon,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div > *:first-child {
-    grid-area: icon !important;
-    width: 52px !important;
-    height: 52px !important;
-    min-width: 52px !important;
-    min-height: 52px !important;
-    border-radius: 12px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    font-size: 1.4rem !important;
-    line-height: 52px !important;
-    text-align: center !important;
-    box-sizing: border-box !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="courses"] > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(1) > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(1) > div:first-child {
-    background: #e7efff !important;
-    color: #1a5eb5 !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="assignments"] > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(2) > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(2) > div:first-child {
-    background: #e5f6ed !important;
-    color: var(--ulms-accent-green) !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="exams"] > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(3) > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(3) > div:first-child {
-    background: #ffeaea !important;
-    color: #b43434 !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card[data-kpi="progress"] > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:nth-child(4) > .qa-icon,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:nth-child(4) > div:first-child {
-    background: #f1e9ff !important;
-    color: #6d3cb5 !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-metric,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div strong,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div h3,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div b {
-    grid-area: metric !important;
-    margin: 0 0 2px 0 !important;
-    font-size: clamp(1.55rem, 2vw, 1.95rem) !important;
-    line-height: 1 !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.02em !important;
-    color: #0b2b4d !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-label,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div span.label,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div div:nth-child(2) {
-    grid-area: label !important;
-    margin: 0 !important;
-    font-size: 0.94rem !important;
-    font-weight: 600 !important;
-    line-height: 1.25 !important;
-    color: #0b2b4d !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-hint,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div small,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div span.hint {
-    grid-area: hint !important;
-    margin: 3px 0 0 0 !important;
-    font-size: 0.82rem !important;
-    line-height: 1.4 !important;
-    color: #63738c !important;
-    font-weight: 500 !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-progressbar {
-    grid-column: 2 !important;
-    grid-row: auto !important;
-    margin-top: 0.5rem !important;
-    width: 100% !important;
-    height: 6px !important;
-    background: #e8eef7 !important;
-    border-radius: 999px !important;
-    overflow: hidden !important;
-    align-self: end !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-progressbar > span,
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-progressbar > div {
-    display: block !important;
-    height: 100% !important;
-    width: 50% !important;
-    background: linear-gradient(90deg, #4674e2, #6d3cb5) !important;
-    border-radius: 999px !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-arrow,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div > a::after {
-    grid-area: arrow !important;
-    align-self: center !important;
-    justify-self: end !important;
-    width: 28px !important;
-    height: 28px !important;
-    min-width: 28px !important;
-    border-radius: 8px !important;
-    background: #f4f7fc !important;
-    color: #7f90ad !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    font-size: 0.9rem !important;
-    line-height: 28px !important;
-    text-align: center !important;
-    text-decoration: none !important;
-}
-body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card:hover .qa-arrow,
-body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div:hover .qa-arrow {
-    background: #0f3d67 !important;
-    color: #ffffff !important;
-    transform: translateX(2px) !important;
-}
 
 /* -------------- LAYER 5: DASHBOARD PRIMARY 2-COL (Academic 7/12 + Deadlines 5/12) -------------- */
 body.theme-ulms-university.ulms-dashboard-shell .ulms-dashboard-primary,
@@ -4844,15 +4725,6 @@ body.theme-ulms-university.ulms-dashboard-shell .key-actions-list li:hover::afte
         min-height: 100px !important;
         padding: 0.95rem 1rem !important;
         grid-template-columns: 44px minmax(0, 1fr) 28px !important;
-    }
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card > .qa-icon {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        min-height: 44px !important;
-    }
-    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card .qa-metric {
-        font-size: 1.5rem !important;
     }
     body.theme-ulms-university.ulms-dashboard-shell .deadlines-list li {
         grid-template-columns: 44px minmax(0, 1fr) !important;
@@ -5776,6 +5648,100 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
     body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .portal-tag,
     body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .badge { display: none !important; }
     body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > :first-child > :last-child { gap: 0.25rem !important; }
+}
+
+/* ====================================================================
+   MOBILE TOPBAR — COMPACT SINGLE ROW  (<= 767.98px only)
+
+   Why this block exists: the desktop "flush topbar" rules above pin
+   `flex-wrap: nowrap !important` on the topbar and `flex: 0 0 auto
+   !important` on both clusters (and on .navbar-brand). Below ~486px the
+   three clusters no longer fit, so the action cluster (notifications /
+   messages / user menu) is pushed past the right edge. The bar is
+   overflow-x:hidden, so the page never scrolls horizontally and
+   #user-menu-toggle is simply clipped and unreachable.
+
+   Measured before this fix (sidebar closed):
+     375px -> bar 347, content 797, user menu at x354..398  (off-screen)
+     320px -> bar 292, content 742, user menu at x354..398  (off-screen)
+     768px -> bar 680, content 680                          (fine)
+
+   Fix, phones only. Tablet (>= 768px) and desktop keep the current
+   single-row flush bar byte-identical, and the bar stays single row, so
+   --ulms-topbar-h and the mobile content top offset are unchanged:
+     1. The "portal + role" chip is hidden: it duplicates the drawer
+        sidebar header (ulms-shell-sidebar__eyebrow / __title) and its
+        339px is the single largest cause of the overflow.
+     2. The brand cluster and .navbar-brand become shrinkable so they
+        yield space to the action cluster instead of overflowing. The
+        cluster itself is NOT clipped, so the hamburger keeps its focus
+        ring; only the inner brand link clips.
+     3. The decorative divider between the popovers and the user menu is
+        dropped. It is pure chrome and carries ms-1 me-3 margins, so it
+        costs ~25px including its flex gaps.
+     4. Below 480px the wordmark is hidden (the 120px seal carries the
+        brand) and the header side padding is trimmed to 0.6rem, which
+        keeps every control on-screen even at 320px. Below 768px the
+        sidebar is an off-canvas drawer, so there is no sidebar/topbar
+        flush alignment to preserve at that size.
+   ==================================================================== */
+@media (max-width: 767.98px) {
+    /* 1. Redundant with the drawer sidebar header — see ulms_dashboard_shell.mustache. */
+    body.theme-ulms-university .ulms-portal-navbar > .ulms-shell-topbar > .ulms-shell-topbar__context {
+        display: none !important;
+    }
+
+    /* 2. Brand cluster yields; action cluster keeps its 44px targets. */
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand,
+    body.theme-ulms-university.ulms-standard-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand,
+    body.theme-ulms-university.ulms-secure-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand,
+    body.theme-ulms-university.ulms-drawers-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+    }
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand > .navbar-brand,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand > .navbar-brand,
+    body.theme-ulms-university.ulms-standard-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand > .navbar-brand,
+    body.theme-ulms-university.ulms-secure-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand > .navbar-brand,
+    body.theme-ulms-university.ulms-drawers-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__brand > .navbar-brand {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-topbar__brand .ulms-brand__name,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-topbar__brand .ulms-brand__name {
+        max-width: 100% !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__actions,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top > .ulms-shell-topbar > .ulms-shell-topbar__actions {
+        flex: 0 0 auto !important;
+    }
+
+    /* 3. Decorative separator only — dropping it costs no functionality. */
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-topbar__actions > .divider,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-topbar__actions > .divider {
+        display: none !important;
+    }
+}
+
+@media (max-width: 479.98px) {
+    /* 4. Wordmark out of the way; the 120px seal carries the brand. */
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-topbar__brand .ulms-brand__name,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-topbar__brand .ulms-brand__name {
+        display: none !important;
+    }
+    body.theme-ulms-university header.ulms-portal-navbar.navbar.fixed-top,
+    body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top,
+    body.theme-ulms-university.ulms-standard-shell header.ulms-portal-navbar.navbar.fixed-top,
+    body.theme-ulms-university.ulms-secure-shell header.ulms-portal-navbar.navbar.fixed-top,
+    body.theme-ulms-university.ulms-drawers-shell header.ulms-portal-navbar.navbar.fixed-top {
+        padding-left: max(0.6rem, env(safe-area-inset-left)) !important;
+        padding-right: max(0.6rem, env(safe-area-inset-right)) !important;
+    }
 }
 
 /* ====================================================================
@@ -7148,49 +7114,152 @@ body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .card 
 /* End contrast fixes.  ^EOF */
 
 /* ====================================================================
-   ULMS MOBILE / SMALL-TABLET CORRECTION — Request H, Part A
+   ULMS MOBILE RESPONSIVENESS CORRECTION — Request H, Part A
    --------------------------------------------------------------------
-   Scope: <=991.98px only. Desktop (>=1200px) matches nothing in this
-   block, no rule above is deleted or redefined, and drawer geometry
-   (offset, width, padding, radius, shadow, scrolling) is left exactly
-   as authored — so the established desktop and tablet layouts are
-   preserved and only the confirmed defect is corrected.
+   Scope: mobile and small tablet only. Desktop and working tablet
+   layouts are left intact; this block only restores the mobile drawer
+   and quick-access behaviour shown in the user's screenshots.
 
-   Root cause (established by cascade analysis of this file)
-   ---------------------------------------------------------
-   Three blocks declare the off-canvas sidebar at <=991.98px:
+   Root causes confirmed from the live cascade:
+   1) The <=991.98px drawer block later in the file resets the sidebar
+      to transparent, removes its edge and drops it beneath its own
+      backdrop (`z-index:50` vs overlay `1050`).
+   2) On phones, the sidebar mixes a full-height outer drawer with a
+      shorter inner wrapper (`calc(100vh - topbar)`), while the open
+      body state also applies `touch-action:none`; together this makes
+      the open drawer feel frozen and clips the lower nav items.
+   3) Several older quick-access grid/card rules remain live late in the
+      file and can still force a desktop-style multi-column card layout
+      on narrow phones, which matches the "tall thin columns" screenshot.
 
-     L1985  body.ulms-dashboard-shell .ulms-shell-sidebar  spec (0,2,1)
-            -> position:fixed, z-index:1100, background:#0f3d67
-     L2188  .theme-ulms-university .ulms-shell-sidebar     spec (0,2,0)
-            -> background:var(--ulms-sidebar-bg), border-right
-     L3260  body.ulms-dashboard-shell .ulms-shell-sidebar  spec (0,2,1)
-            -> z-index:50, background:transparent, border-right:0
-
-   L3260 has the same specificity as L1985 but sits later in the file,
-   so it wins for z-index, background and border-right. Those three
-   declarations are the defect:
-     * background:transparent drops the panel surface, so nav labels
-       render straight over the page content and become unreadable;
-     * border-right:0 drops the drawer edge;
-     * z-index:50 places the drawer BELOW its own backdrop
-       (.ulms-shell-overlay, z-index 1050) across the whole
-       768px-991.98px band, so the drawer and every control inside it
-       is unreachable there.
-   The theme's own ladder (--ulms-z-overlay:1050 <
-   --ulms-z-sidebar-drawer:1100, L917-918) shows L3260 contradicts the
-   design tokens. L3575 re-asserts z-index for <=767.98px only, which is
-   why the defect is fully live on small tablets and still strips the
-   background and border on phones.
-
-   Fix: re-assert only those three declarations, via the existing
-   tokens, at the breakpoint L3260 itself uses.
+   Fix:
+   - restore the drawer surface, edge and z-order at <=991.98px;
+   - at <=767.98px make the inner drawer the scroll container, allow
+     vertical touch panning inside it, and clamp the content wrappers;
+   - re-assert a single-column quick-access grid and flexible card layout
+     at the final cascade point for phones only.
    ==================================================================== */
 @media (max-width: 991.98px) {
     body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
         z-index: var(--ulms-z-sidebar-drawer) !important;
         background: var(--ulms-sidebar-bg) !important;
         border-right: 1px solid var(--ulms-sidebar-border) !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    body.theme-ulms-university.is-sidebar-open,
+    body.theme-ulms-university.ulms-dashboard-shell.is-sidebar-open {
+        touch-action: auto !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell #page.drawers,
+    body.theme-ulms-university.ulms-dashboard-shell #topofscroll.main-inner,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-content,
+    body.theme-ulms-university.ulms-dashboard-shell #page-content,
+    body.theme-ulms-university.ulms-dashboard-shell #region-main-box,
+    body.theme-ulms-university.ulms-dashboard-shell #region-main,
+    body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: clip !important;
+        box-sizing: border-box !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar {
+        top: 0 !important;
+        left: 0 !important;
+        width: min(320px, 86vw) !important;
+        max-width: min(320px, 86vw) !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        overflow: hidden !important;
+        overscroll-behavior: none !important;
+        padding: 0 !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__inner {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 1rem !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 100% !important;
+        min-height: 100% !important;
+        max-height: 100% !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+        touch-action: pan-y !important;
+        padding: 1rem 0.9rem calc(1.25rem + env(safe-area-inset-bottom, 0px)) 1rem !important;
+        border-radius: 0 18px 18px 0 !important;
+        box-shadow: 0 10px 36px rgba(10, 29, 48, 0.18) !important;
+        background: var(--ulms-sidebar-bg) !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__nav,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-shell-sidebar__nav > * {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid,
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-quick-access__grid {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.75rem !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card {
+        display: flex !important;
+        grid-template-columns: none !important;
+        grid-template-rows: none !important;
+        grid-template-areas: none !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 96px !important;
+        height: auto !important;
+        padding: 1rem 1.05rem !important;
+        overflow: hidden !important;
+    }
+
+    body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card > .ulms-qa-card__inner {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        gap: 0.85rem !important;
+    }
+}
+
+/* =====================================================================
+   P0 MOBILE/TABLET GRID COLLAPSE — quick-access.
+   The earlier rule
+     body.theme-ulms-university.ulms-dashboard-shell
+       #region-main > section.ulms-quick-access > div
+   carries an ID token, so its specificity (1,3,2) out-ranks every
+   responsive override for the same element (max 0,4,2) and pins the
+   quick-access grid to "repeat(4, minmax(0,1fr)) !important" at every
+   width below 1200px. Re-assert the intended tiers with matching
+   specificity. Small screens only: >=1200px desktop is untouched.
+   ===================================================================== */
+@media (min-width: 768px) and (max-width: 1199.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell #region-main > section.ulms-quick-access > div {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    body.theme-ulms-university.ulms-dashboard-shell #region-main > section.ulms-quick-access > div {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.75rem !important;
     }
 }
 
