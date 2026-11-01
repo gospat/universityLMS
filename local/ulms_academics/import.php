@@ -149,9 +149,6 @@ if ($confirmimport) {
 
 echo $OUTPUT->header();
 echo html_writer::start_div('ulms-page');
-$headercontext = local_ulms_dashboard_get_management_header_context('academics');
-$headercontext['showtitle'] = false;
-echo $OUTPUT->render_from_template('theme_ulms_university/student_portal_context_header', $headercontext);
 
 echo html_writer::start_div('ulms-page-header');
 echo html_writer::tag('div', get_string('pluginname', 'local_ulms_academics'), ['class' => 'ulms-page-header__eyebrow']);
