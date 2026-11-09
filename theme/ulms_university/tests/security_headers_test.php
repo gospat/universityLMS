@@ -32,6 +32,10 @@ defined('MOODLE_INTERNAL') || die();
  *    (authoritative: production runs Nginx, which never reads .htaccess).
  *  - .htaccess, the Apache fallback.
  *
+ * frame-src carries exactly one cross-origin exception, https://vle.kortext.com, for the
+ * Kortext LTI 1.3 content picker. Everything else in the policy remains same-origin, and
+ * the exception is asserted to stay an exact origin so it cannot drift into "frame-src *".
+ *
  * These tests pin the narrowest-safe values so the defect cannot silently return.
  * Runtime behaviour (the actual response headers and a working upload) is proven
  * separately at HTTP/browser level; a CLI test cannot observe header() output.
@@ -75,13 +79,95 @@ final class security_headers_test extends \advanced_testcase {
         $this->assertStringNotContainsString('X-Frame-Options: DENY', $renderer);
         $this->assertStringContainsString("frame-ancestors 'self'; ", $renderer);
         $this->assertStringNotContainsString("frame-ancestors 'none'", $renderer);
-        $this->assertStringContainsString("frame-src 'self'; ", $renderer);
+        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com; ", $renderer);
 
         $this->assertStringContainsString('Header always set X-Frame-Options "SAMEORIGIN"', $htaccess);
         $this->assertStringNotContainsString('X-Frame-Options "DENY"', $htaccess);
         $this->assertStringContainsString("frame-ancestors 'self'", $htaccess);
         $this->assertStringNotContainsString("frame-ancestors 'none'", $htaccess);
-        $this->assertStringContainsString("frame-src 'self'", $htaccess);
+        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com", $htaccess);
+    }
+
+    /**
+     * The Kortext LTI 1.3 content picker must be allowed to be framed.
+     *
+     * Choosing the Kortext activity and clicking "Select content" frames the tool's
+     * content-item page. Under "frame-src 'self'" the browser refused it with
+     *   Framing 'https://vle.kortext.com/' violates the following Content Security
+     *   Policy directive: "frame-src 'self'".
+     * so vle.kortext.com — the LTI host local/ulms_kortext/settings.php already defaults
+     * to — must be named explicitly in both layers.
+     */
+    public function test_kortext_lti_content_picker_origin_is_frame_allowed(): void {
+        $renderer = $this->get_renderer_source();
+        $htaccess = $this->get_htaccess_source();
+
+        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com; ", $renderer);
+        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com", $htaccess);
+
+        // The exception must be the https origin only: no bare host, no scheme wildcard.
+        $this->assertStringNotContainsString("frame-src 'self' vle.kortext.com", $renderer);
+        $this->assertStringNotContainsString("frame-src 'self' *.kortext.com", $renderer);
+        $this->assertStringNotContainsString('frame-src https:', $renderer);
+    }
+
+    /**
+     * The Kortext host must be spelled with the double "t" transposition removed.
+     *
+     * The allow-list previously read "korttext.com" for both connect-src entries, which
+     * named hosts that do not exist and left api.kortext.com / vle.kortext.com refused.
+     */
+    public function test_kortext_hostname_is_not_misspelled(): void {
+        $renderer = $this->get_renderer_source();
+
+        $this->assertStringNotContainsString('korttext', $renderer);
+        $this->assertStringContainsString(
+            "connect-src 'self' https://api.resend.com https://api.kortext.com https://vle.kortext.com; ",
+            $renderer
+        );
+    }
+
+    /**
+     * The framing exception must not have widened the directive generally.
+     *
+     * "frame-src *" (or a bare scheme source) would allow any origin to be framed, which
+     * is a much larger relaxation than the single trusted LTI host this fix requires.
+     */
+    public function test_frame_src_does_not_allow_unrestricted_framing(): void {
+        $renderer = $this->get_renderer_source();
+        $htaccess = $this->get_htaccess_source();
+
+        $this->assertStringNotContainsString("frame-src *", $renderer);
+        $this->assertStringNotContainsString("frame-src 'self' *", $renderer);
+        $this->assertStringNotContainsString("frame-src *;", $htaccess);
+        $this->assertStringNotContainsString("frame-src 'self' *", $htaccess);
+        $this->assertStringNotContainsString("frame-ancestors *", $renderer);
+        $this->assertStringNotContainsString("frame-ancestors *", $htaccess);
+    }
+
+    /**
+     * Every directive other than frame-src and the corrected connect-src must be intact.
+     *
+     * The Kortext exception is deliberately the only change: script, style, image, font,
+     * object, base-uri, form-action, manifest and media restrictions, plus the transport
+     * and nosniff headers, all keep their previous values.
+     */
+    public function test_unrelated_csp_directives_are_unchanged(): void {
+        $renderer = $this->get_renderer_source();
+
+        $this->assertStringContainsString("default-src 'self'; ", $renderer);
+        $this->assertStringContainsString("script-src 'self' 'unsafe-inline' 'unsafe-eval'; ", $renderer);
+        $this->assertStringContainsString("style-src 'self' 'unsafe-inline'; ", $renderer);
+        $this->assertStringContainsString("img-src 'self' data: https:; ", $renderer);
+        $this->assertStringContainsString("font-src 'self' data:; ", $renderer);
+        $this->assertStringContainsString("object-src 'none'; ", $renderer);
+        $this->assertStringContainsString("base-uri 'self'; ", $renderer);
+        $this->assertStringContainsString('form-action {$formactionsrcs}; ', $renderer);
+        $this->assertStringContainsString("manifest-src 'self'; ", $renderer);
+        $this->assertStringContainsString("media-src 'self'; ", $renderer);
+        $this->assertStringContainsString('upgrade-insecure-requests;', $renderer);
+        $this->assertStringContainsString("@header('X-Frame-Options: SAMEORIGIN'", $renderer);
+        $this->assertStringContainsString("@header('X-Content-Type-Options: nosniff'", $renderer);
     }
 
     /**

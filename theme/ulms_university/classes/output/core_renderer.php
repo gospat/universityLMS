@@ -239,15 +239,39 @@ class core_renderer extends \theme_boost\output\core_renderer {
             . "style-src 'self' 'unsafe-inline'; "
             . "img-src 'self' data: https:; "
             . "font-src 'self' data:; "
-            . "connect-src 'self' https://api.resend.com https://api.korttext.com https://vle.korttext.com; "
+            // connect-src names the two Kortext hosts the browser talks to directly:
+            // api.kortext.com (OAuth2 token endpoint) and vle.kortext.com (the LTI 1.3
+            // jwks/auth/launch endpoints). Both are the defaults declared in
+            // local/ulms_kortext/settings.php. The previous entries carried a transposed
+            // host name that allow-listed two hosts which do not exist and left the real
+            // ones refused. Only browser-initiated requests are affected; CSP does not
+            // apply to the plugin's server-side HTTP calls.
+            . "connect-src 'self' https://api.resend.com https://api.kortext.com https://vle.kortext.com; "
             // 'self' (not 'none'): Moodle frames its own documents (file-picker download
             // iframes in lib/form/filemanager.js, resourcelib PDF/H5P embeds, displayh5p
             // filter, portfolio download). 'none' refused every same-origin frame —
             // reproduced as "Framing 'http://127.0.0.1:8000/' violates ... frame-ancestors
             // 'none'" — which breaks file uploads, file selection and embedded resources.
-            // Cross-origin embedding remains refused; only the same origin is permitted.
+            // Cross-origin embedding stays refused. frame-src below names the one
+            // deliberate exception; frame-ancestors stays 'self', so nothing new may
+            // frame Moodle itself.
             . "frame-ancestors 'self'; "
-            . "frame-src 'self'; "
+            // frame-src needs exactly one cross-origin exception: the Kortext LTI 1.3
+            // content picker. Choosing the Kortext activity and clicking "Select content"
+            // embeds the tool's content-item page in an iframe, and under a bare
+            // "frame-src 'self'" Chrome refuses it with
+            //   Framing 'https://vle.kortext.com/' violates the following Content
+            //   Security Policy directive: "frame-src 'self'". The request has been
+            //   blocked.
+            // which is the reported "This content is blocked. Contact the site owner to
+            // fix the issue."
+            //
+            // vle.kortext.com is the LTI host the integration already trusts: it is the
+            // default for the tool's launch/jwks/auth endpoints in
+            // local/ulms_kortext/settings.php. The entry is an exact origin — no scheme
+            // wildcard, no subdomain wildcard and no unrestricted framing source — so
+            // framing stays same-origin apart from this single named third party.
+            . "frame-src 'self' https://vle.kortext.com; "
             . "object-src 'none'; "
             . "base-uri 'self'; "
             . "form-action {$formactionsrcs}; "
