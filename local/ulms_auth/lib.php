@@ -289,6 +289,68 @@ function local_ulms_auth_send_transactional_email(
 }
 
 /**
+ * Returns the shared branding values used by every ULMS branded email.
+ *
+ * The logo prefers the administrator-configured site logo and falls back to the
+ * theme's own hosted PNG. A static, publicly served PNG is deliberately used as
+ * the fallback because it cannot expire, cannot require a session and is
+ * supported by every mail client, including those that reject SVG.
+ *
+ * @return array{brandname:string,logourl:string,siteurl:string,support:string,footer:string}
+ */
+function local_ulms_auth_get_email_branding(): array {
+    global $CFG;
+
+    $site = get_site();
+    $brandname = format_string($site->fullname);
+
+    $logourl = '';
+    if (isset($GLOBALS['OUTPUT']) && is_object($GLOBALS['OUTPUT'])
+            && method_exists($GLOBALS['OUTPUT'], 'get_logo_url')) {
+        // get_logo_url($maxwidth, $maxheight): the second argument is a pixel
+        // height, not a boolean, so request the retina-density variant that is
+        // designed to be displayed at 100px.
+        $logo = $GLOBALS['OUTPUT']->get_logo_url(null, 200);
+        if ($logo instanceof moodle_url) {
+            $logourl = $logo->out(false);
+        }
+    }
+    if ($logourl === '') {
+        $logourl = $CFG->wwwroot . '/theme/ulms_university/pix/logo.png';
+    }
+
+    $supportname = !empty($CFG->supportname) ? (string)$CFG->supportname : $brandname;
+    $supportemail = !empty($CFG->supportemail)
+        ? (string)$CFG->supportemail
+        : (string)($CFG->ulmsreplyto ?? '');
+
+    return [
+        'brandname' => $brandname,
+        'logourl' => $logourl,
+        'siteurl' => (new moodle_url('/'))->out(false),
+        'support' => $supportemail !== ''
+            ? get_string('emailtemplatesupport', 'local_ulms_auth', (object)[
+                'supportname' => $supportname,
+                'supportemail' => $supportemail,
+            ])
+            : get_string('emailtemplatesupportfallback', 'local_ulms_auth', $supportname),
+        'footer' => get_string('emailtemplatefooter', 'local_ulms_auth', $brandname),
+    ];
+}
+
+/**
+ * Renders a ULMS branded email by merging caller content with shared branding.
+ *
+ * @param array $content Content recognised by email_template_service::render_html().
+ * @return string Complete HTML document, ready for the mail transport.
+ */
+function local_ulms_auth_render_branded_email(array $content): string {
+    $service = new \local_ulms_auth\local\service\email_template_service();
+
+    return $service->render_html(array_merge(local_ulms_auth_get_email_branding(), $content));
+}
+
+/**
  * Sends a dedicated password reset email using the clean ULMS reset route.
  *
  * @param stdClass $user
@@ -296,20 +358,52 @@ function local_ulms_auth_send_transactional_email(
  * @return bool
  */
 function local_ulms_auth_send_password_reset_email(stdClass $user, stdClass $resetrecord): bool {
+    global $CFG;
+
     $site = get_site();
+    $sitename = format_string($site->fullname);
+    $resetminutes = isset($CFG->pwresettime) ? (int)floor($CFG->pwresettime / MINSECS) : 30;
+    $resetlink = local_ulms_auth_get_password_reset_token_url(null, $resetrecord->token)->out(false);
+    $signinurl = local_ulms_auth_get_unified_sign_in_url()->out(false);
+    $expirynote = get_string('emailvalueexpiry', 'local_ulms_auth', $resetminutes);
+    $intro = get_string('passwordresetemailintro', 'local_ulms_auth', (object)['sitename' => $sitename]);
+
     $data = (object)[
         'firstname' => fullname($user),
         'username' => $user->username,
-        'resetlink' => local_ulms_auth_get_password_reset_token_url(null, $resetrecord->token)->out(false),
-        'signinurl' => local_ulms_auth_get_unified_sign_in_url()->out(false),
-        'sitename' => format_string($site->fullname),
+        'resetlink' => $resetlink,
+        'signinurl' => $signinurl,
+        'sitename' => $sitename,
         'supportsignature' => generate_email_signoff(),
-        'resetminutes' => isset($GLOBALS['CFG']->pwresettime) ? (int)floor($GLOBALS['CFG']->pwresettime / MINSECS) : 30,
+        'resetminutes' => $resetminutes,
+        'expirynote' => $expirynote,
     ];
 
-    $subject = get_string('passwordresetemailsubject', 'local_ulms_auth', format_string($site->fullname));
+    $subject = get_string('passwordresetemailsubject', 'local_ulms_auth', $sitename);
     $messagetext = get_string('passwordresetemailbody', 'local_ulms_auth', $data);
-    $messagehtml = text_to_html($messagetext, false, false, true);
+    $messagehtml = local_ulms_auth_render_branded_email([
+        'preheader' => $intro,
+        'heading' => get_string('passwordresetcompleteheading', 'local_ulms_auth'),
+        'intro' => $intro,
+        'details' => [
+            [
+                'label' => get_string('emaillabelusername', 'local_ulms_auth'),
+                'value' => $user->username,
+                'emphasis' => true,
+            ],
+            [
+                'label' => get_string('emaillabellinkexpiry', 'local_ulms_auth'),
+                'value' => $expirynote,
+            ],
+        ],
+        'cta' => [
+            'label' => get_string('passwordresetemailcta', 'local_ulms_auth'),
+            'url' => $resetlink,
+        ],
+        'fallback' => get_string('emailtemplatebuttonfallback', 'local_ulms_auth'),
+        'notice' => get_string('passwordresetemailsecurity', 'local_ulms_auth') . "\n\n"
+            . get_string('passwordresetemailrenew', 'local_ulms_auth'),
+    ]);
 
     return local_ulms_auth_send_transactional_email(
         $user,

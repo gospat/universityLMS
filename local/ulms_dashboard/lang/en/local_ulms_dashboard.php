@@ -281,11 +281,18 @@ Activate account: {$a->activationlink}
 Unified sign-in: {$a->signinurl}
 
 Set a secure password using the activation link before signing in.
+The activation link is single-use and expires {$a->expirynote}.
+If it has already expired, request a new password reset link from the sign-in page.
 
-If you did not expect this account, contact support immediately.
+If you did not expect this account to be created, contact support immediately.
 
 {$a->supportsignature}';
 $string['provisioningaccountemailsubject'] = '{$a}: activate your ULMS account';
+$string['provisioningemailcta'] = 'Activate account';
+$string['provisioningemailheading'] = 'Activate your ULMS account';
+$string['provisioningemailintro'] = 'Your {$a->rolelabel} account has been created for {$a->sitename}. Set a secure password using the activation link to finish setting up access.';
+$string['provisioningemailrenew'] = 'If the activation link has expired, request a new password reset link from the sign-in page and complete setup within {$a} minutes.';
+$string['provisioningemailsecurity'] = 'If you did not expect this account to be created, do not use the activation link. Contact support immediately so the account can be secured.';
 $string['provisioningactivityheading'] = 'Recent provisioning activity';
 $string['provisioningactivityemptydesc'] = 'Account creation attempts and delivery outcomes will appear here after admins provision new users.';
 $string['provisioningactivityemptyheading'] = 'No recent provisioning activity yet';

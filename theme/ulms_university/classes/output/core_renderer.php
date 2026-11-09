@@ -1000,15 +1000,19 @@ class core_renderer extends \theme_boost\output\core_renderer {
      * @param int|null $maxwidth  Maximum acceptable width (ignored — PNG is
      *                            rasterized at final 600×200, CSS handles resizing).
      * @param int|null $maxheight Maximum acceptable height (same note).
-     * @return \moodle_url|string Always returns our theme logo URL (string form
-     *                            so Mustache direct src attribute use works).
+     * @return \moodle_url Always returns our theme logo URL. The return type
+     *                     must stay a moodle_url to honour the parent contract:
+     *                     core callers such as enrol/lti/register.php call
+     *                     ->out(false) on the result and admin/tool/mobile
+     *                     checks instanceof moodle_url. Mustache
+     *                     {{output.get_compact_logo_url}} still works because
+     *                     moodle_url::__toString() returns out(false).
      */
     public function get_compact_logo_url($maxwidth = 300, $maxheight = 300) {
         try {
-            return (string)$this->image_url('logo', 'theme_ulms_university');
+            return $this->image_url('logo', 'theme_ulms_university');
         } catch (\Throwable $_unused) {
-            global $CFG;
-            return ($CFG->wwwroot ?? '') . '/theme/ulms_university/pix/logo.png';
+            return new \moodle_url('/theme/ulms_university/pix/logo.png');
         }
     }
 

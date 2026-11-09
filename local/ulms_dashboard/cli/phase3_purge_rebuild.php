@@ -198,13 +198,6 @@ foreach ($themes as $themename) {
         $size = strlen($css);
         $theme_css_bytes[$themename] = $size;
         $build_log[] = "$themename: compiled OK ($size bytes, contains ulms-shell=".(strpos($css,'ulms-shell')!==false?'Y':'N').")";
-        if ($themename === 'ulms_university') {
-            $outdir = $CFG->dirroot.'/theme/ulms_university/style';
-            if (!is_dir($outdir)) { @mkdir($outdir, $CFG->directorypermissions ?? 0755, true); }
-            $outfile = $outdir.'/default.css';
-            file_put_contents($outfile, $css);
-            $build_log[] = "  -> wrote $outfile";
-        }
     } catch (\Throwable $e) {
         $build_log[] = "$themename: EXCEPTION ".get_class($e)." :: ".$e->getMessage();
     }
@@ -212,16 +205,18 @@ foreach ($themes as $themename) {
 cli_writeln("build_css: ".implode(' | ', $build_log));
 
 cli_writeln("\n=== Verify compiled CSS size ===");
-$cssPath = $CFG->dirroot.'/theme/ulms_university/style/default.css';
-if (file_exists($cssPath)) {
-    $sz = filesize($cssPath);
+// Measured from the served SCSS pipeline above, not from a file on disk.
+// theme/ulms_university/style/default.css was never served ($THEME->sheets
+// is empty), so it has been removed and must not be recreated here.
+$sz = $theme_css_bytes['ulms_university'] ?? 0;
+if ($sz > 0) {
     $ok = $sz <= 950 * 1024;
     cli_writeln("CSS size: {$sz} bytes (972,800 budget) - status: ".($ok?'PASS':'FAIL'));
     if (!$ok) {
         cli_writeln("  WARNING CSS exceeds budget by ".($sz - 950*1024)." bytes");
     }
 } else {
-    cli_writeln("WARN compiled css not at $cssPath");
+    cli_writeln("WARN ulms_university SCSS did not compile - size check skipped");
 }
 
 $urls = [

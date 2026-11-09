@@ -62,10 +62,6 @@ $formerror = '';
 $fielderrors = ['username' => '', 'password' => ''];
 $rememberusername = local_ulms_auth_should_remember_username_by_default();
 $matchedportal = null;
-$otherportals = array_values(array_filter(
-    $service->get_portal_cards(),
-    static fn(array $item): bool => $item['key'] !== $portalkey
-));
 
 if (isloggedin() && !isguestuser()) {
     $service->redirect_to_current_user_dashboard(
@@ -231,13 +227,6 @@ echo html_writer::start_div('ulms-role-login__hero');
 echo html_writer::tag('p', format_string($portal['eyebrow']), ['class' => 'ulms-role-login__eyebrow']);
 echo html_writer::tag('h1', format_string($portal['title']), ['class' => 'ulms-role-login__title']);
 echo html_writer::tag('p', format_string($portal['description']), ['class' => 'ulms-role-login__meta']);
-echo html_writer::tag('p', get_string('portalaudience', 'local_ulms_auth', $portal['audiencesummary']), ['class' => 'ulms-role-login__note']);
-echo html_writer::tag('p', get_string('portalaccessnote', 'local_ulms_auth'), ['class' => 'ulms-role-login__note']);
-echo local_ulms_auth_render_info_list([
-    get_string('portalsecurityitemportal', 'local_ulms_auth'),
-    get_string('portalsecurityitempassword', 'local_ulms_auth'),
-    get_string('portalsecurityitemrecovery', 'local_ulms_auth'),
-]);
 echo html_writer::end_div();
 
 echo html_writer::start_div('ulms-role-login__layout');
@@ -376,8 +365,6 @@ echo local_ulms_auth_render_info_list([
     get_string('portalsecurityitempassword', 'local_ulms_auth'),
     get_string('portalsecurityitemrecovery', 'local_ulms_auth'),
 ]);
-echo html_writer::tag('h3', get_string('portalalternateheading', 'local_ulms_auth'), ['class' => 'ulms-role-login__section-title']);
-echo local_ulms_auth_render_portal_cards($otherportals, 'h4');
 echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::end_div();

@@ -74,14 +74,6 @@ echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel__body');
 echo local_ulms_auth_render_portal_cards($portals, 'h3');
-echo html_writer::div(
-    html_writer::link(
-        $service->get_url_for_route('public.passwordreset'),
-        get_string('portallandingpasswordresetcta', 'local_ulms_auth'),
-        ['class' => 'ulms-role-login__secondary-link']
-    ),
-    'ulms-role-login__actions'
-);
 echo html_writer::end_div();
 echo html_writer::end_div();
 echo html_writer::end_div();

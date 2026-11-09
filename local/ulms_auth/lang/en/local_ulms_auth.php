@@ -40,6 +40,15 @@ $string['activationrequestnewlink'] = 'Request a new password reset link';
 $string['activationtokenexpired'] = 'This activation link has expired. Request a new access link and complete setup within {$a} minutes.';
 $string['activationtokeninvalid'] = 'This activation link is invalid or has already been used.';
 $string['alreadyauthenticatedredirect'] = 'You are already signed in. Redirecting to your authorised portal.';
+$string['emaillabellinkexpiry'] = 'Link expiry';
+$string['emaillabelrole'] = 'Account type';
+$string['emaillabelusername'] = 'Username';
+$string['emailtemplatebuttonfallback'] = 'If the button above does not work, copy and paste this address into your browser:';
+$string['emailtemplatebuttonfallback_help'] = 'Fallback instruction shown under the primary action button in a branded email, so the same secure link can always be reached without HTML button support.';
+$string['emailtemplatefooter'] = 'This is an automated message from {$a}. Please do not reply to this email.';
+$string['emailtemplatesupport'] = 'Need help? Contact {$a->supportname} at {$a->supportemail}.';
+$string['emailtemplatesupportfallback'] = 'Need help? Contact your institution\'s support team.';
+$string['emailvalueexpiry'] = '{$a} minutes after it was requested';
 $string['invalidportalroute'] = 'The requested portal route is not available.';
 $string['lecturerportalaudience'] = 'Lecturers and teaching staff assigned to course delivery.';
 $string['lecturerportaldesc'] = 'Open your teaching dashboard, course delivery tools, grading queue, and lecturer-only academic workspace.';
@@ -53,7 +62,6 @@ $string['portallandinghelpheading'] = 'Sign-in support';
 $string['portallandingnote'] = 'This is the only public ULMS sign-in entry. Select your portal below to continue.';
 $string['portallandingpaneldesc'] = 'Each portal leads to a separate role-specific sign-in flow with its own protected interface.';
 $string['portallandingpaneltitle'] = 'Select your portal';
-$string['portallandingpasswordresetcta'] = 'Need help with password recovery?';
 $string['portallandingtitle'] = 'Sign in to University Learning Management System';
 $string['passwordresetcontactsupportfallback'] = 'the support team';
 $string['passwordreseteyebrow'] = 'Account recovery';
@@ -76,9 +84,16 @@ Username: {$a->username}
 Reset password: {$a->resetlink}
 Sign in after reset: {$a->signinurl}
 
+This link is single-use and expires {$a->expirynote}.
+If the link has already expired, request a new password reset link from the sign-in page.
+
 If you did not request this password reset, you can ignore this email and your current password will remain unchanged.
 
 {$a->supportsignature}';
+$string['passwordresetemailcta'] = 'Reset password';
+$string['passwordresetemailintro'] = 'We received a request to reset the password for your {$a->sitename} account. Choose a new password to regain access.';
+$string['passwordresetemailrenew'] = 'If the link has already expired, request a new password reset link from the sign-in page.';
+$string['passwordresetemailsecurity'] = 'If you did not request this password reset, you can ignore this email and your current password will remain unchanged.';
 $string['passwordresetemailsubject'] = '{$a}: reset your ULMS password';
 $string['passwordresethelpbody'] = 'If recovery email delivery is unavailable, contact {$a} for manual assistance.';
 $string['passwordresethelpheading'] = 'Need help?';
@@ -99,9 +114,6 @@ $string['passwordresetsubmitting'] = 'Sending instructions...';
 $string['passwordresettokenexpired'] = 'This password reset link has expired. Request a new one and complete the reset within {$a} minutes.';
 $string['passwordresettokeninvalid'] = 'This password reset link is invalid or has already been used.';
 $string['passwordresettemporarilyunavailable'] = 'Password recovery is temporarily unavailable. Please try again later or contact {$a}.';
-$string['portalaudience'] = 'Access scope: {$a}';
-$string['portalaccessnote'] = 'Use the correct portal for your institutional role to avoid access issues after sign-in.';
-$string['portalalternateheading'] = 'Other portals';
 $string['portalbacktolanding'] = 'Back to portal selection';
 $string['portalcontinuecta'] = 'Open portal';
 $string['portalhidepassword'] = 'Hide password';

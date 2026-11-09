@@ -535,24 +535,52 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Set up PHP ${{ env.PHP_VERSION }}
+        # phpcs deliberately comes from the moodle-cs install below instead of the
+        # `tools` list. The Moodle ruleset and phpcsextra both extend classes from
+        # PHPCSUtils, and PHPCSUtils is only autoloadable when phpcs shares a Composer
+        # vendor tree with the standard. A separately installed phpcs lists the standard
+        # happily but then aborts on an unresolved PHPCSUtils class, so the scan would
+        # report nothing while looking healthy.
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ env.PHP_VERSION }}
           coverage: none
-          tools: composer:v2, phpcs
+          tools: composer:v2
 
       - name: Install the Moodle CodeSniffer standard
-        run: composer create-project -n --no-dev --prefer-dist moodlehq/moodle-cs /tmp/moodle-cs
+        # Pinned, because an unpinned `create-project` silently followed moodle-cs v3.9.0
+        # when it moved its rulesets out of the package root and into `Standards/`. The
+        # paths registered below then pointed at directories that no longer existed, the
+        # `moodle` standard went unregistered, and this job failed with "The 'moodle'
+        # coding standard is not registered". Pinning keeps the toolchain reproducible, as
+        # the Composer install above already is: bump this tag and re-check the layout
+        # assumptions in the next step together.
+        run: composer create-project -n --no-dev --prefer-dist moodlehq/moodle-cs:3.9.0 /tmp/moodle-cs
 
       - name: Register the standard with PHP_CodeSniffer
-        # moodle-cs keeps its rulesets in `moodle/` and `moodle-extra/`, and the Moodle
-        # standard references sniffs from phpcsextra. All three paths must be registered:
-        # pointing phpcs at the moodle-cs root alone registers the two Moodle rulesets but
-        # not phpcsextra, and every phpcsextra sniff then fails to resolve with
+        # The Moodle standard references sniffs from phpcsextra, and the two Moodle
+        # rulesets are separate standards. All three paths must be registered: pointing
+        # phpcs at the moodle-cs package alone registers the Moodle rulesets but not
+        # phpcsextra, and every phpcsextra sniff then fails to resolve with
         # "Referenced sniff ... does not exist".
+        #
+        # The rulesets live in `Standards/moodle` and `Standards/moodle-extra` from
+        # moodle-cs v3.9.0; earlier releases (v3.7.0 and below) kept them at the package
+        # root as `moodle/` and `moodle-extra/`. The location is resolved rather than
+        # hardcoded so this gate cannot be silently disabled by a future relocation.
         run: |
-          phpcs --config-set installed_paths /tmp/moodle-cs/moodle,/tmp/moodle-cs/moodle-extra,/tmp/moodle-cs/vendor/phpcsstandards/phpcsextra
-          phpcs -i
+          set -euo pipefail
+          # The package root holds `vendor/`; only the two rulesets move into `Standards/`.
+          pkg=/tmp/moodle-cs
+          standards="${pkg}"
+          if [ -d "${pkg}/Standards/moodle" ]; then
+            standards="${pkg}/Standards"
+          fi
+          # Register against the phpcs that moodle-cs installed, and put it first on PATH
+          # for the remaining steps, so phpcs and the standard share one vendor tree.
+          echo "${pkg}/vendor/bin" >> "${GITHUB_PATH}"
+          "${pkg}/vendor/bin/phpcs" --config-set installed_paths "${standards}/moodle,${standards}/moodle-extra,${pkg}/vendor/phpcsstandards/phpcsextra"
+          "${pkg}/vendor/bin/phpcs" -i
 
       - name: Check the Moodle standard actually loaded
         # A coding-standard job that cannot load the standard must not look like a pass.
@@ -578,8 +606,8 @@ jobs:
           set +e
           phpcs -q --report=summary --extensions=php local theme/ulms_university 2>&1 | tee /tmp/phpcs.log
           status=${PIPESTATUS[0]}
-          if grep -q 'Referenced sniff' /tmp/phpcs.log; then
-            echo "::error::phpcs could not resolve the Moodle standard, so the results above are invalid."
+          if grep -Eq 'Referenced sniff|Fatal error' /tmp/phpcs.log; then
+            echo "::error::phpcs could not run the Moodle standard to completion, so the results above are invalid."
             exit 1
           fi
           if [ "$status" -eq 0 ]; then
