@@ -252,13 +252,13 @@ class core_renderer extends \theme_boost\output\core_renderer {
             // filter, portfolio download). 'none' refused every same-origin frame —
             // reproduced as "Framing 'http://127.0.0.1:8000/' violates ... frame-ancestors
             // 'none'" — which breaks file uploads, file selection and embedded resources.
-            // Cross-origin embedding stays refused. frame-src below names the one
-            // deliberate exception; frame-ancestors stays 'self', so nothing new may
+            // Cross-origin embedding stays refused apart from frame-src below, which names
+            // the deliberate exceptions; frame-ancestors stays 'self', so nothing new may
             // frame Moodle itself.
             . "frame-ancestors 'self'; "
-            // frame-src needs exactly one cross-origin exception: the Kortext LTI 1.3
-            // content picker. Choosing the Kortext activity and clicking "Select content"
-            // embeds the tool's content-item page in an iframe, and under a bare
+            // frame-src needs cross-origin exceptions for the Kortext LTI 1.3 content
+            // picker. Choosing the Kortext activity and clicking "Select content" embeds
+            // the tool's content-item page in an iframe, and under a bare
             // "frame-src 'self'" Chrome refuses it with
             //   Framing 'https://vle.kortext.com/' violates the following Content
             //   Security Policy directive: "frame-src 'self'". The request has been
@@ -266,12 +266,22 @@ class core_renderer extends \theme_boost\output\core_renderer {
             // which is the reported "This content is blocked. Contact the site owner to
             // fix the issue."
             //
-            // vle.kortext.com is the LTI host the integration already trusts: it is the
-            // default for the tool's launch/jwks/auth endpoints in
-            // local/ulms_kortext/settings.php. The entry is an exact origin — no scheme
-            // wildcard, no subdomain wildcard and no unrestricted framing source — so
-            // framing stays same-origin apart from this single named third party.
-            . "frame-src 'self' https://vle.kortext.com; "
+            // Two Kortext origins serve that flow, and each was added only after a real
+            // browser run reported the violation for it:
+            //   - vle.kortext.com  the LTI host the integration already trusts; it is the
+            //     default for the tool's launch/jwks/auth endpoints in
+            //     local/ulms_kortext/settings.php.
+            //   - app.kortext.com  the content-picker application, which the first deploy
+            //     still refused with
+            //       Framing 'https://app.kortext.com/' violates the following Content
+            //       Security Policy directive: "frame-src 'self' https://vle.kortext.com".
+            // Listing a host here only permits Moodle to embed it; it grants no scripting,
+            // form or data access, which is why app.kortext.com is deliberately NOT added
+            // to connect-src.
+            // Each entry is an exact https origin — no scheme wildcard, no subdomain
+            // wildcard and no unrestricted framing source — so framing stays same-origin
+            // apart from these two named third parties.
+            . "frame-src 'self' https://vle.kortext.com https://app.kortext.com; "
             . "object-src 'none'; "
             . "base-uri 'self'; "
             . "form-action {$formactionsrcs}; "

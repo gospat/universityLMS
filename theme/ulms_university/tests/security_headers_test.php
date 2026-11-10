@@ -32,9 +32,10 @@ defined('MOODLE_INTERNAL') || die();
  *    (authoritative: production runs Nginx, which never reads .htaccess).
  *  - .htaccess, the Apache fallback.
  *
- * frame-src carries exactly one cross-origin exception, https://vle.kortext.com, for the
- * Kortext LTI 1.3 content picker. Everything else in the policy remains same-origin, and
- * the exception is asserted to stay an exact origin so it cannot drift into "frame-src *".
+ * frame-src carries exactly two cross-origin exceptions for the Kortext LTI 1.3 content
+ * picker, https://vle.kortext.com and https://app.kortext.com. Everything else in the
+ * policy remains same-origin, and each exception is asserted to stay an exact origin so
+ * it cannot drift into "frame-src *".
  *
  * These tests pin the narrowest-safe values so the defect cannot silently return.
  * Runtime behaviour (the actual response headers and a working upload) is proven
@@ -79,36 +80,62 @@ final class security_headers_test extends \advanced_testcase {
         $this->assertStringNotContainsString('X-Frame-Options: DENY', $renderer);
         $this->assertStringContainsString("frame-ancestors 'self'; ", $renderer);
         $this->assertStringNotContainsString("frame-ancestors 'none'", $renderer);
-        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com; ", $renderer);
+        $this->assertStringContainsString(
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com; ",
+            $renderer
+        );
 
         $this->assertStringContainsString('Header always set X-Frame-Options "SAMEORIGIN"', $htaccess);
         $this->assertStringNotContainsString('X-Frame-Options "DENY"', $htaccess);
         $this->assertStringContainsString("frame-ancestors 'self'", $htaccess);
         $this->assertStringNotContainsString("frame-ancestors 'none'", $htaccess);
-        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com", $htaccess);
+        $this->assertStringContainsString(
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com",
+            $htaccess
+        );
     }
 
     /**
      * The Kortext LTI 1.3 content picker must be allowed to be framed.
      *
      * Choosing the Kortext activity and clicking "Select content" frames the tool's
-     * content-item page. Under "frame-src 'self'" the browser refused it with
+     * content-item pages. Under "frame-src 'self'" the browser refused the LTI host with
      *   Framing 'https://vle.kortext.com/' violates the following Content Security
      *   Policy directive: "frame-src 'self'".
-     * so vle.kortext.com — the LTI host local/ulms_kortext/settings.php already defaults
-     * to — must be named explicitly in both layers.
+     * and, once the LTI host was allowed, the picker application itself was still refused
+     * with
+     *   Framing 'https://app.kortext.com/' violates the following Content Security
+     *   Policy directive: "frame-src 'self' https://vle.kortext.com".
+     * so both https://vle.kortext.com (the LTI host local/ulms_kortext/settings.php
+     * already defaults to) and https://app.kortext.com (the content-picker app) must be
+     * named explicitly in both layers.
      */
     public function test_kortext_lti_content_picker_origin_is_frame_allowed(): void {
         $renderer = $this->get_renderer_source();
         $htaccess = $this->get_htaccess_source();
 
-        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com; ", $renderer);
-        $this->assertStringContainsString("frame-src 'self' https://vle.kortext.com", $htaccess);
+        $this->assertStringContainsString(
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com; ",
+            $renderer
+        );
+        $this->assertStringContainsString(
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com",
+            $htaccess
+        );
 
-        // The exception must be the https origin only: no bare host, no scheme wildcard.
-        $this->assertStringNotContainsString("frame-src 'self' vle.kortext.com", $renderer);
-        $this->assertStringNotContainsString("frame-src 'self' *.kortext.com", $renderer);
+        // The LTI host must not be left as the only origin (the pre-fix policy).
+        $this->assertStringNotContainsString("frame-src 'self' https://vle.kortext.com; ", $renderer);
+
+        // Each exception must be the https origin only: no bare host, no subdomain wildcard.
+        $this->assertStringNotContainsString('frame-src ' . "'self' vle.kortext.com", $renderer);
+        $this->assertStringNotContainsString('frame-src ' . "'self' app.kortext.com", $renderer);
+        $this->assertStringNotContainsString('*.kortext.com', $renderer);
         $this->assertStringNotContainsString('frame-src https:', $renderer);
+
+        // Framing a host grants no scripting, form or data access, so allowing the picker
+        // in frame-src must not widen connect-src with the same origin.
+        $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*app\.kortext\.com/', $renderer);
+        $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*app\.kortext\.com/', $htaccess);
     }
 
     /**
@@ -131,7 +158,7 @@ final class security_headers_test extends \advanced_testcase {
      * The framing exception must not have widened the directive generally.
      *
      * "frame-src *" (or a bare scheme source) would allow any origin to be framed, which
-     * is a much larger relaxation than the single trusted LTI host this fix requires.
+     * is a much larger relaxation than the two trusted LTI origins this fix requires.
      */
     public function test_frame_src_does_not_allow_unrestricted_framing(): void {
         $renderer = $this->get_renderer_source();
@@ -148,7 +175,7 @@ final class security_headers_test extends \advanced_testcase {
     /**
      * Every directive other than frame-src and the corrected connect-src must be intact.
      *
-     * The Kortext exception is deliberately the only change: script, style, image, font,
+     * The Kortext exceptions are deliberately the only change: script, style, image, font,
      * object, base-uri, form-action, manifest and media restrictions, plus the transport
      * and nosniff headers, all keep their previous values.
      */
