@@ -54,14 +54,18 @@ AllowOverride None
     # https://stats.moodle.org/local/hub/siteregistration.php. See
     # theme/ulms_university/classes/output/core_renderer.php. No other directive is relaxed.
     #
-    # frame-src allows two cross-origin origins, https://vle.kortext.com and
-    # https://app.kortext.com, because the Kortext LTI 1.3 "Select content" picker is
-    # framed by Moodle. Without them the browser blocks the picker with: Framing
+    # frame-src allows three cross-origin origins — https://vle.kortext.com,
+    # https://app.kortext.com and https://read.kortext.com — because the Kortext LTI 1.3
+    # "Select content" picker and the reader/bookshelf launch surface are framed by
+    # Moodle. Without them the browser blocks the picker with: Framing
     # 'https://vle.kortext.com/' (or 'https://app.kortext.com/') violates the following
-    # Content Security Policy directive: "frame-src 'self'". This mirrors the
-    # authoritative PHP policy in theme/ulms_university/classes/output/core_renderer.php;
-    # production runs Nginx and never reads this file, so the two must be kept in step.
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'self'; frame-src 'self' https://vle.kortext.com https://app.kortext.com; base-uri 'self'; form-action 'self' https://stats.moodle.org; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
+    # Content Security Policy directive: "frame-src 'self'". read.kortext.com is the
+    # Kortext-confirmed reader host the framed LTI launch redirects to, so it is named
+    # in frame-src only — never in connect-src, since no Moodle-page script requests it.
+    # This mirrors the authoritative PHP policy in
+    # theme/ulms_university/classes/output/core_renderer.php; production runs Nginx and
+    # never reads this file, so the two must be kept in step.
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; frame-ancestors 'self'; frame-src 'self' https://vle.kortext.com https://app.kortext.com https://read.kortext.com; base-uri 'self'; form-action 'self' https://stats.moodle.org; object-src 'none'; base-uri 'self'; upgrade-insecure-requests;"
     Header always unset X-Powered-By
 </IfModule>
 

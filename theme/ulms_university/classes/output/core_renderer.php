@@ -266,22 +266,29 @@ class core_renderer extends \theme_boost\output\core_renderer {
             // which is the reported "This content is blocked. Contact the site owner to
             // fix the issue."
             //
-            // Two Kortext origins serve that flow, and each was added only after a real
-            // browser run reported the violation for it:
-            //   - vle.kortext.com  the LTI host the integration already trusts; it is the
+            // Three Kortext origins serve that flow; each was added only after a real
+            // browser run reported the violation, or a Kortext-confirmed requirement:
+            //   - vle.kortext.com   the LTI host the integration already trusts; it is the
             //     default for the tool's launch/jwks/auth endpoints in
             //     local/ulms_kortext/settings.php.
-            //   - app.kortext.com  the content-picker application, which the first deploy
+            //   - app.kortext.com   the content-picker application, which the first deploy
             //     still refused with
             //       Framing 'https://app.kortext.com/' violates the following Content
             //       Security Policy directive: "frame-src 'self' https://vle.kortext.com".
+            //   - read.kortext.com  the reader/bookshelf surface the LTI 1.3 launch hands
+            //     off to. Kortext support confirmed the domain must be permitted; the LTI
+            //     launch document is framed by mod_lti, so a redirect of that frame to the
+            //     reader host is checked against frame-src and must be named here.
             // Listing a host here only permits Moodle to embed it; it grants no scripting,
-            // form or data access, which is why app.kortext.com is deliberately NOT added
-            // to connect-src.
+            // form or data access, which is why app.kortext.com and read.kortext.com are
+            // deliberately NOT added to connect-src. (No Moodle-page script requests the
+            // reader: the portal's eTextbook link opens in a new tab, which no CSP
+            // directive governs, and the reader's own subresource calls run inside the
+            // framed document under Kortext's own policy.)
             // Each entry is an exact https origin — no scheme wildcard, no subdomain
             // wildcard and no unrestricted framing source — so framing stays same-origin
-            // apart from these two named third parties.
-            . "frame-src 'self' https://vle.kortext.com https://app.kortext.com; "
+            // apart from these three named third parties.
+            . "frame-src 'self' https://vle.kortext.com https://app.kortext.com https://read.kortext.com; "
             . "object-src 'none'; "
             . "base-uri 'self'; "
             . "form-action {$formactionsrcs}; "
