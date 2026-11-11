@@ -537,6 +537,15 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     if (w >= BP_MD) return 'md';
                     return 'sm';
                 };
+                var toggleExpandedForState = function() {
+                    // In 'sm' the toggle owns the off-canvas drawer, so aria-expanded
+                    // mirrors the drawer's open state. On 'xl'/'md' it owns the rail,
+                    // so aria-expanded mirrors whether the rail is expanded.
+                    if (viewportMode() === 'sm') {
+                        return portalShell.classList.contains('is-sidebar-open');
+                    }
+                    return !portalShell.classList.contains('is-sidebar-collapsed');
+                };
                 var lockBodyScroll = function(on) {
                     if (!document.body) return;
                     var htmlEl = document.documentElement;
@@ -594,7 +603,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     var wasOpen = portalShell.classList.contains('is-sidebar-open');
                     portalShell.classList.remove('is-sidebar-open');
                     if (document.body) document.body.classList.remove('is-sidebar-open', 'ulms-sidebar-open');
-                    setAllTogglesExpanded(!portalShell.classList.contains('is-sidebar-collapsed'));
+                    setAllTogglesExpanded(toggleExpandedForState());
                     sidebar.setAttribute('aria-hidden', 'true');
                     if (wasOpen) {
                         (function removeInert() {
@@ -618,7 +627,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     portalShell.classList.add('is-sidebar-open');
                     if (document.body) document.body.classList.add('is-sidebar-open', 'ulms-sidebar-open');
                     portalShell.classList.remove('is-sidebar-collapsed');
-                    setAllTogglesExpanded('true');
+                    setAllTogglesExpanded(true);
                     sidebar.setAttribute('aria-hidden', 'false');
                     (function applyInert() {
                         try {
@@ -645,14 +654,12 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     closeSidebar(false);
                     if (mode === 'xl') {
                         portalShell.classList.toggle('is-sidebar-collapsed', !!stored.collapsed);
-                        setAllTogglesExpanded(!stored.collapsed);
                     } else if (mode === 'md') {
                         portalShell.classList.add('is-sidebar-collapsed');
-                        setAllTogglesExpanded('false');
                     } else {
                         portalShell.classList.remove('is-sidebar-collapsed');
-                        setAllTogglesExpanded('false');
                     }
+                    setAllTogglesExpanded(toggleExpandedForState());
                 };
                 var toggleFromUser = function(ev) {
                     ev.preventDefault();
@@ -674,7 +681,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     if (document.body) document.body.style.pointerEvents = 'none';
                     window.setTimeout(sidebarUnlock, DRAWER_TRANSITION_MS + 80);
                     portalShell.classList.toggle('is-sidebar-collapsed', nextCollapsed);
-                    setAllTogglesExpanded(!nextCollapsed);
+                    setAllTogglesExpanded(toggleExpandedForState());
                     writeState({ collapsed: nextCollapsed });
                 };
                 var scheduleResizeApply = function() {
