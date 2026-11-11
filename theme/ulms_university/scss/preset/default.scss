@@ -3275,7 +3275,6 @@ body.ulms-dashboard-shell .ulms-qa-card__subtitle{display:block;font-size:.76rem
         box-shadow: 0 16px 48px -12px rgba(10, 29, 48, 0.35);
         will-change: transform;
     }
-    body.ulms-dashboard-shell.ulms-shell.is-sidebar-open .ulms-shell-sidebar,
     body.ulms-dashboard-shell.ulms-sidebar-open .ulms-shell-sidebar,
     body.ulms-dashboard-shell.drawer-open-left .ulms-shell-sidebar {
         transform: translateX(0) !important;
@@ -5140,20 +5139,11 @@ $ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.
    ==================================================================== */
 .theme-ulms-university.ulms-dashboard-shell .ulms-shell-overlay,
 .theme-ulms-university.ulms-dashboard-shell .drawer-left + *,
-.theme-ulms-university.ulms-dashboard-shell [data-sidebar-open] .ulms-shell-overlay,
-.theme-ulms-university.ulms-dashboard-shell [aria-modal="true"] + .drawer,
-.theme-ulms-university.ulms-dashboard-shell [data-sidebar-open] ~ .overlay {
+.theme-ulms-university.ulms-dashboard-shell [aria-modal="true"] + .drawer {
     transition: opacity var(--ulms-t-base) var(--ulms-ease-out) !important;
     opacity: 0 !important;
     backdrop-filter: blur(0) !important;
     -webkit-backdrop-filter: blur(0) !important;
-}
-.theme-ulms-university.ulms-dashboard-shell [data-sidebar-open="true"] .ulms-shell-overlay,
-.theme-ulms-university.ulms-dashboard-shell [data-sidebar-open] .ulms-shell-overlay {
-    opacity: 1 !important;
-    background-color: rgba(12, 28, 40, 0.42) !important;
-    backdrop-filter: blur(2px) saturate(1.05) !important;
-    -webkit-backdrop-filter: blur(2px) saturate(1.05) !important;
 }
 /* Drawer panel transform (≤991.98 mobile/tablet): ease-out slide */
 @media (max-width: 991.98px) {
@@ -5164,10 +5154,6 @@ $ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.
             transform var(--ulms-t-slow) var(--ulms-ease-out),
             box-shadow var(--ulms-t-base) var(--ulms-ease-out) !important;
         will-change: transform !important;
-    }
-    .theme-ulms-university.ulms-dashboard-shell [data-sidebar-open="true"] .ulms-shell-drawer,
-    .theme-ulms-university.ulms-dashboard-shell [data-sidebar-open] .ulms-shell-drawer {
-        box-shadow: var(--ulms-shadow-lg) !important;
     }
 }
 
