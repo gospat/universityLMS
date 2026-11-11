@@ -24,4 +24,6 @@ $string['dashboardtitledesc'] = 'Custom title shown on dashboard landing areas.'
 $string['dashboardtitledefault'] = 'University Learning Portal';
 $string['enabledarkmode'] = 'Enable dark mode';
 $string['enabledarkmodedesc'] = 'Allow the theme to expose a dark-mode-ready UI layer.';
+$string['togglesidebar'] = 'Toggle sidebar navigation';
+$string['closesidebar'] = 'Close navigation menu';
 $string['choosereadme'] = 'ULMS University is a Moodle theme scaffold for a Moodle-first university LMS.';

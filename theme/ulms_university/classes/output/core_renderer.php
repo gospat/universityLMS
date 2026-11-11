@@ -599,7 +599,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     if (wasOpen) {
                         (function removeInert() {
                             try {
-                                var inertTargets = document.querySelectorAll('.ulms-shell-content, #page, .app-main, [role=\"main\"]');
+                                var inertTargets = document.querySelectorAll('.ulms-shell-content');
                                 inertTargets.forEach(function (el) { if (el.removeAttribute) el.removeAttribute('inert'); });
                             } catch (e) {}
                         })();
@@ -622,7 +622,7 @@ class core_renderer extends \theme_boost\output\core_renderer {
                     sidebar.setAttribute('aria-hidden', 'false');
                     (function applyInert() {
                         try {
-                            var inertTargets = document.querySelectorAll('.ulms-shell-content, #page, .app-main, [role=\"main\"]');
+                            var inertTargets = document.querySelectorAll('.ulms-shell-content');
                             inertTargets.forEach(function (el) { if (el.setAttribute) el.setAttribute('inert', ''); });
                         } catch (e) {}
                     })();
