@@ -125,6 +125,12 @@
                 {{#portalnav}}
                     <aside id="ulms-shell-sidebar" class="ulms-shell-sidebar" aria-label="{{navigationaria}}">
                         <div class="ulms-shell-sidebar__inner">
+                            <div class="ulms-shell-sidebar__drawerbar">
+                                <span class="ulms-shell-sidebar__drawerbar__title">{{portalname}}</span>
+                                <button type="button" class="btn btn-link ulms-shell-sidebar__close" data-ulms-sidebar-dismiss="true" aria-label="{{#str}}closesidebar, theme_ulms_university{{/str}}" title="{{#str}}closesidebar, theme_ulms_university{{/str}}">
+                                    <span class="ulms-shell-sidebar__close__glyph" aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
                             <div class="ulms-shell-sidebar__brand">
                                 <img src="{{output.image_url}}" class="ulms-shell-sidebar__seal" alt="" aria-hidden="true">
                                 <div>

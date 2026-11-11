@@ -7263,4 +7263,78 @@ body.theme-ulms-university.path-admin:not(.ulms-custom-page) #region-main .card 
     }
 }
 
+/* =====================================================================
+   MOBILE DRAWER HEADER - accessible close control.
+
+   The desktop/tablet rail has no drawer header, so this row is rendered
+   only inside the off-canvas drawer (<=767.98px). Declared at the end of
+   the file for two reasons: the display:none default must not be beaten
+   by an earlier mobile block, and the mobile body is additive-only so the
+   >=768px rail is untouched. The row is sticky so the close control stays
+   reachable while the drawer scrolls.
+   ===================================================================== */
+.ulms-shell-sidebar__drawerbar {
+    display: none;
+}
+
+@media (max-width: 767.98px) {
+    body.theme-ulms-university .ulms-shell-sidebar__inner > .ulms-shell-sidebar__drawerbar {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex: 0 0 auto;
+        margin-top: -1rem;
+        padding: 0.85rem 0 0.85rem;
+        background: var(--ulms-sidebar-bg);
+    }
+
+    /* Selectors are anchored to the drawer bar so they outrank the generic
+       narrow-viewport button rule that stretches every non-small button to
+       full width. The shared button rule itself is left untouched. */
+    body.theme-ulms-university .ulms-shell-sidebar__drawerbar > .ulms-shell-sidebar__drawerbar__title {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.theme-ulms-university .ulms-shell-sidebar__drawerbar > .ulms-shell-sidebar__close {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        min-width: 2.75rem;
+        max-width: 2.75rem;
+        padding: 0;
+        border: 0;
+        border-radius: 0.75rem;
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.12);
+        text-decoration: none;
+    }
+
+    body.theme-ulms-university .ulms-shell-sidebar__drawerbar > .ulms-shell-sidebar__close:hover,
+    body.theme-ulms-university .ulms-shell-sidebar__drawerbar > .ulms-shell-sidebar__close:focus-visible {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.22);
+        text-decoration: none;
+    }
+
+    body.theme-ulms-university .ulms-shell-sidebar__drawerbar > .ulms-shell-sidebar__close .ulms-shell-sidebar__close__glyph {
+        font-size: 1.5rem;
+        line-height: 1;
+    }
+}
+
 /* End Request H mobile responsiveness correction.  ^EOF */
