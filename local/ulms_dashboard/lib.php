@@ -42,6 +42,9 @@ if (!function_exists('local_ulms_dashboard_register_x_render_time_shutdown')) {
         }
         register_shutdown_function(static function (): void {
             global $ULMS_REQUEST_START_MICROTIME;
+            if (PHP_SAPI === 'cli' || headers_sent()) {
+                return;
+            }
             if (!isset($ULMS_REQUEST_START_MICROTIME) || !is_numeric($ULMS_REQUEST_START_MICROTIME)) {
                 return;
             }
