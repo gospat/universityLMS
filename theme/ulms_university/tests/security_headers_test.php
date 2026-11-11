@@ -81,7 +81,7 @@ final class security_headers_test extends \advanced_testcase {
         $this->assertStringContainsString("frame-ancestors 'self'; ", $renderer);
         $this->assertStringNotContainsString("frame-ancestors 'none'", $renderer);
         $this->assertStringContainsString(
-            "frame-src 'self' https://vle.kortext.com https://app.kortext.com; ",
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com https://read.kortext.com; ",
             $renderer
         );
 
@@ -90,13 +90,13 @@ final class security_headers_test extends \advanced_testcase {
         $this->assertStringContainsString("frame-ancestors 'self'", $htaccess);
         $this->assertStringNotContainsString("frame-ancestors 'none'", $htaccess);
         $this->assertStringContainsString(
-            "frame-src 'self' https://vle.kortext.com https://app.kortext.com",
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com https://read.kortext.com",
             $htaccess
         );
     }
 
     /**
-     * The Kortext LTI 1.3 content picker must be allowed to be framed.
+     * The Kortext LTI 1.3 content picker and reader must be allowed to be framed.
      *
      * Choosing the Kortext activity and clicking "Select content" frames the tool's
      * content-item pages. Under "frame-src 'self'" the browser refused the LTI host with
@@ -106,20 +106,20 @@ final class security_headers_test extends \advanced_testcase {
      * with
      *   Framing 'https://app.kortext.com/' violates the following Content Security
      *   Policy directive: "frame-src 'self' https://vle.kortext.com".
-     * so both https://vle.kortext.com (the LTI host local/ulms_kortext/settings.php
-     * already defaults to) and https://app.kortext.com (the content-picker app) must be
-     * named explicitly in both layers.
+     * The reader/bookshelf surface the framed LTI launch hands off to is served from
+     * https://read.kortext.com, which Kortext support confirmed must be permitted.
+     * All three must therefore be named explicitly in both layers.
      */
     public function test_kortext_lti_content_picker_origin_is_frame_allowed(): void {
         $renderer = $this->get_renderer_source();
         $htaccess = $this->get_htaccess_source();
 
         $this->assertStringContainsString(
-            "frame-src 'self' https://vle.kortext.com https://app.kortext.com; ",
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com https://read.kortext.com; ",
             $renderer
         );
         $this->assertStringContainsString(
-            "frame-src 'self' https://vle.kortext.com https://app.kortext.com",
+            "frame-src 'self' https://vle.kortext.com https://app.kortext.com https://read.kortext.com",
             $htaccess
         );
 
@@ -129,13 +129,43 @@ final class security_headers_test extends \advanced_testcase {
         // Each exception must be the https origin only: no bare host, no subdomain wildcard.
         $this->assertStringNotContainsString('frame-src ' . "'self' vle.kortext.com", $renderer);
         $this->assertStringNotContainsString('frame-src ' . "'self' app.kortext.com", $renderer);
+        $this->assertStringNotContainsString('frame-src ' . "'self' read.kortext.com", $renderer);
         $this->assertStringNotContainsString('*.kortext.com', $renderer);
         $this->assertStringNotContainsString('frame-src https:', $renderer);
 
         // Framing a host grants no scripting, form or data access, so allowing the picker
-        // in frame-src must not widen connect-src with the same origin.
+        // and the reader in frame-src must not widen connect-src with the same origins.
         $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*app\.kortext\.com/', $renderer);
         $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*app\.kortext\.com/', $htaccess);
+        $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*read\.kortext\.com/', $renderer);
+        $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*read\.kortext\.com/', $htaccess);
+    }
+
+    /**
+     * The Kortext reader host must be framed, not scripted.
+     *
+     * read.kortext.com is the reader/bookshelf host the framed LTI 1.3 launch redirects
+     * to, so it belongs in frame-src. No Moodle-page script requests it — the portal's
+     * eTextbook link opens in a new tab, which no CSP directive governs — so it must not
+     * appear in connect-src, and the existing Kortext domains must not be dropped.
+     */
+    public function test_kortext_reader_origin_is_frame_only(): void {
+        $renderer = $this->get_renderer_source();
+        $htaccess = $this->get_htaccess_source();
+
+        // Present in frame-src in both layers.
+        $this->assertMatchesRegularExpression('/frame-src[^;\n]*https:\/\/read\.kortext\.com/', $renderer);
+        $this->assertMatchesRegularExpression('/frame-src[^;\n]*https:\/\/read\.kortext\.com/', $htaccess);
+
+        // Absent from connect-src (framing grants no data access).
+        $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*read\.kortext\.com/', $renderer);
+        $this->assertDoesNotMatchRegularExpression('/connect-src[^;\n]*read\.kortext\.com/', $htaccess);
+
+        // Existing Kortext permissions are preserved, not replaced.
+        $this->assertStringContainsString('https://vle.kortext.com', $renderer);
+        $this->assertStringContainsString('https://app.kortext.com', $renderer);
+        $this->assertStringContainsString('https://vle.kortext.com', $htaccess);
+        $this->assertStringContainsString('https://app.kortext.com', $htaccess);
     }
 
     /**
