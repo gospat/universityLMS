@@ -19,17 +19,23 @@ if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
 
 function ulms_emergency_shutdown_fallback(): void {
     if (PHP_SAPI === 'cli') {
-        @ob_end_flush();
+        if (ob_get_level() > 0) {
+            @ob_end_flush();
+        }
         return;
     }
     $err = error_get_last();
     if ($err === null) {
-        @ob_end_flush();
+        if (ob_get_level() > 0) {
+            @ob_end_flush();
+        }
         return;
     }
     $fatals = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR];
     if (!in_array($err['type'], $fatals, true)) {
-        @ob_end_flush();
+        if (ob_get_level() > 0) {
+            @ob_end_flush();
+        }
         return;
     }
     while (ob_get_level() > 0) {
