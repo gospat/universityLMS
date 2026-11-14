@@ -2008,6 +2008,13 @@ body.theme-ulms-university {
 .ulms-dashboard-shell .profile_tree dl>dt{padding:.6rem 1.25rem .6rem .75rem;color:$ulms-text-muted;font-weight:600;font-size:.82rem;border-top:1px solid $ulms-border}
 .ulms-dashboard-shell .profile_tree dl>dd{margin:0;padding:.6rem .75rem;color:$ulms-text-strong;font-weight:500;font-size:.92rem;border-top:1px solid $ulms-border}
 .ulms-dashboard-shell .profile_tree dl>dt:first-of-type,.ulms-dashboard-shell .profile_tree dl>dd:first-of-type{border-top:0}
+/* Mobile ≤767.98px: the 1fr/2fr label→value grid squeezes dt to ~1/3 of an
+   already-narrow column (dt padding alone eats 2rem of it). Collapse to a
+   single column so the label sits above its value. */
+@media (max-width:767.98px){
+  .ulms-dashboard-shell .profile_tree dl{grid-template-columns:minmax(0,1fr)}
+  .ulms-dashboard-shell .profile_tree dl>dt{padding-right:.75rem}
+}
 
 body.ulms-dashboard-shell .ulms-portal-navbar{border-bottom:1px solid $ulms-border!important}
 body.ulms-dashboard-shell .ulms-welcome-banner{margin-bottom:1.25rem;border-radius:16px}
@@ -3925,7 +3932,7 @@ body.theme-ulms-university.ulms-dashboard-shell #region-main > section.ulms-quic
 body.theme-ulms-university.ulms-dashboard-shell .ulms-qa-card,
 body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > .ulms-quick-access__grid > div,
 body.theme-ulms-university.ulms-dashboard-shell section.ulms-quick-access > div > div {
-    min-height: var(--ulms-kpi-card-height) !important;
+    min-height: var(--ulms-kpi-card-height, 112px) !important;
     padding: clamp(1rem, 1.4vw, 1.25rem) clamp(1rem, 1.6vw, 1.5rem) !important;
     background: #ffffff !important;
     border: var(--ulms-border-subtle) !important;
@@ -4929,7 +4936,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell .ulms-shell nav li a,
 .theme-ulms-university.ulms-dashboard-shell aside nav a {
     position: relative !important;
-    border-radius: var(--ulms-radius-btn) !important;
+    border-radius: var(--ulms-radius-button) !important;
     transition:
         background-color var(--ulms-t-fast) var(--ulms-ease-standard),
         color var(--ulms-t-fast) var(--ulms-ease-standard),
@@ -4965,7 +4972,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell aside nav a:hover {
     background-color: rgba(15, 125, 63, 0.08) !important;
     color: #0a5e30 !important;
-    box-shadow: var(--ulms-shadow-sm) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
     transform: translateX(1px) !important;
     border-color: rgba(15, 125, 63, 0.15) !important;
 }
@@ -4984,7 +4991,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
     background-color: rgba(15, 125, 63, 0.11) !important;
     color: #074a26 !important;
     font-weight: 600 !important;
-    box-shadow: var(--ulms-shadow-md) !important;
+    box-shadow: var(--ulms-card-shadow-md) !important;
     border-color: rgba(15, 125, 63, 0.22) !important;
 }
 .theme-ulms-university.ulms-dashboard-shell .ulms-sidebar nav a[aria-current="page"]::before,
@@ -5003,7 +5010,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
     box-shadow:
         0 0 0 2px #ffffff,
         0 0 0 4px rgba(15, 125, 63, 0.65),
-        var(--ulms-shadow-md) !important;
+        var(--ulms-card-shadow-md) !important;
     border-color: rgba(15, 125, 63, 0.3) !important;
     transform: translateX(1px) !important;
 }
@@ -5039,7 +5046,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell .ulms-shell-content [role="region"] {
     border: var(--ulms-border) !important;
     background-color: #ffffff !important;
-    box-shadow: var(--ulms-shadow-sm) !important;
+    box-shadow: var(--ulms-card-shadow-sm) !important;
     transition:
         box-shadow var(--ulms-t-base) var(--ulms-ease-out),
         border-color var(--ulms-t-base) var(--ulms-ease-out),
@@ -5051,7 +5058,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell main [class*="grid"] > a:hover,
 .theme-ulms-university.ulms-dashboard-shell main [class*="grid"] > div:hover {
     border-color: var(--ulms-border-strong) !important;
-    box-shadow: var(--ulms-shadow-md) !important;
+    box-shadow: var(--ulms-card-shadow-md) !important;
     transform: translateY(-1px) !important;
 }
 
@@ -5064,7 +5071,7 @@ body.theme-ulms-university.ulms-dashboard-shell form textarea:focus {
 .theme-ulms-university.ulms-dashboard-shell aside[aria-label*="navigation"],
 .theme-ulms-university.ulms-dashboard-shell .ulms-shell > aside {
     border-right: var(--ulms-border) !important;
-    box-shadow: 1px 0 0 rgba(15, 50, 30, 0.03), var(--ulms-shadow-sm) !important;
+    box-shadow: 1px 0 0 rgba(15, 50, 30, 0.03), var(--ulms-card-shadow-sm) !important;
     background-color: #fafbfd !important;
 }
 
@@ -5089,7 +5096,7 @@ $ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.
 .theme-ulms-university.ulms-dashboard-shell [role="button"]#{$ulms-not-editor-control},
 .theme-ulms-university.ulms-dashboard-shell input[type="submit"],
 .theme-ulms-university.ulms-dashboard-shell .btn {
-    border-radius: var(--ulms-radius-btn) !important;
+    border-radius: var(--ulms-radius-button) !important;
     transition:
         background-color var(--ulms-t-fast) var(--ulms-ease-standard),
         color var(--ulms-t-fast) var(--ulms-ease-standard),
@@ -5102,7 +5109,7 @@ $ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.
 .theme-ulms-university.ulms-dashboard-shell [role="button"]#{$ulms-not-editor-control}:hover,
 .theme-ulms-university.ulms-dashboard-shell input[type="submit"]:hover,
 .theme-ulms-university.ulms-dashboard-shell .btn:hover {
-    box-shadow: var(--ulms-shadow-md) !important;
+    box-shadow: var(--ulms-card-shadow-md) !important;
     transform: translateY(-1px) !important;
 }
 .theme-ulms-university.ulms-dashboard-shell button#{$ulms-not-editor-control}:active,
@@ -5120,7 +5127,7 @@ $ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.
     box-shadow:
         0 0 0 2px #fff,
         0 0 0 4px rgba(15, 125, 63, 0.6),
-        var(--ulms-shadow-md) !important;
+        var(--ulms-card-shadow-md) !important;
 }
 /* Topbar specific (hamburger, user menu, notif) — consistent press feel */
 .theme-ulms-university.ulms-dashboard-shell header[role="banner"] button,
@@ -5168,7 +5175,7 @@ $ulms-not-editor-control: ':not(.tox-tbtn):not(.tox-mbtn):not(.tox-button):not(.
 .theme-ulms-university.ulms-dashboard-shell [data-region="popover-region"] {
     border-radius: 14px !important;
     border: var(--ulms-border) !important;
-    box-shadow: var(--ulms-shadow-lg) !important;
+    box-shadow: var(--ulms-card-shadow-lg) !important;
     transform-origin: top right !important;
     transition:
         opacity var(--ulms-t-base) var(--ulms-ease-out),
