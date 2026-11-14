@@ -122,7 +122,8 @@ if ($action === 'save' && data_submitted()) {
         }
         $action = 'list';
     } catch (\Throwable $e) {
-        $flashmsg = $e->getMessage();
+        if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($e, 'adoptions::save_adoption', ['ctx' => basename(__FILE__)]); }
+        $flashmsg = local_ulms_dashboard_operational_error_message();
         $flashtype = \core\output\notification::NOTIFY_ERROR;
         $action = $id > 0 ? 'edit' : 'create';
     }
@@ -540,11 +541,12 @@ if (empty($rows)) {
     $tablehtml .= html_writer::end_tag('tbody');
     $tablehtml .= html_writer::end_tag('table');
 }
+// Header-only panel: the adoptions list (or its empty state) is the $tablehtml
+// block below. Using 'html' with no payload avoids emitting a stray empty <dl>.
 $mainpanel = [
     'title'    => get_string('adoptions', 'local_ulms_kortext'),
     'subtitle' => get_string('nav_adoptions_desc', 'local_ulms_kortext'),
-    'style'    => 'definition',
-    'items'    => [],
+    'style'    => 'html',
 ];
 echo local_ulms_dashboard_render_panel($mainpanel);
 echo $topactions . "\n" . $filterform;

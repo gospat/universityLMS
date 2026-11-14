@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (\Throwable $exception) {
         if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'lecturer_exam_questions::save_questions', []); }
-        $notice = $exception->getMessage();
+        $notice = local_ulms_dashboard_operational_error_message();
     }
 }
 
@@ -104,7 +104,7 @@ $bankitems = $examservice->list_bank_items((int)($exam->programmeid ?? 0), (int)
 echo $OUTPUT->header();
 $headerctx = $portalservice->get_header_context_for_section('questions');
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => 'EXAM QUESTIONS',
+    'eyebrow' => $headerctx['eyebrow'] ?? get_string('lecturer.questions.eyebrow', 'local_ulms_dashboard'),
     'title' => $headerctx['title'] ?? get_string('examquestionsheading', 'local_ulms_exam'),
     'meta' => $headerctx['meta'] ?? format_string($exam->title),
     'actions' => [

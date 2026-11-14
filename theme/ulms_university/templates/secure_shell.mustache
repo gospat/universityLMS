@@ -13,14 +13,13 @@
         <div class="container-fluid ulms-shell-topbar">
             <div class="ulms-shell-topbar__brand">
                 {{#portalnav}}
-                    <button type="button" class="btn btn-link ulms-shell-toggle" data-ulms-sidebar-toggle="true" aria-expanded="true" aria-controls="ulms-shell-sidebar" aria-label="Toggle sidebar navigation" title="Collapse or expand the sidebar navigation">
+                    <button type="button" class="btn btn-link ulms-shell-toggle" data-ulms-sidebar-toggle="true" aria-expanded="true" aria-controls="ulms-shell-sidebar" aria-label="{{#str}}togglesidebar, theme_ulms_university{{/str}}" title="{{#str}}collapsesidebar, theme_ulms_university{{/str}}">
                         <span class="ulms-shell-toggle__icon" aria-hidden="true"></span>
-                        <span class="sr-only">Toggle navigation</span>
                     </button>
                 {{/portalnav}}
-                <a href="{{{ config.homeurl }}}" class="navbar-brand d-flex align-items-center m-0 p-0 aabtn" aria-label="Bell's University of Technology home">
+                <a href="{{{ config.homeurl }}}" class="navbar-brand d-flex align-items-center m-0 p-0 aabtn" aria-label="Bells University of Technology home">
                     <img src="{{output.get_compact_logo_url}}" class="logo logo--full me-2" alt="" aria-hidden="true">
-                    <img src="{{output.image_url}}" class="logo logo--mini me-2 d-none" alt="Bell's University of Technology" loading="lazy">
+                    <img src="{{output.image_url}}" class="logo logo--mini me-2 d-none" alt="Bells University of Technology" loading="lazy">
                     <span class="ulms-brand__name">{{{ sitename }}}</span>
                 </a>
             </div>

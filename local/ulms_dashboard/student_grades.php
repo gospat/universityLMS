@@ -89,11 +89,11 @@ function grade_status_lang(string $status): string {
 }
 
 function grade_module_label(string $type, string $module = ''): string {
-    if ($type === 'course') { return 'Course total'; }
-    if ($module === 'assign') { return 'Assignment'; }
-    if ($module === 'quiz') { return 'Quiz'; }
-    if ($module === 'ulms_exam') { return 'Exam'; }
-    if ($module === '') { return 'Assessment'; }
+    if ($type === 'course') { return get_string('studentgradecoursetotal', 'local_ulms_dashboard'); }
+    if ($module === 'assign') { return get_string('moduletypeassignment', 'local_ulms_dashboard'); }
+    if ($module === 'quiz') { return get_string('moduletypequiz', 'local_ulms_dashboard'); }
+    if ($module === 'ulms_exam') { return get_string('moduletypeexam', 'local_ulms_dashboard'); }
+    if ($module === '') { return get_string('moduletypeassessment', 'local_ulms_dashboard'); }
     return ucwords(str_replace('_', ' ', $module));
 }
 
@@ -220,7 +220,7 @@ foreach ($allcourses as $cid => $course) {
         }
         if (!empty($r->gradepass) && (float)$r->gradepass > 0 && $rmax !== null) {
             $passpct = round(((float)$r->gradepass / $rmax) * 100.0, 0);
-            $metachips[] = html_writer::tag('span', 'Pass ' . format_float($passpct, 0) . '%',
+            $metachips[] = html_writer::tag('span', get_string('studentgradepasspct', 'local_ulms_dashboard', format_float($passpct, 0)),
                 ['class' => 'ulms-exammeta ulms-exammeta--pass']);
         }
         $statuspill = html_writer::tag('span', grade_status_lang($status), ['class' => grade_status_css($status)]);
@@ -245,9 +245,7 @@ foreach ($allcourses as $cid => $course) {
 
     $shortname = $course['shortname'];
     $fullname = $course['fullname'];
-    $coursetype = 'Core';
-    $semesterlabel = 'First Semester 2026/27';
-    $subtitlehtml = html_writer::tag('span', $shortname) . ' · ' . $coursetype . ' · ' . $semesterlabel;
+    $subtitlehtml = $shortname !== '' ? html_writer::tag('span', $shortname) : '';
 
     $reporturl = $course['reporturl'];
     $actions = !empty($assessmentrows) ? [[

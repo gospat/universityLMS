@@ -5805,11 +5805,9 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
 }
 /* L3 cancellation: hamburger 44×44 hitbox keeps its full click size, BUT
    the visual 3-line icon is PINNED via absolute positioning to the TOP-LEFT
-   0,0 corner of the hitbox, regardless of preceding sr-only / text nodes.
-   Why this was needed: the button contains a first invisible flex child
-   <span class="sr-only">Toggle navigation</span> which still consumes ~2 px
-   in the flex-row layout, nudging the icon 2.07px right even after flex-start.
-   Absolute pinning removes that last ~2 px visual nudge → pixel flush. */
+   0,0 corner of the hitbox, regardless of any preceding flex child or
+   whitespace node. Absolute pinning removes the last ~2 px visual nudge and
+   keeps the icon pixel-flush even if the button markup changes. */
 body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle,
 body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .btn.btn-link.ulms-shell-toggle {
     position: relative !important;          /* icon absolute anchor root */
@@ -5826,9 +5824,9 @@ body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar
     border-width: 0 !important;
     box-shadow: none !important;
 }
-/* Absolute pin the 3-line icon so sr-only text node width in the button can
-   never nudge it.  Top 50% - half height = 2px stripe + 0.7rem before/after
-   pseudo stripes total height ~ 0.7+0.7+2px ≈ 16px so translate -50% centers. */
+/* Absolute pin the 3-line icon so no flex child in the button can nudge it.
+   Top 50% - half height = 2px stripe + 0.7rem before/after pseudo stripes
+   total height ~ 0.7+0.7+2px ≈ 16px so translate -50% centers. */
 body.theme-ulms-university.ulms-dashboard-shell header.ulms-portal-navbar.navbar.fixed-top .ulms-shell-toggle__icon {
     position: absolute !important;
     left: 0 !important;

@@ -322,9 +322,7 @@ foreach ($allcourses as $cid => $course) {
 
     $shortname = $course['shortname'];
     $fullname = $course['fullname'];
-    $coursetype = 'Core';
-    $semesterlabel = 'First Semester 2026/27';
-    $subtitlehtml = html_writer::tag('span', $shortname) . ' · ' . $coursetype . ' · ' . $semesterlabel;
+    $subtitlehtml = $shortname !== '' ? html_writer::tag('span', $shortname) : '';
 
     $carditems[] = [
         'title'        => $fullname,

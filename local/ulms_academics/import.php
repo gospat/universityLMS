@@ -171,7 +171,7 @@ echo html_writer::end_div();
 echo html_writer::start_div('ulms-panel ulms-panel--soft');
 echo html_writer::start_div('ulms-panel__body');
 echo html_writer::div(
-    html_writer::tag('h2', get_string('csvtemplatedesc', 'local_ulms_academics'), ['class' => 'ulms-empty-state__title']) .
+    html_writer::tag('h3', get_string('csvtemplatedesc', 'local_ulms_academics'), ['class' => 'ulms-empty-state__title']) .
     html_writer::tag('p', get_string('selectentitytoimport', 'local_ulms_academics'), ['class' => 'ulms-empty-state__meta']),
     'ulms-empty-state',
     ['role' => 'status']

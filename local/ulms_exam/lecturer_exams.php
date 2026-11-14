@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (\Throwable $exception) {
         if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'lecturer_exams::publish_close_batchgrade', []); }
-        $warning = $exception->getMessage();
+        $warning = local_ulms_dashboard_operational_error_message();
     }
 }
 
@@ -62,7 +62,7 @@ $newexamurl = $routingservice->get_url_for_route('lecturer.examscreate');
 echo $OUTPUT->header();
 $header = $portalservice->get_header_context_for_section('exams');
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => 'EXAMS',
+    'eyebrow' => $header['eyebrow'] ?? get_string('lecturer.exams.eyebrow', 'local_ulms_dashboard'),
     'title' => $header['title'] ?? get_string('examslistheading', 'local_ulms_exam'),
     'meta' => $header['meta'] ?? get_string('examslistdesc', 'local_ulms_exam'),
     'actions' => [[

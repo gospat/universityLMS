@@ -52,7 +52,7 @@ $portalservice = new lecturer_portal_service();
 echo $OUTPUT->header();
 $headerctx = $portalservice->get_header_context_for_section('preview');
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => 'EXAM PREVIEW',
+    'eyebrow' => $headerctx['eyebrow'] ?? get_string('lecturer.preview.eyebrow', 'local_ulms_dashboard'),
     'title' => $headerctx['title'] ?? get_string('exampreviewheading', 'local_ulms_exam'),
     'meta' => $headerctx['meta'] ?? format_string($exam->title),
 ]);

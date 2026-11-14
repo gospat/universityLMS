@@ -104,7 +104,7 @@ echo $OUTPUT->header();
 $headctx = $portalservice->get_header_context_for_section('take');
 $countdown_pill = '<span id="ulms-countdown" class="ulms-countdown-pill ms-2">--:--:--</span>';
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => 'TAKE EXAM',
+    'eyebrow' => $headctx['eyebrow'] ?? get_string('student.take.eyebrow', 'local_ulms_dashboard'),
     'title' => $headctx['title'] ?? format_string($exam->title),
     'meta' => $headctx['meta'] ?? format_text($exam->instructions ?? ''),
     'actions' => [[
@@ -124,6 +124,9 @@ $countdown_sticky = '<div id="ulms-sticky-countdown-wrap" class="ulms-countdown-
 </div>';
 echo $countdown_sticky;
 
+$idctx = new stdClass();
+$idctx->id = (int)$submission->id;
+$idctx->seed = (int)$seed;
 $top = '<form method="post" id="exam-form" action="'.s($url->out(false)).'" data-ulms-loading-form="1" autocomplete="off">
     <input type="hidden" name="sesskey" value="'.sesskey().'"/>
     <input type="hidden" name="autosubmit" id="autosubmit" value="0"/>
@@ -131,7 +134,7 @@ $top = '<form method="post" id="exam-form" action="'.s($url->out(false)).'" data
         <div class="d-flex flex-wrap gap-3 align-items-center">
             <div><strong>'.format_string($exam->title).'</strong></div>
             <div class="ms-auto small text-muted">
-                Submission id: '.(int)$submission->id.' · Shuffle seed: '.(int)$seed.'
+                '.s(get_string('submissionidline', 'local_ulms_exam', $idctx)).'
             </div>
         </div>
     </div>';

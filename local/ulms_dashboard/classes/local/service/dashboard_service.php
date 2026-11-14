@@ -74,10 +74,10 @@ class dashboard_service {
         global $USER;
 
         $roleshortname = $this->get_current_user_role_shortname();
-        $courses = enrol_get_my_courses(['id', 'fullname'], 'fullname ASC', 0);
+        $courses = enrol_get_my_courses(['id', 'fullname', 'shortname'], 'fullname ASC', 0);
         if (empty($courses)) {
             try {
-                $fallback = enrol_get_all_users_courses((int)$USER->id, true, ['id', 'fullname']);
+                $fallback = enrol_get_all_users_courses((int)$USER->id, true, ['id', 'fullname', 'shortname']);
                 if (!empty($fallback)) {
                     $courses = [];
                     foreach ($fallback as $c) {
@@ -104,6 +104,7 @@ class dashboard_service {
             $courselist[] = [
                 'id' => $course->id,
                 'fullname' => $course->fullname,
+                'shortname' => (string)($course->shortname ?? ''),
                 'url' => new \moodle_url('/course/view.php', ['id' => $course->id]),
             ];
         }

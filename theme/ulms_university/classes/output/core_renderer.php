@@ -893,6 +893,80 @@ class core_renderer extends \theme_boost\output\core_renderer {
     }
 
     /**
+     * Appends ULMS share/social metadata to the document head.
+     *
+     * Moodle core emits a <title> and a favicon but no page description, no
+     * Open Graph / Twitter card and no canonical link, so link previews and
+     * search snippets fell back to whatever the crawler guessed. This adds
+     * those tags for every HTML page rendered through the theme.
+     *
+     * Values are derived from the site configuration and the current page.
+     * No per-page description is fabricated: the administrator-set site
+     * summary is reused when present, otherwise the site name is used.
+     */
+    public function standard_head_html() {
+        global $PAGE, $SITE;
+
+        $head = parent::standard_head_html();
+
+        $canonical = '';
+        if (isset($PAGE->url) && $PAGE->url instanceof \moodle_url) {
+            try {
+                $canonical = (string)$PAGE->url->out_omit_querystring();
+            } catch (\Throwable $_unused) {
+                $canonical = '';
+            }
+        }
+
+        $sitename = format_string($SITE->fullname ?? '', true);
+        $pagetitle = isset($PAGE->title) ? format_string((string)$PAGE->title, true) : $sitename;
+        if ($pagetitle === '') {
+            $pagetitle = $sitename;
+        }
+
+        $description = '';
+        if (!empty($SITE->summary)) {
+            $description = trim(html_to_text((string)$SITE->summary, 0, false));
+        }
+        if ($description === '') {
+            $description = $sitename;
+        }
+
+        $logourl = '';
+        try {
+            $logourl = (string)$this->image_url('logo', 'theme_ulms_university');
+        } catch (\Throwable $_unused) {
+            $logourl = '';
+        }
+
+        $tags = '';
+        $tags .= '<meta name="description" content="' . s($description) . '">' . "\n";
+        if ($canonical !== '') {
+            $tags .= '<link rel="canonical" href="' . s($canonical) . '">' . "\n";
+        }
+        $tags .= '<link rel="apple-touch-icon" href="'
+            . s((string)$this->image_url('apple-touch-icon', 'theme_ulms_university')) . '">' . "\n";
+        $tags .= '<meta property="og:type" content="website">' . "\n";
+        $tags .= '<meta property="og:site_name" content="' . s($sitename) . '">' . "\n";
+        $tags .= '<meta property="og:title" content="' . s($pagetitle) . '">' . "\n";
+        $tags .= '<meta property="og:description" content="' . s($description) . '">' . "\n";
+        if ($canonical !== '') {
+            $tags .= '<meta property="og:url" content="' . s($canonical) . '">' . "\n";
+        }
+        if ($logourl !== '') {
+            $tags .= '<meta property="og:image" content="' . s($logourl) . '">' . "\n";
+        }
+        $tags .= '<meta name="twitter:card" content="' . ($logourl !== '' ? 'summary_large_image' : 'summary') . '">' . "\n";
+        $tags .= '<meta name="twitter:title" content="' . s($pagetitle) . '">' . "\n";
+        $tags .= '<meta name="twitter:description" content="' . s($description) . '">' . "\n";
+        if ($logourl !== '') {
+            $tags .= '<meta name="twitter:image" content="' . s($logourl) . '">' . "\n";
+        }
+
+        return $head . "\n" . $tags;
+    }
+
+    /**
      * Ensures ULMS interaction helpers are always registered for portal shells.
      *
      * @return string

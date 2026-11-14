@@ -116,20 +116,23 @@ function progress_count_badge_html(array $counts): string {
 }
 
 function progress_module_type_label(string $modname): string {
-    $map = [
-        'assign' => 'Assignment',
-        'quiz' => 'Quiz',
-        'forum' => 'Forum',
-        'resource' => 'Reading',
-        'page' => 'Page',
-        'lesson' => 'Lesson',
-        'scorm' => 'SCORM',
-        'workshop' => 'Workshop',
-        'choice' => 'Choice',
-        'feedback' => 'Feedback',
-        'url' => 'Link',
+    static $map = [
+        'assign' => 'moduletypeassignment',
+        'quiz' => 'moduletypequiz',
+        'forum' => 'moduletypeforum',
+        'resource' => 'moduletyperesource',
+        'page' => 'moduletypepage',
+        'lesson' => 'moduletypelesson',
+        'scorm' => 'moduletypescorm',
+        'workshop' => 'moduletypeworkshop',
+        'choice' => 'moduletypechoice',
+        'feedback' => 'moduletypefeedback',
+        'url' => 'moduletypeurl',
     ];
-    return $map[$modname] ?? ucfirst($modname);
+    if (isset($map[$modname])) {
+        return get_string($map[$modname], 'local_ulms_dashboard');
+    }
+    return ucfirst($modname);
 }
 
 $courseids = array_keys($allcourses);
@@ -305,9 +308,7 @@ foreach ($allcourses as $cid => $course) {
 
     $shortname = $course['shortname'];
     $fullname = $course['fullname'];
-    $coursetype = 'Core';
-    $semesterlabel = 'First Semester 2026/27';
-    $subtitlehtml = html_writer::tag('span', $shortname) . ' · ' . $coursetype . ' · ' . $semesterlabel;
+    $subtitlehtml = $shortname !== '' ? html_writer::tag('span', $shortname) : '';
 
     $progresspanel = '<div style="margin-top:.35rem;">' . progress_bar_html($coursepct, $coursepct >= 100 ? 'completed' : ($counts['overdue'] > 0 ? 'overdue' : 'inprogress')) . '</div>';
     $subtitlehtml .= $progresspanel;

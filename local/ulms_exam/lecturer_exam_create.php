@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (\Throwable $exception) {
             if (function_exists('local_ulms_dashboard_log_operational_error')) { local_ulms_dashboard_log_operational_error($exception, 'lecturer_exam_create::save_new_exam', []); }
-            $errors[] = $exception->getMessage();
+            $errors[] = local_ulms_dashboard_operational_error_message();
         }
     }
 }
@@ -217,7 +217,7 @@ echo $OUTPUT->header();
 $headsection = $mode === 'edit' ? 'edit' : 'exams';
 $headerctx = $portalservice->get_header_context_for_section($headsection);
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => $mode === 'edit' ? 'EDIT EXAM' : 'CREATE EXAM',
+    'eyebrow' => $headerctx['eyebrow'] ?? get_string($mode === 'edit' ? 'lecturer.edit.eyebrow' : 'lecturer.create.eyebrow', 'local_ulms_dashboard'),
     'title' => $headerctx['title'] ?? ($mode === 'edit' ? get_string('exameditheading', 'local_ulms_exam') : get_string('examcreateheading', 'local_ulms_exam')),
     'meta' => $headerctx['meta'] ?? get_string('examcreatedesc', 'local_ulms_exam'),
 ]);

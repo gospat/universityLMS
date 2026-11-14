@@ -85,7 +85,7 @@ if ($action !== '' && $actionuserid > 0 && data_submitted()) {
         $result = [
             'success' => false,
             'warning' => false,
-            'message' => $exception->getMessage(),
+            'message' => local_ulms_dashboard_operational_error_message(),
         ];
     }
 

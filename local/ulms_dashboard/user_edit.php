@@ -93,8 +93,8 @@ if (optional_param('saveuser', '', PARAM_RAW_TRIMMED) !== '') {
         $result = [
             'success' => false,
             'warning' => false,
-            'message' => $exception->getMessage(),
-            'errors' => ['general' => $exception->getMessage()],
+            'message' => local_ulms_dashboard_operational_error_message(),
+            'errors' => ['general' => local_ulms_dashboard_operational_error_message()],
             'values' => $values,
         ];
     }

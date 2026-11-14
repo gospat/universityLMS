@@ -1,0 +1,46 @@
+# robots.txt — Bells University LMS (ULMS)
+#
+# Public entry points stay indexable so the institution remains discoverable.
+# Everything behind an authenticated session is excluded: those URLs either
+# require a login or expose personal dashboard data, and session-scoped query
+# strings create duplicate crawl targets.
+#
+# /lib/ and /theme/ are deliberately NOT blocked — Moodle serves its compiled
+# CSS and JavaScript from those paths, and blocking them would stop crawlers
+# from rendering pages correctly.
+
+User-agent: *
+Disallow: /*sesskey=
+
+# ULMS portals — authenticated only
+Disallow: /student/
+Disallow: /lecturer/
+Disallow: /management/
+Disallow: /super-admin/
+Disallow: /admin/
+
+# Authentication and account surfaces
+Disallow: /auth/
+Disallow: /login/
+Disallow: /sign-in/
+Disallow: /reset-password/
+Disallow: /user/
+Disallow: /message/
+Disallow: /notes/
+Disallow: /calendar/
+Disallow: /report/
+Disallow: /search/
+Disallow: /webservice/
+
+# Server-side code and includes
+Disallow: /blocks/
+Disallow: /local/
+Disallow: /filter/
+
+# Course delivery internals
+Disallow: /mod/
+Disallow: /enrol/
+Disallow: /grade/
+Disallow: /group/
+Disallow: /question/
+Disallow: /backup/

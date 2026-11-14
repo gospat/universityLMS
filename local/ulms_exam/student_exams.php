@@ -33,7 +33,7 @@ $hasprogramme = $profile && (int)$profile->programmeid > 0;
 echo $OUTPUT->header();
 $headerctx = $portalservice->get_header_context_for_section('exams');
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => 'EXAMS',
+    'eyebrow' => $headerctx['eyebrow'] ?? get_string('student.exams.eyebrow', 'local_ulms_dashboard'),
     'title' => $headerctx['title'] ?? get_string('studentexamslistheading', 'local_ulms_exam'),
     'meta' => $headerctx['meta'] ?? get_string('studentexamslistdesc', 'local_ulms_exam'),
 ]);

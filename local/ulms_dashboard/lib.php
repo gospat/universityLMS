@@ -752,6 +752,20 @@ function local_ulms_dashboard_log_operational_error(\Throwable $exception, strin
 }
 
 /**
+ * Returns a sanitized, user-facing message for a failed operational action.
+ *
+ * Raw exception detail (SQL, filesystem paths, class/method names) must never
+ * reach the browser. The full detail is preserved separately by
+ * local_ulms_dashboard_log_operational_error(); this helper only produces the
+ * generic string shown to the user in a redirect or notification.
+ *
+ * @return string
+ */
+function local_ulms_dashboard_operational_error_message(): string {
+    return get_string('operationalerroruserfacing', 'local_ulms_dashboard');
+}
+
+/**
  * Renders a user-friendly portal error without exposing implementation details.
  *
  * @param string $title

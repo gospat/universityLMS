@@ -135,6 +135,13 @@ if (!empty($data['engagementchart'])) {
     echo html_writer::end_div();
     echo html_writer::end_div();
     echo html_writer::end_div();
+} else {
+    echo local_ulms_dashboard_render_panel([
+        'title' => get_string('engagementchartheading', 'local_ulms_dashboard'),
+        'subtitle' => get_string('analyticscompletioncaption', 'local_ulms_dashboard'),
+        'emptytitle' => get_string('analyticsnoengagementtitle', 'local_ulms_dashboard'),
+        'emptydesc' => get_string('analyticsnoengagementdesc', 'local_ulms_dashboard'),
+    ]);
 }
 
 $table = new html_table();
@@ -210,7 +217,7 @@ foreach ([
     } else {
         echo html_writer::div(
             html_writer::tag('h3', get_string('nobreakdowndata', 'local_ulms_dashboard'), ['class' => 'ulms-empty-state__title']) .
-            html_writer::tag('p', get_string('managecoursemappingsdesc', 'local_ulms_academics'), ['class' => 'ulms-empty-state__meta']),
+            html_writer::tag('p', get_string('nobreakdowndatadesc', 'local_ulms_dashboard'), ['class' => 'ulms-empty-state__meta']),
             'ulms-empty-state',
             ['role' => 'status']
         );

@@ -71,7 +71,7 @@ $subctx->total = (float)($submission->score_total_points ?? 0);
 $subctx->percent = (float)($submission->score_percent ?? 0);
 
 echo local_ulms_dashboard_render_page_header([
-    'eyebrow' => 'EXAM RESULT',
+    'eyebrow' => $headctx['eyebrow'] ?? get_string('student.result.eyebrow', 'local_ulms_dashboard'),
     'title' => format_string($exam->title),
     'meta' => get_string('resultscoreline', 'local_ulms_exam', $subctx),
 ]);
@@ -79,23 +79,27 @@ local_ulms_dashboard_start_shell_wrap();
 
 $badge = 'bg-light text-dark';
 $statuslabel = s($submission->status ?? 'unknown');
-if (($submission->status ?? '') === exam_service::SUBMISSION_SUBMITTED) { $badge = 'bg-success'; $statuslabel = 'Submitted'; }
-elseif (($submission->status ?? '') === exam_service::SUBMISSION_GRADED) { $badge = 'bg-info'; $statuslabel = 'Graded'; }
-elseif (($submission->status ?? '') === exam_service::SUBMISSION_LATE_REJECTED) { $badge = 'bg-danger'; $statuslabel = 'Rejected (late)'; }
+if (($submission->status ?? '') === exam_service::SUBMISSION_SUBMITTED) { $badge = 'bg-success'; $statuslabel = get_string('resultsubmittedlabel', 'local_ulms_exam'); }
+elseif (($submission->status ?? '') === exam_service::SUBMISSION_GRADED) { $badge = 'bg-info'; $statuslabel = get_string('examstatusgraded', 'local_ulms_exam'); }
+elseif (($submission->status ?? '') === exam_service::SUBMISSION_LATE_REJECTED) { $badge = 'bg-danger'; $statuslabel = get_string('late_submission', 'local_ulms_exam'); }
+
+$pointsctx = new stdClass();
+$pointsctx->points = format_float((float)($submission->score_points ?? 0), 2);
+$pointsctx->total = format_float((float)($submission->score_total_points ?? 0), 2);
 
 $summarycards = [
     [
-        'label' => 'Score',
+        'label' => get_string('resultscorelabel', 'local_ulms_exam'),
         'value' => number_format((float)($submission->score_percent ?? 0), 2) . '%',
-        'description' => format_float((float)($submission->score_points ?? 0), 2) . ' / ' . format_float((float)($submission->score_total_points ?? 0), 2) . ' points',
+        'description' => get_string('resultpointsline', 'local_ulms_exam', $pointsctx),
     ],
     [
-        'label' => 'Status',
+        'label' => get_string('resultstatuslabel', 'local_ulms_exam'),
         'value' => $statuslabel,
         'description' => '<span class="badge '.$badge.'">'.$statuslabel.'</span>',
     ],
     [
-        'label' => 'Submitted',
+        'label' => get_string('resultsubmittedlabel', 'local_ulms_exam'),
         'value' => !empty($submission->time_submitted) ? userdate((int)$submission->time_submitted, get_string('strftimedatetime', 'core_langconfig')) : '-',
         'description' => '',
     ],
