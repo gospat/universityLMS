@@ -573,7 +573,7 @@ Run with the standard Moodle phpunit runner:
 
 ```bash
 php admin/tool/phpunit/cli/init.php
-vendor/bin/phpunit --testsuite local_ulms_auth_tests
+vendor/bin/phpunit --testsuite local_ulms_auth_testsuite
 ```
 
 The Redis integration suites (`ratelimit_redis_store_test.php` and the Redis
@@ -594,5 +594,12 @@ CI (`.github/workflows/ulms-ci.yml`) provisions a throwaway Redis 7 container
 with an equivalent least-privilege ACL user for each run, so these tests execute
 against a real server instead of being skipped. The remaining suites use only
 isolated Moodle test data and never touch production.
+
+The required gate writes a JUnit report and publishes its totals — tests,
+assertions, failures, errors and skipped — as a check-run annotation, which any
+account can read, because GitHub serves job logs only to repository members. It
+then **fails** if the rate-limiter or role-login test classes did not execute, or
+if any of them was skipped, so a renamed, deleted or silently skipped
+authentication test cannot look like a pass.
 
 (Composer vendor is not required to use the plugin, only to run the test suite.)
