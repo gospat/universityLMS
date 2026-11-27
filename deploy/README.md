@@ -17,6 +17,15 @@ For step-by-step multi-university setup instructions see the main
 `ULMS_DEPLOYMENT_SYNC.md` §16 (Generic Multi-University Setup) and
 `README.md` §9 (New University 7-Step Setup Guide).
 
+## Shared snippets (institution-independent)
+
+These contain no institution-specific tokens and can be used as-is by any
+deployment behind the relevant provider.
+
+| File | Purpose |
+|---|---|
+| `deploy/nginx/ulms-cloudflare-realip.conf` | Cloudflare trusted-proxy real client IP (`set_real_ip_from` for the official Cloudflare IPv4+IPv6 ranges + `real_ip_header CF-Connecting-IP`), with range-management, verification and rollback instructions in the header. Include from a `server{}`/`http{}` block. |
+
 ## Tier 2 — Bells University reference examples (DO NOT reuse verbatim)
 
 These files are the exact **production configurations used by the Bells

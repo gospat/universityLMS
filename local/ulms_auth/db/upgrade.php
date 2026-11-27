@@ -37,5 +37,11 @@ function xmldb_local_ulms_auth_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026100100, 'local', 'ulms_auth');
     }
 
+    if ($oldversion < 2026112700) {
+        // 2026112700: Redis-backed login rate limiter with trusted-proxy client IP
+        // resolution, three-state outcome classification and configurable policy.
+        upgrade_plugin_savepoint(true, 2026112700, 'local', 'ulms_auth');
+    }
+
     return true;
 }

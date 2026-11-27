@@ -436,6 +436,38 @@ function local_ulms_auth_log_security_event(string $event, array $data = []): vo
 }
 
 /**
+ * Returns whether a submitted login token matches the current session token.
+ *
+ * Reads the session login token without consuming it, so core's own validation later
+ * inside authenticate_user_login() still succeeds. This is used only to classify a
+ * failed attempt as a non-credential outcome (invalid or expired token) instead of a
+ * wrong password, so token expiry never consumes a user's attempt budget.
+ *
+ * @param string $token Submitted login token.
+ * @return bool
+ */
+function local_ulms_auth_login_token_is_valid(string $token): bool {
+    global $CFG;
+
+    if (!empty($CFG->disablelogintoken) || !empty($CFG->alternateloginurl)) {
+        // Core skips login-token validation in these configurations.
+        return true;
+    }
+    if ($token === '') {
+        return false;
+    }
+
+    try {
+        $current = \core\session\manager::get_login_token();
+    } catch (\Throwable $exception) {
+        // Never block a login because the classification helper could not run.
+        return true;
+    }
+
+    return is_string($current) && $current !== '' && hash_equals($current, $token);
+}
+
+/**
  * Returns whether the current password reset request should be allowed.
  *
  * @param string $identifier
