@@ -25,9 +25,18 @@ defined('MOODLE_INTERNAL') || die();
  * also guarantees expiry for the counter key, so that concurrent authentication
  * requests can never lose an update and a restriction can never become permanent.
  *
- * All methods return null (from hit()) or false (from is_available()) on a storage
- * failure, so the caller can fall back safely. Implementations must never throw for
- * an infrastructure failure.
+ * Note carefully that only the counter update is atomic. Admission (the check() that
+ * decides whether a request may proceed) is deliberately separated from accounting
+ * (the record() that increments the counters after the outcome is known), so parallel
+ * requests can briefly overshoot a threshold by at most the number of requests that
+ * were already in flight. The thresholds are therefore treated as a bound rather than
+ * an exact cut-off; see the README for the concurrency contract.
+ *
+ * All read/write methods return null (from hit()/inspect()) or false (from clear()) on
+ * a storage failure, so the caller can fall back safely, and last_failure() explains a
+ * runtime failure so the caller can distinguish a transient outage (reconnect, timeout,
+ * memory pressure) from a permanent misconfiguration. Implementations must never throw
+ * for an infrastructure failure.
  *
  * @package    local_ulms_auth
  * @copyright  2026 Bells University of Technology
@@ -73,4 +82,16 @@ interface counter_store {
      * @return string
      */
     public function name(): string;
+
+    /**
+     * Returns the reason for the most recent runtime failure, for logging and triage.
+     *
+     * This is what lets the limiter decide that a connected backend has started failing
+     * operations (memory exhaustion, permission error, timeout, lost connection,
+     * malformed response) and hand over to the fallback store instead of silently
+     * dropping every increment for the rest of the request.
+     *
+     * @return string|null Null when no failure has been observed.
+     */
+    public function last_failure(): ?string;
 }

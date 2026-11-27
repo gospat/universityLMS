@@ -202,6 +202,19 @@ final class file_counter_store implements counter_store {
     }
 
     /**
+     * The file store never withholds a runtime failure reason.
+     *
+     * A missing or unwritable directory is reported once, synthetically, so the limiter
+     * can log the same triage contract it uses for Redis. Individual file operations
+     * that fail are already surfaced to the caller as a null/false return.
+     *
+     * @return string|null
+     */
+    public function last_failure(): ?string {
+        return $this->dir === null ? 'directory_unavailable' : null;
+    }
+
+    /**
      * Reads the counter state under the held lock, resetting an expired window.
      *
      * @param resource $handle

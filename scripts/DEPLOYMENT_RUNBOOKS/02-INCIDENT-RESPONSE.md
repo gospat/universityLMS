@@ -144,8 +144,8 @@ If security incident:
 
 ### Step 11 — Re-deploy hardened patch
 Once root cause identified, remediation code reviewed, and staging green:
-- Execute the full **FILE 1 — Atomic Deploy Procedure** (including 10-item pre-flight) on a NEW release dir.
-- Never hot-patch a recovered production server by hand after a P0 — always atomic deploy.
+- Execute the full **FILE 1 — Production Deploy Procedure** (including the 10-item pre-flight) on the production checkout, preserving the locally modified `config.php` (see `01-DEPLOY-AND-ROLLBACK.md` §2).
+- Never hot-patch a recovered production server by hand after a P0 — always deploy through the reviewed procedure.
 
 ### Step 12 — Post-mortem meeting
 Scheduled within 5 business days, chaired by IC, minuted, actions tracked to closure.

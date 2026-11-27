@@ -65,6 +65,8 @@ LUA;
     private bool $unavailable = false;
     /** @var string|null */
     private ?string $lastfailure = null;
+    /** @var string|null */
+    private ?string $lastfailurecategory = null;
 
     /**
      * Constructor.
@@ -127,6 +129,25 @@ LUA;
     }
 
     /**
+     * Returns the classified category of the last failure, for triage.
+     *
+     * Categories are stable strings the runbook and monitoring can key on:
+     *   config        - extension missing or credential file unreadable
+     *   connect       - TCP connection refused, reset, or lost after initialisation
+     *   auth          - ACL authentication rejected
+     *   permission    - NOPERM: the ACL user is not allowed to run the command
+     *   memory        - OOM: memory exhausted under the production noeviction policy
+     *   timeout       - read/connect timeout
+     *   response      - unexpected or partial command response
+     *   exception     - any other driver error
+     *
+     * @return string|null
+     */
+    public function last_failure_category(): ?string {
+        return $this->lastfailurecategory;
+    }
+
+    /**
      * Lazily connects and authenticates.
      *
      * @return \Redis|null
@@ -139,34 +160,34 @@ LUA;
             return null;
         }
         if (!self::extension_loaded()) {
-            return $this->fail('extension_missing');
+            return $this->fail('extension_missing', 'config');
         }
 
         $password = $this->read_secret();
         if ($password === null) {
-            return $this->fail('credential_unavailable');
+            return $this->fail('credential_unavailable', 'config');
         }
 
         try {
             $redis = new \Redis();
             $connected = $redis->connect($this->host, $this->port, $this->connecttimeout, null, 0, $this->readtimeout);
             if ($connected !== true) {
-                return $this->fail('connect_failed');
+                return $this->fail('connect_failed', 'connect');
             }
             $redis->setOption(\Redis::OPT_SERIALIZER, \Redis::SERIALIZER_NONE);
             if ($this->acluser !== '') {
                 if ($redis->auth([$this->acluser, $password]) !== true) {
-                    return $this->fail('auth_failed');
+                    return $this->fail('auth_failed', 'auth');
                 }
             } else if ($redis->auth($password) !== true) {
-                return $this->fail('auth_failed');
+                return $this->fail('auth_failed', 'auth');
             }
             $redis->ping();
             $this->redis = $redis;
 
             return $this->redis;
         } catch (\Throwable $exception) {
-            return $this->fail('connect_exception');
+            return $this->fail('connect_exception', self::classify_exception($exception));
         }
     }
 
@@ -200,16 +221,72 @@ LUA;
     }
 
     /**
-     * Marks the backend unavailable and records a scrubbed reason.
+     * Marks this instance unavailable and records a scrubbed, classified reason.
      *
-     * @param string $reason
+     * The instance stops attempting to reconnect for the remainder of the request so a
+     * dead or misbehaving backend cannot stall sign-in with repeated timeouts. Recovery
+     * is immediate on the next request, because the limiter builds a fresh store (and
+     * therefore a fresh connection) every time it runs. When an operation fails *after*
+     * a successful connection the limiter is told the reason and hands the request over
+     * to the file fallback rather than dropping the increment.
+     *
+     * @param string $reason Machine-readable reason string.
+     * @param string|null $category One of the documented failure categories, or null to classify.
      * @return null
      */
-    private function fail(string $reason): ?\Redis {
+    private function fail(string $reason, ?string $category = null): ?\Redis {
         $this->unavailable = true;
         $this->lastfailure = $reason;
+        $this->lastfailurecategory = $category ?? self::categorise($reason);
         $this->redis = null;
         return null;
+    }
+
+    /**
+     * Maps a driver exception to a stable failure category.
+     *
+     * Redis reports memory exhaustion ("OOM command not allowed when used memory >
+     * 'maxmemory'"), ACL denials ("NOPERM ...") and connection problems as plain error
+     * strings, so the message has to be inspected. The category is what the operator
+     * sees in the degraded-mode event, and it is the difference between "Redis is out of
+     * memory", "the ACL user lost a permission" and "the network dropped the connection".
+     *
+     * @param \Throwable $exception Driver exception.
+     * @return string
+     */
+    private static function classify_exception(\Throwable $exception): string {
+        $message = strtolower($exception->getMessage());
+        if (str_contains($message, 'noperm') || str_contains($message, 'no permissions')) {
+            return 'permission';
+        }
+        if (str_contains($message, 'oom') || str_contains($message, 'maxmemory')) {
+            return 'memory';
+        }
+        if (str_contains($message, 'timeout') || str_contains($message, 'timed out')) {
+            return 'timeout';
+        }
+        if (str_contains($message, 'connection lost') || str_contains($message, 'went away')
+                || str_contains($message, 'read error') || str_contains($message, 'broken pipe')
+                || str_contains($message, 'connection reset')) {
+            return 'connect';
+        }
+        return 'exception';
+    }
+
+    /**
+     * Derives a category from a static reason string.
+     *
+     * @param string $reason
+     * @return string
+     */
+    private static function categorise(string $reason): string {
+        return match ($reason) {
+            'extension_missing', 'credential_unavailable' => 'config',
+            'connect_failed', 'connect_exception' => 'connect',
+            'auth_failed' => 'auth',
+            'unexpected_response', 'partial_update', 'inspect_response' => 'response',
+            default => 'exception',
+        };
     }
 
     /**
@@ -241,12 +318,17 @@ LUA;
         try {
             $result = $redis->eval(self::HIT_SCRIPT, [$this->namespaced($key), max(1, $windowseconds)], 1);
         } catch (\Throwable $exception) {
-            $this->fail('eval_exception');
-            return null;
+            return $this->fail('eval_exception', self::classify_exception($exception));
         }
         if (!is_array($result) || count($result) < 2) {
-            $this->fail('unexpected_response');
-            return null;
+            // A partial or malformed reply means the INCR may or may not have landed.
+            // The counter is only ever used to restrict, so an uncertain update is never
+            // allowed to under-count: the limiter re-applies the increment in the file
+            // fallback, which can only over-count in the safe direction.
+            return $this->fail(
+                is_array($result) ? 'partial_update' : 'unexpected_response',
+                'response'
+            );
         }
         return [
             'count' => (int)$result[0],
@@ -271,8 +353,10 @@ LUA;
             $value = $redis->get($namespaced);
             $ttl = $redis->ttl($namespaced);
         } catch (\Throwable $exception) {
-            $this->fail('inspect_exception');
-            return null;
+            return $this->fail('inspect_exception', self::classify_exception($exception));
+        }
+        if (is_array($value) || is_object($value)) {
+            return $this->fail('inspect_response', 'response');
         }
         if ($value === false || $value === null) {
             return ['count' => 0, 'ttl' => 0];
@@ -298,7 +382,7 @@ LUA;
             $redis->del($this->namespaced($key));
             return true;
         } catch (\Throwable $exception) {
-            $this->fail('del_exception');
+            $this->fail('del_exception', self::classify_exception($exception));
             return false;
         }
     }

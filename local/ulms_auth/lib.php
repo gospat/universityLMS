@@ -415,7 +415,49 @@ function local_ulms_auth_send_password_reset_email(stdClass $user, stdClass $res
 }
 
 /**
+ * Redacts secrets from a structured security-event payload.
+ *
+ * Two passes are applied so that a credential cannot leak through either route: any
+ * entry whose key resembles a credential is replaced outright, then every remaining
+ * string has known secret values (environment secrets and the configured database and
+ * SMTP passwords) removed. The second pass matters because an exception message is free
+ * text and could embed a secret that was never a named array key.
+ *
+ * @param array $data Payload destined for the log.
+ * @return array Scrubbed payload.
+ */
+function local_ulms_auth_scrub_log_data(array $data): array {
+    if (class_exists(\local_ulms_auth\local\error\ulms_safe_error_handler::class)) {
+        \local_ulms_auth\local\error\ulms_safe_error_handler::scrub_secrets($data);
+    }
+    return local_ulms_auth_scrub_log_values($data);
+}
+
+/**
+ * Recursively removes known secret values from a value destined for the logs.
+ *
+ * @param mixed $value Value to scrub.
+ * @return mixed Scrubbed value.
+ */
+function local_ulms_auth_scrub_log_values(mixed $value): mixed {
+    if (is_array($value)) {
+        $scrubbed = [];
+        foreach ($value as $key => $item) {
+            $scrubbed[$key] = local_ulms_auth_scrub_log_values($item);
+        }
+        return $scrubbed;
+    }
+    if (is_string($value) && class_exists(\local_ulms_auth\local\error\ulms_safe_error_handler::class)) {
+        return \local_ulms_auth\local\error\ulms_safe_error_handler::scrub_string_secrets($value);
+    }
+    return $value;
+}
+
+/**
  * Logs a structured security event for developer investigation.
+ *
+ * The payload is always scrubbed (see local_ulms_auth_scrub_log_data()) so callers can
+ * safely pass raw exception messages without a credential reaching the log file.
  *
  * @param string $event
  * @param array $data
@@ -429,7 +471,7 @@ function local_ulms_auth_log_security_event(string $event, array $data = []): vo
         'userid' => isset($USER->id) ? (int)$USER->id : 0,
         'ip' => getremoteaddr(),
         'url' => qualified_me(),
-        'data' => $data,
+        'data' => local_ulms_auth_scrub_log_data($data),
     ];
 
     error_log('[ULMS_SECURITY] ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));

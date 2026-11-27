@@ -131,6 +131,34 @@ if ($hassiteconfig) {
         PARAM_INT
     ));
 
+    $settings->add(new admin_setting_configselect(
+        'local_ulms_auth/ratelimitabuseipmode',
+        get_string('ratelimitabuseipmode', 'local_ulms_auth'),
+        get_string('ratelimitabuseipmodedesc', 'local_ulms_auth'),
+        'detect',
+        [
+            'detect' => get_string('ratelimitabuseipmodedetect', 'local_ulms_auth'),
+            'block' => get_string('ratelimitabuseipmodeblock', 'local_ulms_auth'),
+            'off' => get_string('ratelimitabuseipmodeoff', 'local_ulms_auth'),
+        ]
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ulms_auth/ratelimitprogressivelimit',
+        get_string('ratelimitprogressivelimit', 'local_ulms_auth'),
+        get_string('ratelimitprogressivelimitdesc', 'local_ulms_auth'),
+        2,
+        PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ulms_auth/ratelimitabuseiphardlimit',
+        get_string('ratelimitabuseiphardlimit', 'local_ulms_auth'),
+        get_string('ratelimitabuseiphardlimitdesc', 'local_ulms_auth'),
+        0,
+        PARAM_INT
+    ));
+
     $settings->add(new admin_setting_configtext(
         'local_ulms_auth/ratelimitminimumretry',
         get_string('ratelimitminimumretry', 'local_ulms_auth'),
@@ -145,6 +173,17 @@ if ($hassiteconfig) {
         get_string('ratelimitmaximumretrydesc', 'local_ulms_auth'),
         900,
         PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'local_ulms_auth/ratelimitdegradedmode',
+        get_string('ratelimitdegradedmode', 'local_ulms_auth'),
+        get_string('ratelimitdegradedmodedesc', 'local_ulms_auth'),
+        'failopen',
+        [
+            'failopen' => get_string('ratelimitdegradedmodefailopen', 'local_ulms_auth'),
+            'failclosed' => get_string('ratelimitdegradedmodefailclosed', 'local_ulms_auth'),
+        ]
     ));
 
     $settings->add(new admin_setting_heading(

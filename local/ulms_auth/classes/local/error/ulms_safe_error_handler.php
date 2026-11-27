@@ -106,7 +106,17 @@ final class ulms_safe_error_handler {
         }
     }
 
-    private static function scrub_string_secrets(string $text): string {
+    /**
+     * Replaces any known secret value found in a string with the redaction marker.
+     *
+     * Used wherever free-text (a log message, an exception message, a diagnostic
+     * payload) is written out, so a secret that somehow ends up inside a string is
+     * still removed even though it was not a named key.
+     *
+     * @param string $text Input text.
+     * @return string Text with known secret values redacted.
+     */
+    public static function scrub_string_secrets(string $text): string {
         $secrets = self::collect_known_secret_values();
         if (empty($secrets)) {
             return $text;

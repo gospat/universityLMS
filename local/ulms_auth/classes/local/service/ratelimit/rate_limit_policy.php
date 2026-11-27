@@ -28,9 +28,17 @@ defined('MOODLE_INTERNAL') || die();
  * Policy model (three independent buckets):
  *   - combo   : per client IP + account. Catches a fast brute force on one account.
  *   - account : per account, across every IP. Catches slow horizontal stuffing.
- *   - abuseip : per client IP, across every account. Detects distributed abuse with a
- *               deliberately high ceiling so unrelated accounts behind a shared NAT or
- *               institutional egress address are never locked out by one bad account.
+ *   - abuseip : per client IP, across every account. Detects distributed abuse. By
+ *               default (ip mode "detect") crossing this threshold does NOT block the
+ *               address: it progressively tightens the per-account combo allowance so a
+ *               shared campus NAT or institutional egress address is never locked out
+ *               by unrelated failing accounts. The legacy wait-in-place block is
+ *               available through ip mode "block", and an optional hard ceiling can be
+ *               enabled independently.
+ *
+ * Degraded mode decides what happens when no counter store can be reached at all: the
+ * default ("failopen") keeps sign-in available but emits a loud security event, while
+ * "failclosed" denies sign-in until a store recovers.
  *
  * @package    local_ulms_auth
  * @copyright  2026 Bells University of Technology
@@ -45,6 +53,21 @@ final class rate_limit_policy {
 
     /** @var string Force the local file backend. */
     public const BACKEND_FILE = 'file';
+
+    /** @var string Do not evaluate the per-IP abuse bucket at all. */
+    public const IP_MODE_OFF = 'off';
+
+    /** @var string Progressive protection: tighten per-account limits, never blanket block. */
+    public const IP_MODE_DETECT = 'detect';
+
+    /** @var string Legacy behaviour: block every attempt from the address once the limit is hit. */
+    public const IP_MODE_BLOCK = 'block';
+
+    /** @var string Keep sign-in available when no counter store is reachable, but log loudly. */
+    public const DEGRADED_FAILOPEN = 'failopen';
+
+    /** @var string Deny sign-in while no counter store is reachable. */
+    public const DEGRADED_FAILCLOSED = 'failclosed';
 
     /** @var bool */
     private bool $enabled;
@@ -67,11 +90,20 @@ final class rate_limit_policy {
     private int $abuseiplimit;
     /** @var int */
     private int $abuseipwindow;
+    /** @var string */
+    private string $ipmode;
+    /** @var int */
+    private int $progressivecombolimit;
+    /** @var int */
+    private int $abuseiphardlimit;
 
     /** @var int */
     private int $minimumretry;
     /** @var int */
     private int $maximumretry;
+
+    /** @var string */
+    private string $degradedmode;
 
     /**
      * Constructor.
@@ -88,6 +120,10 @@ final class rate_limit_policy {
      * @param int $abuseipwindow Per-IP abuse window in seconds.
      * @param int $minimumretry Lower bound for the advertised Retry-After, seconds.
      * @param int $maximumretry Upper bound for the advertised Retry-After, seconds.
+     * @param string $ipmode Per-IP abuse handling (off|detect|block).
+     * @param int $progressivecombolimit Tightened combo allowance while the address is abusive.
+     * @param int $abuseiphardlimit Optional absolute per-IP ceiling; 0 disables it.
+     * @param string $degradedmode Behaviour when no counter store is reachable (failopen|failclosed).
      */
     public function __construct(
         bool $enabled = true,
@@ -101,7 +137,11 @@ final class rate_limit_policy {
         int $abuseiplimit = 300,
         int $abuseipwindow = 300,
         int $minimumretry = 15,
-        int $maximumretry = 900
+        int $maximumretry = 900,
+        string $ipmode = self::IP_MODE_DETECT,
+        int $progressivecombolimit = 2,
+        int $abuseiphardlimit = 0,
+        string $degradedmode = self::DEGRADED_FAILOPEN
     ) {
         $this->enabled = $enabled;
         $this->backend = in_array($backend, [self::BACKEND_AUTO, self::BACKEND_REDIS, self::BACKEND_FILE], true)
@@ -115,8 +155,16 @@ final class rate_limit_policy {
         $this->accountwindow = max(1, $accountwindow);
         $this->abuseiplimit = max(1, $abuseiplimit);
         $this->abuseipwindow = max(1, $abuseipwindow);
+        $this->ipmode = in_array($ipmode, [self::IP_MODE_OFF, self::IP_MODE_DETECT, self::IP_MODE_BLOCK], true)
+            ? $ipmode
+            : self::IP_MODE_DETECT;
+        $this->progressivecombolimit = max(1, $progressivecombolimit);
+        $this->abuseiphardlimit = max(0, $abuseiphardlimit);
         $this->minimumretry = max(1, $minimumretry);
         $this->maximumretry = max($this->minimumretry, $maximumretry);
+        $this->degradedmode = $degradedmode === self::DEGRADED_FAILCLOSED
+            ? self::DEGRADED_FAILCLOSED
+            : self::DEGRADED_FAILOPEN;
     }
 
     /**
@@ -137,7 +185,11 @@ final class rate_limit_policy {
             self::number('ratelimitabuseiplimit', 'ULMS_LOGIN_RATELIMIT_ABUSE_IP_LIMIT', 300),
             self::number('ratelimitabuseipwindow', 'ULMS_LOGIN_RATELIMIT_ABUSE_IP_WINDOW', 300),
             self::number('ratelimitminimumretry', 'ULMS_LOGIN_RATELIMIT_MIN_RETRY', 15),
-            self::number('ratelimitmaximumretry', 'ULMS_LOGIN_RATELIMIT_MAX_RETRY', 900)
+            self::number('ratelimitmaximumretry', 'ULMS_LOGIN_RATELIMIT_MAX_RETRY', 900),
+            self::text('ratelimitabuseipmode', 'ULMS_LOGIN_RATELIMIT_ABUSE_IP_MODE', self::IP_MODE_DETECT),
+            self::number('ratelimitprogressivelimit', 'ULMS_LOGIN_RATELIMIT_PROGRESSIVE_LIMIT', 2),
+            self::number('ratelimitabuseiphardlimit', 'ULMS_LOGIN_RATELIMIT_ABUSE_IP_HARD_LIMIT', 0),
+            self::text('ratelimitdegradedmode', 'ULMS_LOGIN_RATELIMIT_DEGRADED_MODE', self::DEGRADED_FAILOPEN)
         );
     }
 
@@ -178,6 +230,69 @@ final class rate_limit_policy {
     }
 
     /**
+     * How the per-IP abuse bucket is handled (off|detect|block).
+     *
+     * @return string
+     */
+    public function ip_mode(): string {
+        return $this->ipmode;
+    }
+
+    /**
+     * The per-IP failure count at which progressive protection engages.
+     *
+     * @return int
+     */
+    public function abuse_ip_limit(): int {
+        return $this->abuseiplimit;
+    }
+
+    /**
+     * The per-IP abuse window in seconds.
+     *
+     * @return int
+     */
+    public function abuse_ip_window(): int {
+        return $this->abuseipwindow;
+    }
+
+    /**
+     * The combo allowance applied to an address that is already abusive.
+     *
+     * @return int
+     */
+    public function progressive_combo_limit(): int {
+        return $this->progressivecombolimit;
+    }
+
+    /**
+     * The optional absolute per-IP ceiling; 0 disables it.
+     *
+     * @return int
+     */
+    public function abuse_ip_hard_limit(): int {
+        return $this->abuseiphardlimit;
+    }
+
+    /**
+     * Behaviour when no counter store is reachable (failopen|failclosed).
+     *
+     * @return string
+     */
+    public function degraded_mode(): string {
+        return $this->degradedmode;
+    }
+
+    /**
+     * Whether sign-in stays available when no counter store is reachable.
+     *
+     * @return bool
+     */
+    public function degraded_fail_open(): bool {
+        return $this->degradedmode !== self::DEGRADED_FAILCLOSED;
+    }
+
+    /**
      * Bucket definitions, in evaluation order.
      *
      * @return array<int, array{name:string,limit:int,window:int}>
@@ -188,6 +303,15 @@ final class rate_limit_policy {
             ['name' => 'account', 'limit' => $this->accountlimit, 'window' => $this->accountwindow],
             ['name' => 'abuseip', 'limit' => $this->abuseiplimit, 'window' => $this->abuseipwindow],
         ];
+    }
+
+    /**
+     * The lower bound advertised for Retry-After when no bucket can supply a lifetime.
+     *
+     * @return int
+     */
+    public function minimum_retry(): int {
+        return $this->minimumretry;
     }
 
     /**

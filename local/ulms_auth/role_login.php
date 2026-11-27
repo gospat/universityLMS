@@ -36,7 +36,13 @@ if (!(defined('PHPUNIT_TEST') && PHPUNIT_TEST) && !(defined('BEHAT_TEST') && BEH
         if (function_exists('local_ulms_dashboard_log_operational_error')) {
             local_ulms_dashboard_log_operational_error($_, 'role_login::require_login_rate_limit', []);
         } else {
-            error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'role_login::require_login_rate_limit','type'=>get_class($_),'message'=>$_->getMessage(),'line'=>$_->getLine(),'file'=>$_->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+            error_log('[ULMS_PORTAL_ERROR] ' . json_encode(local_ulms_auth_scrub_log_data([
+                'location' => 'role_login::require_login_rate_limit',
+                'type' => get_class($_),
+                'message' => $_->getMessage(),
+                'line' => $_->getLine(),
+                'file' => $_->getFile(),
+            ]), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         }
         trigger_error('ULMS: login_rate_limit service failed to load. Rate limiting is disabled for this request. Rotate credentials at next maintenance window.', E_USER_WARNING);
     }
