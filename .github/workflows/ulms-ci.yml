@@ -382,7 +382,89 @@ jobs:
           # the CLI builder keeps the final occurrence of the option.
           suite_filter=$(IFS=,; echo "${required[*]}")
 
-          php vendor/bin/phpunit --testsuite "${suite_filter}" ${{ inputs.phpunit_extra_options }}
+          php vendor/bin/phpunit --testsuite "${suite_filter}" \
+            --log-junit phpunit-required.xml ${{ inputs.phpunit_extra_options }}
+
+      - name: Publish the required-suite test summary
+        # The gate's evidence must be readable by whoever reviews the pull request.
+        # GitHub serves job logs only to repository members, so the totals and the name
+        # of every skipped test are published as a check-run annotation, which any
+        # account can read.
+        #
+        # Two things are enforced here rather than merely reported, because the review
+        # asked for proof that the authentication tests actually ran against the real
+        # Redis server this workflow provisions:
+        #   * the rate-limiter and role-login test classes must each have executed — a
+        #     deleted or renamed test must not look like a pass;
+        #   * none of them may be skipped, because a skip means the protection silently
+        #     stopped being exercised.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+
+          def emit(kind, message):
+              # Workflow-command escaping, as documented by GitHub Actions.
+              escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::{kind}::{escaped}')
+
+
+          root = ET.parse('phpunit-required.xml').getroot()
+
+          totals = {'tests': 0, 'assertions': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
+          for suite in root.iter('testsuite'):
+              # Nested aggregate suites repeat the leaf totals, so only the generated
+              # per-plugin/theme suites are counted.
+              if not (suite.get('name') or '').endswith('_testsuite'):
+                  continue
+              for key in totals:
+                  totals[key] += int(suite.get(key) or 0)
+
+          executed = set()
+          skipped = []
+          for case in root.iter('testcase'):
+              cls = case.get('class') or ''
+              label = f'{cls}::{case.get("name") or ""}'
+              executed.add(cls)
+              for child in case:
+                  if child.tag == 'skipped':
+                      reason = (child.get('message') or child.text or '').strip().splitlines()
+                      skipped.append(label + (f' - {reason[0]}' if reason else ''))
+
+          emit(
+              'notice',
+              'Required ULMS PHPUnit suites: '
+              f'{totals["tests"]} test(s), {totals["assertions"]} assertion(s), '
+              f'{totals["failures"]} failure(s), {totals["errors"]} error(s), '
+              f'{totals["skipped"]} skipped.'
+          )
+
+          # The classes this gate exists to protect.
+          critical = (
+              r'local_ulms_auth\ratelimit_limiter_test',
+              r'local_ulms_auth\ratelimit_concurrency_test',
+              r'local_ulms_auth\ratelimit_redis_store_test',
+              r'local_ulms_auth\role_login_regression_test',
+          )
+
+          missed = [name for name in critical if name not in executed]
+          if missed:
+              emit('error', 'The authentication test classes below did not execute, so the '
+                            'gate does not cover the behaviour it is meant to: ' + ', '.join(missed))
+              raise SystemExit(1)
+
+          prefixes = tuple(name + '::' for name in critical)
+          skipped_critical = [label for label in skipped if label.startswith(prefixes)]
+          if skipped_critical:
+              emit('error', 'Authentication tests were skipped, so the gate did not exercise '
+                            'them: ' + '; '.join(skipped_critical))
+              raise SystemExit(1)
+
+          if skipped:
+              emit('warning', 'Skipped tests in the required suites (none authentication-critical): '
+                              + '; '.join(skipped))
+          PY
 
   # Advisory only. Runs the complete ULMS suite, including any suite listed in
   # KNOWN_FAILING_SUITES, so an outstanding defect stays visible on every push without
