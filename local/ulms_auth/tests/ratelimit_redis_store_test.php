@@ -232,8 +232,10 @@ final class ratelimit_redis_store_test extends \advanced_testcase {
         $limiter = new login_rate_limiter($policy, $store, self::TEST_IP);
         $identifier = $this->unique('target');
 
-        $this->assertFalse($limiter->check($identifier)['blocked']);
+        // The combined bucket is reserved atomically at admission, so exactly three
+        // admitted attempts are allowed and the fourth is refused at the gate.
         for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->assertFalse($limiter->check($identifier)['blocked']);
             $limiter->record($identifier, login_outcome::FAILURE);
         }
 

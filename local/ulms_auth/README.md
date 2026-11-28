@@ -95,10 +95,19 @@ its own:
 
 #### 3.1.1 Buckets
 
-**3 independent buckets** are evaluated on every attempt. A counter is only ever
-incremented on a genuine credential failure, and enforcement itself never
-increments, so a request that is already blocked cannot extend its own
-restriction.
+**3 independent buckets** are evaluated on every attempt. The combined `combo`
+bucket is reserved **atomically at admission**, before any credential is verified,
+so a burst of simultaneous requests cannot all pass the gate and only record their
+failures afterwards — the increment that would cross the allowance is refused at
+the gate itself. The `account` and `abuseip` buckets are incremented only on a
+genuine credential failure, and every window is anchored to its first hit, so a
+request that is already blocked cannot extend its own restriction.
+
+Because the reservation happens before the outcome is known, the `combo` bucket
+counts **attempts** (every request that reaches the gate), while `account` and
+`abuseip` count **failures**. A successful sign-in clears both the `combo` and
+`account` buckets, so ordinary traffic never accumulates against them; only the
+short 3-minute `combo` window can hold a handful of in-flight attempts.
 
 | Bucket | Key scope | Default limit / window | Defeats |
 |---|---|---|---|
@@ -117,11 +126,13 @@ blocks the other accounts sharing that IP.
 
 #### 3.1.2 What counts as a failure
 
-Only a **wrong credential** is counted. The limiter inspects the
+Only a **wrong credential** is counted as a *failure*. The limiter inspects the
 `authenticate_user_login()` result through
 [login_outcome::classify()](./classes/local/service/ratelimit/login_outcome.php)
-and treats everything else as **neutral** (a no-op that leaves all counters
-untouched):
+and treats everything else as **neutral** — it never charges the `account` or
+`abuseip` failure counters for it. (The combined `combo` bucket is separate: it
+counts *admission attempts* rather than failures, as described in §3.1.1, and is
+cleared by a successful sign-in.)
 
 | Counted as failure | Never counted |
 |---|---|
@@ -240,19 +251,29 @@ Counter continuity is preserved by design:
   an account's or an address's history.
 - **The failed increment is re-applied on the fallback**, so attempts are never
   silently dropped while a store is degraded.
-- **A restriction is only ever delayed until the fallback applies it** — the
-  limiter never returns "allowed" merely because the primary failed.
+- **Every successful write is also mirrored onto the standby store** while the
+  primary is healthy — the file store is a live copy of Redis, not merely a
+  cold spare. A transition or a partial update therefore finds the fallback already
+  holding the current count, and only the single in-flight operation has to be
+  replayed.
+- **Every read is reconciled against both stores and the stronger observation
+  wins** (higher count, tie-broken by the longer remaining TTL). A store that has
+  fallen behind, or a Redis instance that restarts with a stale or empty counter,
+  can therefore never *lower* an active restriction: the mirrored count out-votes
+  it.
+- **A restriction is only ever delayed until a store applies it** — the limiter
+  never returns "allowed" merely because the primary failed.
 - **Redis keeps its own counters and TTLs.** Nothing deletes them on the way out,
-  so when Redis recovers the counters are still there and counting resumes
-  seamlessly.
+  so when Redis recovers and is once again the stronger observation, counting
+  resumes on it seamlessly.
 - **A fresh limiter instance is created per request**, so recovery takes effect
   immediately on the next request — there is no sticky "degraded" state to clear.
-- **Counters written on the file fallback expire on their own** (each key is
-  written with a TTL), so the fallback cannot accumulate stale restrictions after
-  Redis returns.
+- **Counters on both stores expire on their own** (each key is written with a TTL),
+  so neither store can accumulate a stale restriction after the other returns.
 
 The practical consequence is that a Redis outage shortens nothing and lengthens
-nothing: it changes *where* the count is kept, not *whether* it is kept.
+nothing: it changes *where* the count is kept, not *whether* it is kept, and a
+restriction that was active before the outage is still active after it.
 
 #### 3.1.5 Degraded mode when no store is usable
 
@@ -279,6 +300,23 @@ one.
 > authentication to stop rather than proceed unprotected, switch to `failclosed`
 > — but only after confirming the file fallback is healthy, so that a Redis
 > outage alone never reaches degraded mode.
+
+**Institutional security strategy.** The design deliberately balances availability
+against brute-force protection rather than choosing one:
+
+- **Degraded mode is the last resort, not the first.** The live mirror means the
+  file fallback already holds the current counters, so a Redis outage alone does
+  not reach degraded mode — the fallback keeps enforcing the same thresholds.
+  Only a simultaneous failure of *both* stores does.
+- **Protection is never silently disabled.** Whichever branch is taken, a
+  `ratelimit_degraded` event is emitted, so an unprotected window is always
+  detectable and alertable rather than invisible.
+- **Availability is never silently broken.** `failclosed` is bounded by
+  `ratelimitminimumretry`, so even that branch cannot produce a permanent or
+  open-ended authentication outage.
+- **The trade-off is chosen before the incident.** `ratelimitdegradedmode` is set
+  in configuration, not decided at runtime, so the operator's
+  availability-versus-protection preference is explicit and reviewable.
 
 Failures never surface Redis errors, stack traces or infrastructure detail to the
 user, and a restriction can never become permanent because every counter is
@@ -532,8 +570,8 @@ sections).
 
 The plugin ships PHPUnit test classes covering the auth flow, the clean-route
 registry, the email template, the bootstrap buffer guard, the login rate limiter
-end-to-end, genuine parallel-process concurrency, and the role login controller
-regression:
+end-to-end, the Redis driver's return-value validation, genuine parallel-process
+concurrency, and the role login controller regression:
 
 | Test file | Coverage |
 |---|---|
@@ -546,28 +584,39 @@ regression:
 | [tests/ratelimit_client_ip_test.php](./tests/ratelimit_client_ip_test.php) | Trusted-proxy forwarding, XFF/CF header handling, IPv4 + IPv6 canonicalisation, CIDR matching, malformed-input fallback. |
 | [tests/ratelimit_limiter_test.php](./tests/ratelimit_limiter_test.php) | Bucket thresholds, one account not blocking unrelated accounts, blocked requests not extending the window, success clearing account counters without resetting the abuse counter, Retry-After reflecting the real expiry. Also covers progressive shared-IP modes, the opt-in abuse hard limit, runtime store handover, and both degraded-mode branches. |
 | [tests/ratelimit_redis_store_test.php](./tests/ratelimit_redis_store_test.php) | Redis integration against a real server: atomic increment + expiry, inspect-does-not-increment, clear, the `ulms:auth:*` ACL namespace enforcing least privilege, and the limiter tripping/completing through Redis. |
-| [tests/ratelimit_concurrency_test.php](./tests/ratelimit_concurrency_test.php) | **Genuine parallel-process** concurrency: simultaneous counter increments (file and Redis), concurrent authentication admissions bounded by the threshold, counter expiry under parallel load, simultaneous success + failure, and a Redis→file runtime transition that loses no increment. |
+| [tests/ratelimit_redis_validation_test.php](./tests/ratelimit_redis_validation_test.php) | The Redis driver's reply handling, exercised against a fake client so it runs on every PHP install: connect/`AUTH`/`PING`, a failed `GET` distinguished from a missing key, `TTL -1`/`-2` handling with `EXPIRE` repair, and `DEL`/`EVAL`/`EXPIRE` validated in **both** failure modes — a thrown `\RedisException` and a `false` return each trigger the fallback. |
+| [tests/ratelimit_concurrency_test.php](./tests/ratelimit_concurrency_test.php) | **Genuine parallel-process** concurrency: simultaneous counter increments (file and Redis), concurrent authentication admissions cut off at exactly the combined allowance, counter expiry under parallel load, simultaneous success + failure, and a Redis→file runtime transition that loses no increment. |
 | [tests/role_login_regression_test.php](./tests/role_login_regression_test.php) | Integration regression for the role login controller against Moodle's real auth: valid/invalid login tokens, wrong portal, unconfirmed account, internal exceptions staying neutral, and the LTI/SSO token-validation exemption, plus log redaction. |
 
 #### 6.1 Atomic counter update vs atomic admission
 
-Two different properties are deliberately separated, and the tests assert both:
+Two different properties are exercised, and the tests assert both:
 
 - **Atomic counter update.** `counter_store::hit()` is atomic — Redis applies
   `INCR` + `EXPIRE` in one server-side Lua script, and the file store serialises
-  with `flock(LOCK_EX)`. Parallel increments therefore never lose a count.
-- **Non-atomic admission.** Enforcement (`check()`) is intentionally **not**
-  atomic with accounting (`record()`): the limiter has to return an allow/deny
-  decision *before* the credential is verified and the outcome recorded. Under
-  genuine parallelism, N simultaneous requests can each pass `check()` before any
-  of them records a failure, so the count can *overshoot* the threshold by at
-  most the number of in-flight requests.
+  with `flock(LOCK_EX)`. Parallel increments therefore never lose a count: N
+  concurrent increments over one key produce exactly N.
+- **Atomic admission for the combined bucket.** `check()` must return an
+  allow/deny decision *before* the credential is verified, so admission cannot be
+  made atomic by accounting the failure afterwards. Instead the limiter
+  **reserves** a slot in the shared `combo` bucket at the gate, through the same
+  atomic `hit()`, and the increment that crosses the allowance is refused there.
+  A burst of simultaneous requests therefore cannot all pass the gate and only
+  record their failures afterwards: exactly `ratelimitcombolimit` attempts (or
+  `ratelimitprogressivelimit` once the address is flagged) are admitted and the
+  remainder are denied at the gate.
 
-The threshold is therefore a **bound, not an exact cut-off**, and the concurrency
-suite asserts that overshoot stays bounded (requests cannot substantially exceed
-the intended threshold) rather than asserting an unrealisable exact ceiling. This
-is the standard trade-off for a pre-authentication gate that must not depend on
-the authentication result to decide whether to run it.
+The `account` and `abuseip` failure buckets are read at the gate and written on
+the outcome, so those two reads can still lag a concurrent write; that is why the
+limiter reconciles every read against the standby mirror and takes the stronger
+observation (§3.1.4). The `combo` bucket is the one that carries the hard cut-off,
+and the concurrency suite asserts an **exact** ceiling for it: the total admitted
+across all parallel processes equals the allowance, with no overshoot.
+
+A reservation is charged whether the credential then succeeds or fails, so a
+successful login also consumes one `combo` slot until the SUCCESS path clears it
+in `record()`; this is bounded by the short `combo` window and reset on every
+successful login, so a legitimate user cannot accumulate reservations.
 
 Run with the standard Moodle phpunit runner:
 
@@ -580,8 +629,12 @@ The Redis integration suites (`ratelimit_redis_store_test.php` and the Redis
 cases in `ratelimit_concurrency_test.php`) skip **only** when the `phpredis`
 extension is absent. When `phpredis` **is** present they require a reachable Redis
 and fail rather than skipping, so a real Redis regression cannot pass unnoticed.
-The file-store concurrency cases and every other test always run. The tests read
-their connection from environment variables and never contain a secret:
+The reply-validation suite (`ratelimit_redis_validation_test.php`) instead injects
+a fake client, so it exercises the driver's failure handling on **every** PHP
+install — including those without `phpredis` — by simulating both a thrown
+`\RedisException` and a `false` return. The file-store concurrency cases and every
+other test always run. The tests read their connection from environment variables
+and never contain a secret:
 
 | Env var | Default |
 |---|---|

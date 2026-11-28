@@ -32,15 +32,18 @@ defined('MOODLE_INTERNAL') || die();
  * therefore launch several independent PHP processes that hammer the same shared
  * counter at the same time and then assert the aggregate result.
  *
- * They deliberately separate the two kinds of atomicity the design depends on:
+ * They deliberately exercise the two kinds of atomicity the design depends on:
  *
  *   - the counter update is atomic (Redis INCR inside a Lua script; flock on the file
  *     store), so N parallel increments over a shared key must produce exactly N, never
  *     N minus a lost update;
- *   - admission is NOT atomic with accounting. check() and record() are two separate
- *     steps, so parallel requests can overshoot a threshold by at most the number of
- *     requests already in flight. The tests assert that bound holds rather than
- *     pretending the cut-off is exact.
+ *   - admission is atomic for the shared combined bucket. check() reserves a slot in it
+ *     at the pre-login gate, before any credential work, so the increment that crosses
+ *     the allowance is refused there. A burst of parallel requests therefore cannot all
+ *     pass the gate and only record their failures afterwards: exactly the allowance is
+ *     admitted and the remainder are refused at the gate, with no overshoot. The failure
+ *     buckets (account, abuseip) are still read at the gate and written on the outcome,
+ *     so only the combined bucket carries the hard cut-off.
  *
  * The child processes are plain PHP CLI invocations that load only the rate-limiter
  * classes, so they never touch the Moodle database and can never interfere with the
@@ -76,6 +79,8 @@ final class ratelimit_concurrency_test extends \advanced_testcase {
 define('MOODLE_INTERNAL', true);
 $classes = rtrim((string)getenv('ULMS_RL_CLASSES'), '/');
 require $classes . '/counter_store.php';
+require $classes . '/redis_client.php';
+require $classes . '/phpredis_client.php';
 require $classes . '/file_counter_store.php';
 require $classes . '/redis_counter_store.php';
 require $classes . '/rate_limit_policy.php';
@@ -381,7 +386,7 @@ WORKER;
         $probe->clear($key);
     }
 
-    public function test_parallel_authentication_admissions_are_bounded_by_the_threshold(): void {
+    public function test_parallel_authentication_admissions_are_exactly_bounded_by_the_threshold(): void {
         $dir = $this->counter_dir('admission');
         $limit = 3;
         $environments = [];
@@ -403,20 +408,20 @@ WORKER;
             $admitted += (int)$matches[1];
         }
 
-        // Protection must engage: the threshold cannot be ignored under load.
-        $this->assertGreaterThanOrEqual($limit, $admitted, 'The threshold must be enforced under concurrency.');
-        // Admission is not atomic with accounting, so the overshoot is bounded by the
-        // number of requests that were in flight when the threshold was reached.
-        $this->assertLessThanOrEqual(
-            $limit + self::PROCESSES,
+        // check() reserves a slot in the shared combined bucket at the gate, so the
+        // increment that crosses the allowance is refused there. Parallel requests cannot
+        // all pass the gate before their failures are recorded: the total admitted across
+        // every process is exactly the allowance, with no overshoot beyond it.
+        $this->assertSame(
+            $limit,
             $admitted,
-            'Concurrent admissions must not substantially exceed the intended threshold.'
+            'Concurrent admissions must be cut off at exactly the combined allowance.'
         );
         // The loop was cut short, proving the limiter actually stopped the runaway.
         $this->assertLessThan(self::PROCESSES * self::OPS, $admitted);
 
-        // The counter reflects exactly the admissions that were recorded: the atomic
-        // update never under-counts what the limiter allowed through.
+        // The counter carries every reservation, including the refused ones, so the
+        // address stays restricted afterwards.
         $store = new file_counter_store($dir);
         $policy = new rate_limit_policy(true, 'file', false, false, $limit, 120, 9999, 120, 9999, 300, 1, 900);
         $limiter = new login_rate_limiter($policy, $store, self::IP);
@@ -472,8 +477,8 @@ WORKER;
             $this->assertSame('OK recorded', $output);
         }
 
-        // Half the processes recorded failures, each on three buckets, so no counter may
-        // exceed that total and none may be corrupted or negative.
+        // Half the processes recorded failures, each on the two failure buckets, so no
+        // counter may exceed that total and none may be corrupted or negative.
         $max = $this->max_counter_in_dir($dir);
         $this->assertLessThanOrEqual((int)(self::PROCESSES / 2) * self::OPS, $max);
     }

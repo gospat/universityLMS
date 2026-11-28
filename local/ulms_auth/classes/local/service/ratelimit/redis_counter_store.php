@@ -22,12 +22,21 @@ defined('MOODLE_INTERNAL') || die();
  * Redis-backed counter store using a restricted ACL user.
  *
  * Counters are incremented atomically by a server-side Lua script so concurrent
- * authentication requests can never lose an update, and expiry is always set when the
- * key is created so a restriction can never become permanent. Only the commands the
+ * authentication requests can never lose an update, and expiry is always ensured for
+ * the key so a restriction can never become permanent. Only the commands the
  * production ACL user is granted are used: INCR, EXPIRE, TTL, GET, DEL, PING and EVAL.
  *
  * Every key is forced into the `ulms:auth:` namespace. Plaintext identifiers are never
  * sent to Redis: the caller supplies an already-hashed logical key.
+ *
+ * Every reply is validated. The production phpredis extension reports a failing command
+ * in two different ways — it throws a `RedisException` for a command error (an ACL
+ * denial, an out-of-memory rejection under the noeviction policy, a read timeout) and it
+ * returns `false` when a command could not be executed at all — so a reply that is not
+ * exactly what was expected is treated as a runtime failure and the limiter hands the
+ * request to the fallback. In particular a failed GET is never mistaken for a missing
+ * key, and a counter that has somehow lost its expiry is repaired in place rather than
+ * being left to restrict a client forever.
  *
  * @package    local_ulms_auth
  * @copyright  2026 Bells University of Technology
@@ -37,13 +46,20 @@ final class redis_counter_store implements counter_store {
     /** Mandatory key namespace enforced by the production ACL. */
     public const KEY_PREFIX = 'ulms:auth:';
 
-    /** Atomic increment + guaranteed expiry. Returns {count, ttl}. */
+    /**
+     * Atomic increment + guaranteed expiry. Returns {count, ttl}.
+     *
+     * The TTL is set whenever the key has no expiry (a fresh key reports -1, and a key
+     * that somehow lost its expiry also reports -1), so the restriction can never become
+     * permanent even if that key was not the one that created the counter.
+     */
     private const HIT_SCRIPT = <<<'LUA'
 local c = redis.call('INCR', KEYS[1])
-if c == 1 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-end
 local t = redis.call('TTL', KEYS[1])
+if t < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  t = tonumber(ARGV[1])
+end
 return {c, t}
 LUA;
 
@@ -59,8 +75,12 @@ LUA;
     private float $connecttimeout;
     /** @var float */
     private float $readtimeout;
-    /** @var \Redis|null */
-    private ?\Redis $redis = null;
+    /** @var redis_client */
+    private redis_client $client;
+    /** @var bool Whether the client was injected (so the extension is not required). */
+    private bool $clientinjected;
+    /** @var bool Whether the connection has been established for this request. */
+    private bool $ready = false;
     /** @var bool */
     private bool $unavailable = false;
     /** @var string|null */
@@ -77,6 +97,7 @@ LUA;
      * @param string $secretfile Path to the credential file (never stored in code).
      * @param float $connecttimeout Connection timeout in seconds.
      * @param float $readtimeout Read timeout in seconds.
+     * @param redis_client|null $client Injectable client, or null for the phpredis adapter.
      */
     public function __construct(
         string $host,
@@ -84,7 +105,8 @@ LUA;
         string $acluser,
         string $secretfile,
         float $connecttimeout,
-        float $readtimeout
+        float $readtimeout,
+        ?redis_client $client = null
     ) {
         $this->host = $host;
         $this->port = $port;
@@ -92,6 +114,8 @@ LUA;
         $this->secretfile = $secretfile;
         $this->connecttimeout = max(0.1, $connecttimeout);
         $this->readtimeout = max(0.1, $readtimeout);
+        $this->clientinjected = $client !== null;
+        $this->client = $client ?? new phpredis_client();
     }
 
     /**
@@ -138,7 +162,7 @@ LUA;
      *   permission    - NOPERM: the ACL user is not allowed to run the command
      *   memory        - OOM: memory exhausted under the production noeviction policy
      *   timeout       - read/connect timeout
-     *   response      - unexpected or partial command response
+     *   response      - unexpected, malformed or failed command reply
      *   exception     - any other driver error
      *
      * @return string|null
@@ -148,18 +172,18 @@ LUA;
     }
 
     /**
-     * Lazily connects and authenticates.
+     * Lazily connects, authenticates and verifies the connection with PING.
      *
-     * @return \Redis|null
+     * @return redis_client|null
      */
-    private function connection(): ?\Redis {
-        if ($this->redis !== null) {
-            return $this->redis;
+    private function connection(): ?redis_client {
+        if ($this->ready) {
+            return $this->client;
         }
         if ($this->unavailable) {
             return null;
         }
-        if (!self::extension_loaded()) {
+        if (!$this->clientinjected && !self::extension_loaded()) {
             return $this->fail('extension_missing', 'config');
         }
 
@@ -169,26 +193,39 @@ LUA;
         }
 
         try {
-            $redis = new \Redis();
-            $connected = $redis->connect($this->host, $this->port, $this->connecttimeout, null, 0, $this->readtimeout);
-            if ($connected !== true) {
+            if (!$this->client->connect($this->host, $this->port, $this->connecttimeout, $this->readtimeout)) {
                 return $this->fail('connect_failed', 'connect');
             }
-            $redis->setOption(\Redis::OPT_SERIALIZER, \Redis::SERIALIZER_NONE);
-            if ($this->acluser !== '') {
-                if ($redis->auth([$this->acluser, $password]) !== true) {
-                    return $this->fail('auth_failed', 'auth');
-                }
-            } else if ($redis->auth($password) !== true) {
+            if (!$this->client->auth($this->acluser, $password)) {
                 return $this->fail('auth_failed', 'auth');
             }
-            $redis->ping();
-            $this->redis = $redis;
-
-            return $this->redis;
+            if (!self::valid_ping($this->client->ping())) {
+                // phpredis answers PING with `true` or the string `+PONG`; anything else
+                // means the connection is not actually usable even though it opened.
+                return $this->fail('ping_failed', 'response');
+            }
         } catch (\Throwable $exception) {
             return $this->fail('connect_exception', self::classify_exception($exception));
         }
+
+        $this->ready = true;
+        return $this->client;
+    }
+
+    /**
+     * Validates a PING reply.
+     *
+     * @param mixed $reply Raw reply.
+     * @return bool
+     */
+    private static function valid_ping(mixed $reply): bool {
+        if ($reply === true || $reply === 1) {
+            return true;
+        }
+        if (is_string($reply)) {
+            return strcasecmp(trim($reply, "+ \t\n\r\0\x0B"), 'PONG') === 0;
+        }
+        return false;
     }
 
     /**
@@ -234,11 +271,11 @@ LUA;
      * @param string|null $category One of the documented failure categories, or null to classify.
      * @return null
      */
-    private function fail(string $reason, ?string $category = null): ?\Redis {
+    private function fail(string $reason, ?string $category = null): ?redis_client {
         $this->unavailable = true;
+        $this->ready = false;
         $this->lastfailure = $reason;
         $this->lastfailurecategory = $category ?? self::categorise($reason);
-        $this->redis = null;
         return null;
     }
 
@@ -284,7 +321,8 @@ LUA;
             'extension_missing', 'credential_unavailable' => 'config',
             'connect_failed', 'connect_exception' => 'connect',
             'auth_failed' => 'auth',
-            'unexpected_response', 'partial_update', 'inspect_response' => 'response',
+            'unexpected_response', 'partial_update', 'inspect_response',
+                'del_response', 'ping_failed', 'inspect_repair_failed' => 'response',
             default => 'exception',
         };
     }
@@ -320,7 +358,7 @@ LUA;
         } catch (\Throwable $exception) {
             return $this->fail('eval_exception', self::classify_exception($exception));
         }
-        if (!is_array($result) || count($result) < 2) {
+        if (!is_array($result) || count($result) < 2 || !is_numeric($result[0]) || !is_numeric($result[1])) {
             // A partial or malformed reply means the INCR may or may not have landed.
             // The counter is only ever used to restrict, so an uncertain update is never
             // allowed to under-count: the limiter re-applies the increment in the file
@@ -331,13 +369,19 @@ LUA;
             );
         }
         return [
-            'count' => (int)$result[0],
+            'count' => max(0, (int)$result[0]),
             'ttl' => max(0, (int)$result[1]),
         ];
     }
 
     /**
      * Returns the current counter value and remaining lifetime without incrementing.
+     *
+     * A missing key is confirmed by Redis's own sentinel: GET returns `false` *and* TTL
+     * returns -2. If GET looks empty but TTL says the key is not missing, the read did
+     * not genuinely return an empty counter and is reported as a failure instead of being
+     * treated as "no restriction". A counter that exists without an expiry (TTL -1) is
+     * repaired with EXPIRE, because a restriction must never be permanent.
      *
      * @param string $key
      * @param int $windowseconds
@@ -348,27 +392,74 @@ LUA;
         if ($redis === null) {
             return null;
         }
+        $namespaced = $this->namespaced($key);
         try {
-            $namespaced = $this->namespaced($key);
             $value = $redis->get($namespaced);
             $ttl = $redis->ttl($namespaced);
         } catch (\Throwable $exception) {
             return $this->fail('inspect_exception', self::classify_exception($exception));
         }
-        if (is_array($value) || is_object($value)) {
+
+        if ($value === false || $value === null) {
+            if ($ttl === -2) {
+                // GET returned nothing and TTL confirms the key does not exist.
+                return ['count' => 0, 'ttl' => 0];
+            }
+            // GET reported an empty value but the key is not actually missing, so the
+            // command did not run as expected. Never read this as "no restriction".
             return $this->fail('inspect_response', 'response');
         }
-        if ($value === false || $value === null) {
+
+        if (is_array($value) || is_object($value) || !is_numeric($value)) {
+            return $this->fail('inspect_response', 'response');
+        }
+
+        if (!is_int($ttl)) {
+            // `false`, a string, or any structured reply is not a valid TTL.
+            return $this->fail('inspect_response', 'response');
+        }
+        if ($ttl === -2) {
+            // The key expired between the GET and the TTL: report an empty window.
             return ['count' => 0, 'ttl' => 0];
         }
+        if ($ttl < 0) {
+            return $this->repair_expiry($redis, $namespaced, (int)$value, $windowseconds);
+        }
+
         return [
-            'count' => (int)$value,
-            'ttl' => max(0, (int)$ttl),
+            'count' => max(0, (int)$value),
+            'ttl' => max(0, $ttl),
         ];
     }
 
     /**
+     * Repairs a counter that exists without an expiry so it cannot restrict forever.
+     *
+     * @param redis_client $redis Established client.
+     * @param string $namespaced Fully namespaced key.
+     * @param int $count Observed counter value.
+     * @param int $windowseconds Window to re-apply.
+     * @return array{count:int,ttl:int}|null
+     */
+    private function repair_expiry(redis_client $redis, string $namespaced, int $count, int $windowseconds): ?array {
+        $window = max(1, $windowseconds);
+        try {
+            $applied = $redis->expire($namespaced, $window);
+        } catch (\Throwable $exception) {
+            return $this->fail('inspect_repair_exception', self::classify_exception($exception));
+        }
+        if ($applied !== true && $applied !== 1) {
+            return $this->fail('inspect_repair_failed', 'response');
+        }
+        return ['count' => max(0, $count), 'ttl' => $window];
+    }
+
+    /**
      * Deletes a counter.
+     *
+     * DEL returns the number of keys removed (0 when the counter was already absent);
+     * any other reply means the command did not demonstrably run and is reported as a
+     * failure so the limiter can fall back rather than assume the counter was cleared.
      *
      * @param string $key
      * @return bool
@@ -379,12 +470,16 @@ LUA;
             return false;
         }
         try {
-            $redis->del($this->namespaced($key));
-            return true;
+            $deleted = $redis->del($this->namespaced($key));
         } catch (\Throwable $exception) {
             $this->fail('del_exception', self::classify_exception($exception));
             return false;
         }
+        if (!is_int($deleted)) {
+            $this->fail('del_response', 'response');
+            return false;
+        }
+        return true;
     }
 
     /**

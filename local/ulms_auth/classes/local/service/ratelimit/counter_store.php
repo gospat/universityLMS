@@ -25,12 +25,14 @@ defined('MOODLE_INTERNAL') || die();
  * also guarantees expiry for the counter key, so that concurrent authentication
  * requests can never lose an update and a restriction can never become permanent.
  *
- * Note carefully that only the counter update is atomic. Admission (the check() that
- * decides whether a request may proceed) is deliberately separated from accounting
- * (the record() that increments the counters after the outcome is known), so parallel
- * requests can briefly overshoot a threshold by at most the number of requests that
- * were already in flight. The thresholds are therefore treated as a bound rather than
- * an exact cut-off; see the README for the concurrency contract.
+ * Note carefully the two distinct kinds of atomicity. The counter update is atomic in
+ * every implementation. Admission is also atomic for the shared combined bucket: the
+ * limiter reserves a slot in it through hit() at the pre-login gate, before the
+ * credential is verified, so a burst of simultaneous requests cannot all pass the gate
+ * and only record their failures afterwards — the increment that crosses the allowance
+ * is refused at admission time. The remaining buckets (account, abuseip) are read at
+ * that gate and written only once the outcome is known, so those reads can lag a
+ * concurrent write; see the README for the concurrency contract.
  *
  * All read/write methods return null (from hit()/inspect()) or false (from clear()) on
  * a storage failure, so the caller can fall back safely, and last_failure() explains a

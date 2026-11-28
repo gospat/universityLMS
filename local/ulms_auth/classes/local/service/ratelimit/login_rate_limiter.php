@@ -21,32 +21,44 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * Orchestrates the login rate limiter over a selectable counter store.
  *
- * The limiter resolves the real client address, derives three hashed bucket keys and
- * applies the configured policy. Enforcement never increments a counter, so a request
- * that is already being rejected cannot extend its own restriction indefinitely, and
- * the advertised Retry-After is the genuine remaining lifetime of the restricting
- * bucket.
+ * The limiter resolves the real client address, derives hashed bucket keys and applies
+ * the configured policy. Enforcement is deliberately split into two steps:
+ *
+ *   - `check()` is the pre-login **admission gate**. It atomically reserves one slot in
+ *     the combined bucket *before* any credential work happens, so a burst of
+ *     simultaneous requests cannot all slip past the threshold and only record their
+ *     failures afterwards: the attempt that crosses the combined allowance is denied at
+ *     admission time. The window is anchored to the first hit, so a request that is
+ *     already being rejected can never extend its own restriction, and the advertised
+ *     Retry-After is the genuine remaining lifetime of the restricting bucket.
+ *   - `record()` applies the accounting after the outcome is known. On SUCCESS the
+ *     account-specific buckets (including the admission reservation) are cleared while
+ *     the shared per-IP abuse counter is preserved.
  *
  * Shared-IP protection is progressive rather than absolute. The per-IP abuse bucket
  * detects distributed abuse but, in the default "detect" mode, crossing it only
- * tightens the per-account combo allowance; it does not block the address. This keeps
+ * tightens the per-account combined allowance; it does not block the address. This keeps
  * password-spraying and distributed attacks bounded without locking out unrelated
  * legitimate accounts that happen to share a campus NAT or an institutional egress
  * address. An explicit hard ceiling can be enabled for sites that want one.
  *
- * Redis is preferred. If Redis cannot be reached, or if it connects but an individual
- * operation fails at runtime (memory exhaustion under the production noeviction policy,
- * a lost ACL permission, a read timeout, a dropped connection, an unexpected reply),
- * the limiter hands the whole request over to the bounded file store and keeps counting
- * there. Counter continuity is preserved as follows:
+ * Redis is preferred. The bounded file store is used in two complementary roles:
  *
- *   - the limiter never deletes or resets a counter while switching backends, so a
- *     client cannot escape a restriction by inducing a backend failure;
- *   - the increment that failed on the primary is re-applied to the fallback, so the
- *     attempt is never silently dropped (a failed *read* cannot under-count a *write*);
- *   - imposing a restriction is only ever delayed until the fallback applies it, and a
- *     Redis counter keeps its own TTL, so it resumes counting seamlessly once Redis
- *     recovers on the next request.
+ *   - as a **live mirror**: while Redis is healthy, every hit and clear is also applied,
+ *     best effort, to the file store, and every read takes the *stronger* of the two
+ *     observations (higher count, then longer TTL). Because the mirror therefore already
+ *     holds the counters, an active restriction cannot be bypassed when Redis fails
+ *     mid-flight, and it also cannot be reset when Redis recovers carrying stale
+ *     counters, because recovery is reconciled against the mirror on the next read;
+ *   - as the **failover target**: if Redis cannot be reached, or if it connects but an
+ *     individual operation fails at runtime (memory exhaustion under the production
+ *     noeviction policy, a lost ACL permission, a read timeout, a dropped connection, an
+ *     unexpected reply), the limiter hands the whole request over to the file store and
+ *     re-runs the failed operation there, so no increment is dropped.
+ *
+ * Continuity therefore does not depend on Redis's own counters surviving an outage: the
+ * mirror carries them, partial updates are completed on the fallback, and an
+ * intermittent Redis outage changes *where* the count is kept, not *whether* it is kept.
  *
  * Only when no store is usable at all does the limiter enter degraded mode, and the
  * outcome there is governed by the configurable policy (fail open with a loud security
@@ -253,7 +265,131 @@ final class login_rate_limiter {
     }
 
     /**
-     * Evaluates the policy for a login attempt without incrementing any counter.
+     * Returns the fallback store when it can act as a live mirror of the primary.
+     *
+     * The fallback is used as a mirror whenever it is distinct from the store that is
+     * currently authoritative and is reachable. Once the primary has failed over, the
+     * fallback *is* the authoritative store, so there is no separate mirror to maintain.
+     *
+     * @return counter_store|null
+     */
+    private function mirror(): ?counter_store {
+        $fallback = $this->fallbackstore;
+        if ($fallback === null || $fallback === $this->store) {
+            return null;
+        }
+        if (!$fallback->is_available()) {
+            return null;
+        }
+        return $fallback;
+    }
+
+    /**
+     * Mirrors a recorded hit onto the standby store. Best effort by design.
+     *
+     * The authoritative store has already accounted for the attempt, so a mirror write
+     * failure must never trigger a failover or place the request in degraded mode: it is
+     * logged and the request continues.
+     *
+     * @param string $key Bucket key.
+     * @param int $windowseconds Window length in seconds.
+     * @return void
+     */
+    private function mirror_hit(string $key, int $windowseconds): void {
+        $mirror = $this->mirror();
+        if ($mirror === null) {
+            return;
+        }
+        if ($mirror->hit($key, $windowseconds) === null) {
+            $this->log('ratelimit_mirror_failed', [
+                'backend' => $mirror->name(),
+                'operation' => 'hit',
+                'reason' => (string)($mirror->last_failure() ?? 'operation_failed'),
+            ]);
+        }
+    }
+
+    /**
+     * Mirrors a clear onto the standby store, so a successful sign-in resets both copies.
+     *
+     * @param string $key Bucket key.
+     * @return void
+     */
+    private function mirror_clear(string $key): void {
+        $mirror = $this->mirror();
+        if ($mirror === null) {
+            return;
+        }
+        if (!$mirror->clear($key)) {
+            $this->log('ratelimit_mirror_failed', [
+                'backend' => $mirror->name(),
+                'operation' => 'clear',
+                'reason' => (string)($mirror->last_failure() ?? 'operation_failed'),
+            ]);
+        }
+    }
+
+    /**
+     * Reads the standby mirror without incrementing it. Best effort by design.
+     *
+     * @param string $key Bucket key.
+     * @param int $windowseconds Window length in seconds.
+     * @return array{count:int,ttl:int}|null Null when there is no usable mirror or it failed.
+     */
+    private function mirror_inspect(string $key, int $windowseconds): ?array {
+        $mirror = $this->mirror();
+        if ($mirror === null) {
+            return null;
+        }
+        $result = $mirror->inspect($key, $windowseconds);
+        if ($result === null) {
+            $this->log('ratelimit_mirror_failed', [
+                'backend' => $mirror->name(),
+                'operation' => 'inspect',
+                'reason' => (string)($mirror->last_failure() ?? 'operation_failed'),
+            ]);
+            return null;
+        }
+        return $result;
+    }
+
+    /**
+     * Chooses the stronger of two counter observations (higher count, then longer TTL).
+     *
+     * This is what makes recovery safe: a Redis primary that comes back carrying stale
+     * counters can never lower the effective count, because the mirror — which kept
+     * counting during the outage — still holds the higher value and always wins.
+     *
+     * @param array{count:int,ttl:int}|null $a Authoritative observation.
+     * @param array{count:int,ttl:int}|null $b Mirror observation.
+     * @return array{count:int,ttl:int}|null
+     */
+    private function strongest(?array $a, ?array $b): ?array {
+        if ($a === null) {
+            return $b;
+        }
+        if ($b === null) {
+            return $a;
+        }
+        if ((int)$b['count'] > (int)$a['count']) {
+            return $b;
+        }
+        if ((int)$b['count'] === (int)$a['count'] && (int)$b['ttl'] > (int)$a['ttl']) {
+            return $b;
+        }
+        return $a;
+    }
+
+    /**
+     * Evaluates the policy for a login attempt and atomically reserves its admission slot.
+     *
+     * The combined bucket is incremented here, before any credential work, so a burst of
+     * simultaneous requests cannot all pass the gate and only record their failures
+     * afterwards: the increment that crosses the combined allowance is denied at
+     * admission time. The remaining buckets are read-only observations, reconciled against
+     * the standby mirror so a stale or restarted primary cannot under-count an active
+     * restriction. Every window is anchored to its first hit, so a request that is already
+     * being rejected can never extend its own restriction.
      *
      * @param string $identifier Normalised username or email.
      * @return array{blocked:bool,retry_after:int,bucket:string|null,challenged:bool,abuse_level:int,degraded:bool}
@@ -278,10 +414,35 @@ final class login_rate_limiter {
         $keys = $this->keys($identifier);
         $definitions = $this->policy->buckets();
         $states = [];
+
+        // Atomic admission. The reservation is mirrored onto the standby store so it
+        // survives a backend transition mid-request.
         foreach ($definitions as $definition) {
-            $states[$definition['name']] = $this->invoke(
-                'inspect',
-                [$keys[$definition['name']], $definition['window']]
+            if ($definition['name'] !== 'combo') {
+                continue;
+            }
+            $reservation = $this->invoke('hit', [$keys['combo'], $definition['window']]);
+            if (is_array($reservation)) {
+                $this->mirror_hit($keys['combo'], $definition['window']);
+            }
+            $states['combo'] = $this->strongest(
+                is_array($reservation) ? $reservation : null,
+                $this->mirror_inspect($keys['combo'], $definition['window'])
+            );
+            break;
+        }
+
+        // The remaining buckets are read-only observations, each reconciled against the
+        // mirror so recovery can never lower the effective count.
+        foreach ($definitions as $definition) {
+            $name = $definition['name'];
+            if ($name === 'combo') {
+                continue;
+            }
+            $primary = $this->invoke('inspect', [$keys[$name], $definition['window']]);
+            $states[$name] = $this->strongest(
+                is_array($primary) ? $primary : null,
+                $this->mirror_inspect($keys[$name], $definition['window'])
             );
         }
 
@@ -321,14 +482,26 @@ final class login_rate_limiter {
                 }
             }
 
-            if ($definition['name'] === 'combo' && $elevated) {
-                // Progressive protection: an address that is already generating abusive
-                // volume gets a tighter per-account allowance instead of a blanket block.
-                $limit = min($limit, $this->policy->progressive_combo_limit());
+            if ($definition['name'] === 'combo') {
+                if ($elevated) {
+                    // Progressive protection: an address that is already generating
+                    // abusive volume gets a tighter per-account allowance instead of a
+                    // blanket block.
+                    $limit = min($limit, $this->policy->progressive_combo_limit());
+                }
+                // The combined bucket was incremented atomically at admission, so the
+                // value already includes the attempt being decided right now. The
+                // allowance is the number of attempts that may proceed, so it is only
+                // crossed once the reserved count exceeds it.
+                $crossed = (int)$state['count'] > $limit;
+            } else {
+                // The failure buckets are read here before the current attempt has been
+                // recorded, so they are crossed as soon as the count reaches the limit.
+                $crossed = (int)$state['count'] >= $limit;
             }
 
-            if ($state['count'] >= $limit && $state['ttl'] > $longestttl) {
-                $longestttl = $state['ttl'];
+            if ($crossed && (int)$state['ttl'] > $longestttl) {
+                $longestttl = (int)$state['ttl'];
                 $bucket = $definition['name'];
             }
         }
@@ -373,11 +546,14 @@ final class login_rate_limiter {
     /**
      * Records a finished authentication attempt.
      *
-     * On FAILURE every active bucket is incremented. On SUCCESS the account-specific
-     * buckets are cleared while the shared per-IP abuse counter is preserved. NEUTRAL is
-     * a no-op. Every write goes through invoke(), so a primary backend that starts
-     * failing mid-request hands the accounting over to the fallback instead of dropping
-     * the increment.
+     * On FAILURE the failure buckets (`account`, `abuseip`) are incremented; the shared
+     * combined bucket was already reserved atomically at admission and is deliberately
+     * not charged again. On SUCCESS the account-specific buckets — including that
+     * admission reservation — are cleared while the shared per-IP abuse counter is
+     * preserved. NEUTRAL is a no-op. Every write goes through invoke(), so a primary
+     * backend that starts failing mid-request hands the accounting over to the fallback
+     * instead of dropping the increment, and each successful write is also mirrored onto
+     * the standby store so a later transition or recovery cannot lose the count.
      *
      * @param string $identifier Normalised username or email.
      * @param string $outcome One of login_outcome::SUCCESS|FAILURE|NEUTRAL.
@@ -404,16 +580,25 @@ final class login_rate_limiter {
         $keys = $this->keys($identifier);
         if ($outcome === login_outcome::SUCCESS) {
             $this->invoke('clear', [$keys['account']]);
+            $this->mirror_clear($keys['account']);
             $this->invoke('clear', [$keys['combo']]);
+            $this->mirror_clear($keys['combo']);
             return;
         }
 
         $ipmode = $this->policy->ip_mode();
         foreach ($this->policy->buckets() as $definition) {
-            if ($definition['name'] === 'abuseip' && $ipmode === rate_limit_policy::IP_MODE_OFF) {
+            $name = $definition['name'];
+            if ($name === 'combo') {
+                // The combined bucket was already incremented atomically at admission,
+                // so a failure must not charge the same attempt to it a second time.
                 continue;
             }
-            $this->invoke('hit', [$keys[$definition['name']], $definition['window']]);
+            if ($name === 'abuseip' && $ipmode === rate_limit_policy::IP_MODE_OFF) {
+                continue;
+            }
+            $this->invoke('hit', [$keys[$name], $definition['window']]);
+            $this->mirror_hit($keys[$name], $definition['window']);
         }
 
         if ($this->operationfailed) {

@@ -72,14 +72,18 @@ final class ratelimit_limiter_test extends \advanced_testcase {
         $policy = new rate_limit_policy(true, 'file', true, true, 3, 180, 10, 900, 300, 300, 1, 900);
         $limiter = $this->limiter($policy);
 
-        $this->assertFalse($limiter->check('student1')['blocked']);
-        $limiter->record('student1', login_outcome::FAILURE);
-        $limiter->record('student1', login_outcome::FAILURE);
-        $this->assertFalse($limiter->check('student1')['blocked']);
+        // Each genuine attempt passes the admission gate and is then recorded as a
+        // failure. The combined allowance is the number of attempts that may proceed, so
+        // exactly three attempts are admitted and the fourth is refused at the gate.
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertFalse(
+                $limiter->check('student1')['blocked'],
+                'Attempt ' . ($i + 1) . ' must be admitted while within the allowance.'
+            );
+            $limiter->record('student1', login_outcome::FAILURE);
+        }
 
-        $limiter->record('student1', login_outcome::FAILURE);
         $result = $limiter->check('student1');
-
         $this->assertTrue($result['blocked']);
         $this->assertSame('combo', $result['bucket']);
         $this->assertGreaterThanOrEqual(1, $result['retry_after']);
@@ -123,9 +127,10 @@ final class ratelimit_limiter_test extends \advanced_testcase {
         $policy = new rate_limit_policy(true, 'file', true, true, 3, 180, 10, 900, 300, 300, 1, 900);
         $limiter = $this->limiter($policy, '203.0.113.60');
 
-        $limiter->record('victim', login_outcome::FAILURE);
-        $limiter->record('victim', login_outcome::FAILURE);
-        $limiter->record('victim', login_outcome::FAILURE);
+        for ($i = 0; $i < 3; $i++) {
+            $limiter->check('victim');
+            $limiter->record('victim', login_outcome::FAILURE);
+        }
 
         $this->assertTrue($limiter->check('victim')['blocked']);
         $this->assertFalse($limiter->check('someoneelse')['blocked']);
@@ -135,6 +140,9 @@ final class ratelimit_limiter_test extends \advanced_testcase {
         $policy = new rate_limit_policy(true, 'file', true, true, 1, 120, 10, 900, 300, 300, 1, 900);
         $limiter = $this->limiter($policy);
 
+        // Reserve the single permitted attempt and fail it; every attempt afterwards is
+        // refused at the gate.
+        $this->assertFalse($limiter->check('student1')['blocked']);
         $limiter->record('student1', login_outcome::FAILURE);
         $first = $limiter->check('student1');
         $this->assertTrue($first['blocked']);
@@ -150,6 +158,9 @@ final class ratelimit_limiter_test extends \advanced_testcase {
         $policy = new rate_limit_policy(true, 'file', true, true, 1, 90, 10, 900, 300, 300, 1, 900);
         $limiter = $this->limiter($policy);
 
+        // The window is anchored to the first admitted attempt, so the remaining
+        // lifetime advertised once the allowance is crossed is the whole window.
+        $this->assertFalse($limiter->check('student1')['blocked']);
         $limiter->record('student1', login_outcome::FAILURE);
         $result = $limiter->check('student1');
 
@@ -265,7 +276,8 @@ final class ratelimit_limiter_test extends \advanced_testcase {
         $this->assertTrue($limiter->check('d')['challenged']);
 
         // A single account on that address now gets the tightened allowance (2), not the
-        // full combined allowance (5). The first failure is admitted, the second blocks.
+        // full combined allowance (5): two attempts are admitted, the third is refused.
+        $this->assertFalse($limiter->check('target')['blocked']);
         $limiter->record('target', login_outcome::FAILURE);
         $this->assertFalse($limiter->check('target')['blocked']);
         $limiter->record('target', login_outcome::FAILURE);
@@ -364,9 +376,9 @@ final class ratelimit_limiter_test extends \advanced_testcase {
             'redis',
             true,
             true,
-            3,
-            180,
             99,
+            180,
+            3,
             900,
             99,
             300,
@@ -390,8 +402,95 @@ final class ratelimit_limiter_test extends \advanced_testcase {
 
         $result = $limiter->check('student1');
         $this->assertTrue($result['blocked'], 'All three increments must have landed on the fallback.');
-        $this->assertSame('combo', $result['bucket']);
+        $this->assertSame('account', $result['bucket']);
         $this->assertSame('simulated_runtime_failure', $primary->last_failure());
+    }
+
+    public function test_active_restriction_survives_a_backend_transition_and_recovery(): void {
+        $policy = new rate_limit_policy(
+            true,
+            'redis',
+            true,
+            true,
+            1,
+            180,
+            99,
+            900,
+            99,
+            300,
+            1,
+            900,
+            rate_limit_policy::IP_MODE_OFF
+        );
+        $primary = new ratelimit_toggle_store(new file_counter_store(make_request_directory()));
+        $fallback = new file_counter_store(make_request_directory());
+
+        // While the primary is healthy, an account trips the combined allowance.
+        $healthy = new login_rate_limiter($policy, $primary, '203.0.113.85', $fallback);
+        $this->assertFalse($healthy->check('student1')['blocked'], 'The first attempt is admitted.');
+        $this->assertTrue($healthy->check('student1')['blocked'], 'The second attempt trips the allowance.');
+        $healthy->record('student1', login_outcome::FAILURE);
+
+        // The primary now fails at runtime (OOM / NOPERM / timeout). The restriction must
+        // not be bypassed by inducing the failure: the standby mirror already holds it.
+        $primary->broken = true;
+        $degraded = new login_rate_limiter($policy, $primary, '203.0.113.85', $fallback);
+        $this->assertTrue(
+            $degraded->check('student1')['blocked'],
+            'A live restriction must survive the transition to the fallback store.'
+        );
+
+        // The primary recovers, but its counter is behind the standby mirror. Recovery
+        // must not be able to reset the restriction: the stronger observation wins.
+        $primary->broken = false;
+        $recovered = new login_rate_limiter($policy, $primary, '203.0.113.85', $fallback);
+        $this->assertTrue(
+            $recovered->check('student1')['blocked'],
+            'Recovery must not reset an active restriction; the stronger observation wins.'
+        );
+    }
+
+    public function test_intermittent_primary_failures_are_completed_on_the_mirror(): void {
+        $policy = new rate_limit_policy(
+            true,
+            'redis',
+            true,
+            true,
+            99,
+            180,
+            3,
+            900,
+            99,
+            300,
+            1,
+            900,
+            rate_limit_policy::IP_MODE_OFF
+        );
+        $primary = new ratelimit_toggle_store(new file_counter_store(make_request_directory()));
+        $fallback = new file_counter_store(make_request_directory());
+        $ip = '203.0.113.86';
+
+        // Request 1 — the primary is healthy, so the failure is written to both stores.
+        $limiter = new login_rate_limiter($policy, $primary, $ip, $fallback);
+        $this->assertFalse($limiter->check('student1')['blocked']);
+        $limiter->record('student1', login_outcome::FAILURE);
+
+        // Request 2 — the primary times out mid-operation. The failure must still be
+        // accounted, so it is completed on the standby mirror.
+        $primary->broken = true;
+        $limiter = new login_rate_limiter($policy, $primary, $ip, $fallback);
+        $this->assertFalse($limiter->check('student1')['blocked']);
+        $limiter->record('student1', login_outcome::FAILURE);
+
+        // Request 3 — the primary has recovered but is behind. A third failure crosses the
+        // account allowance, which the mirror proves even though the primary alone does not.
+        $primary->broken = false;
+        $limiter = new login_rate_limiter($policy, $primary, $ip, $fallback);
+        $limiter->record('student1', login_outcome::FAILURE);
+
+        $result = $limiter->check('student1');
+        $this->assertTrue($result['blocked'], 'An intermittent failure must not be able to reset the count.');
+        $this->assertSame('account', $result['bucket']);
     }
 
     public function test_fail_open_degraded_mode_allows_sign_in_but_reports_it(): void {
