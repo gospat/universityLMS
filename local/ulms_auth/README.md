@@ -85,7 +85,7 @@ its own:
 | Layer | File | Responsibility |
 |---|---|---|
 | Client address | [classes/local/service/ratelimit/client_ip.php](./classes/local/service/ratelimit/client_ip.php) | Resolve one canonical, spoof-safe client IP. |
-| Store contract | [classes/local/service/ratelimit/counter_store.php](./classes/local/service/ratelimit/counter_store.php) | `hit` / `inspect` / `clear` / `is_available`. |
+| Store contract | [classes/local/service/ratelimit/counter_store.php](./classes/local/service/ratelimit/counter_store.php) | `hit` / `inspect` / `clear` / `release` / `is_available`. |
 | Redis store | [classes/local/service/ratelimit/redis_counter_store.php](./classes/local/service/ratelimit/redis_counter_store.php) | Atomic counters via a server-side Lua script. |
 | File store | [classes/local/service/ratelimit/file_counter_store.php](./classes/local/service/ratelimit/file_counter_store.php) | Bounded, `flock`-serialised local fallback. |
 | Policy | [classes/local/service/ratelimit/rate_limit_policy.php](./classes/local/service/ratelimit/rate_limit_policy.php) | Thresholds, windows, backend, retry clamp. |
@@ -95,19 +95,38 @@ its own:
 
 #### 3.1.1 Buckets
 
-**3 independent buckets** are evaluated on every attempt. The combined `combo`
-bucket is reserved **atomically at admission**, before any credential is verified,
-so a burst of simultaneous requests cannot all pass the gate and only record their
-failures afterwards — the increment that would cross the allowance is refused at
-the gate itself. The `account` and `abuseip` buckets are incremented only on a
-genuine credential failure, and every window is anchored to its first hit, so a
+**3 independent buckets** are evaluated on every attempt. Each of the two blockable
+buckets is split into two keys: a **failure ledger** (`combo`, `account`), written
+only when a genuine credential failure is recorded, and a separate **reservation
+counter** (`reserve:combo:…`, `reserve:account:…`). At the gate, `check()`
+**reserves one slot in both** the combined and the per-account bucket, before any
+credential is verified, so a burst of simultaneous requests cannot all pass the
+gate and only record their failures afterwards — the reservation that would cross
+an allowance is refused at the gate itself. Reserving in the per-account bucket is
+what bounds simultaneous requests for a single account arriving from many
+addresses, without introducing a separate lockout. The `abuseip` bucket is a pure
+failure ledger with no reservation. Every window is anchored to its first hit, so a
 request that is already blocked cannot extend its own restriction.
 
-Because the reservation happens before the outcome is known, the `combo` bucket
-counts **attempts** (every request that reaches the gate), while `account` and
-`abuseip` count **failures**. A successful sign-in clears both the `combo` and
-`account` buckets, so ordinary traffic never accumulates against them; only the
-short 3-minute `combo` window can hold a handful of in-flight attempts.
+Once the outcome is known, `record()` resolves the reservation exactly once: a
+genuine credential failure **converts** it into a recorded failure (the ledger is
+charged and the reservation is refunded, so the attempt is never counted twice),
+a **neutral** outcome (a stale session or login token, an MFA redirect, a caught
+internal error) **releases** it so it is never counted against the account, and a
+**success** clears the account's ledgers and reservations. Because a release only
+ever decrements a reservation counter, one request can never consume or erase
+another request's recorded failure, and the counter can never go negative. A
+reservation that is never completed — a request that dies between the gate and the
+outcome — simply expires with the window it was created under. A request that is
+**refused** at the gate also refunds the reservation it took, so hammering the gate
+cannot keep an account restricted: the account-lockout denial-of-service that a
+per-account bound must not introduce.
+
+The consequence is that a reservation is **not** charged unless the credential
+actually fails: a neutral outcome leaves no trace, and a successful sign-in clears
+both the `combo` and `account` buckets, so ordinary traffic never accumulates
+against them; only the short 3-minute `combo` window can briefly hold a handful of
+genuinely in-flight attempts.
 
 | Bucket | Key scope | Default limit / window | Defeats |
 |---|---|---|---|
@@ -129,10 +148,10 @@ blocks the other accounts sharing that IP.
 Only a **wrong credential** is counted as a *failure*. The limiter inspects the
 `authenticate_user_login()` result through
 [login_outcome::classify()](./classes/local/service/ratelimit/login_outcome.php)
-and treats everything else as **neutral** — it never charges the `account` or
-`abuseip` failure counters for it. (The combined `combo` bucket is separate: it
-counts *admission attempts* rather than failures, as described in §3.1.1, and is
-cleared by a successful sign-in.)
+and treats everything else as **neutral** — it never charges the failure ledger for
+it. (Admission is separate: the `combo` and `account` reservations taken at the
+gate are **released** on a neutral outcome and on a refusal, so a neutral attempt
+leaves no trace at all — see §3.1.1.)
 
 | Counted as failure | Never counted |
 |---|---|
@@ -216,10 +235,12 @@ Resolution order (`store()`):
 
 ##### Runtime operation failures (not just the initial connection)
 
-Initial resolution is not enough, so `inspect()`, `hit()` and `clear()` are all
-routed through a guarded `invoke()` that treats a failed operation as a
-*transition trigger*, not as a "not counted" result. The following production
-conditions are handled:
+Initial resolution is not enough, so `inspect()`, `hit()`, `clear()` and `release()`
+are all routed through a guarded `invoke()` that treats a failed operation as a
+*transition trigger*, not as a "not counted" result. A release is no exception: if
+the primary cannot refund a reservation, the refund is re-applied on the fallback
+rather than assumed, so a reservation can neither be lost nor left charged. The
+following production conditions are handled:
 
 | Condition | Example | Handled as |
 |---|---|---|
@@ -275,6 +296,35 @@ The practical consequence is that a Redis outage shortens nothing and lengthens
 nothing: it changes *where* the count is kept, not *whether* it is kept, and a
 restriction that was active before the outage is still active after it.
 
+##### What the mirror does and does not guarantee
+
+The mirror is applied **best effort, per write**, on the same request that performs
+the primary write. It is **not transactional replication**: there is no distributed
+transaction, no two-phase commit and no cross-store rollback. The honest guarantees
+and their residual limitations are:
+
+- **Guaranteed:** a write is never silently dropped. If the primary write fails, the
+  same operation is re-applied on the fallback before the request continues; if both
+  fail, a `ratelimit_degraded` event is emitted and the degraded-mode policy applies.
+  Reads always take the stronger of the two observations, so a lagging or restarted
+  store can never *lower* an active restriction.
+- **Guaranteed:** the failure ledger and the reservation counter are separate keys,
+  and a release only ever decrements a reservation counter (clamped at zero), so a
+  concurrent success, failure or neutral request can never consume or erase another
+  request's recorded failure, and no counter can go negative.
+- **Residual limitation:** a write that succeeds on the primary but whose *mirror*
+  write fails leaves the standby momentarily behind that one write. The divergence is
+  bounded to the in-flight operation and is self-healing on the next request, because
+  the stronger read wins and the primary remains authoritative while it is healthy —
+  but between those two points the standby is a best-effort copy, not a byte-exact
+  replica. The concurrency suite asserts this: after an intermittent-failure run the
+  combined count equals the number of recorded writes, with the replayed writes
+  landing on the mirror.
+- **Residual limitation:** the mirror is a per-request copy, not a background stream.
+  A request that dies between the primary write and its mirror write leaves the
+  standby behind by exactly that one operation until the next read reconciles — which
+  can only ever *raise* the effective count, never lower it.
+
 #### 3.1.5 Degraded mode when no store is usable
 
 If **both** stores are unusable (Redis down *and* the file fallback unavailable
@@ -294,12 +344,21 @@ disables protection *and* never silently breaks authentication: the operator
 picks the trade-off with `ratelimitdegradedmode` before an incident, not during
 one.
 
+While no store is usable, no reservation can be taken or completed, so an
+abandoned reservation simply expires with its own window — an outage can never
+create, and can never prolong, a restriction. The limiter also never enables an
+overlapping control to compensate: Moodle's native account lockout is left exactly
+as the site configured it (disabled in production, see §3.1.10) rather than being
+switched on by the degraded path.
+
 > **Recommendation for Bells production.** Keep the default `failopen` while
 > Moodle's native account lockout stays disabled, and alert on any
 > `ratelimit_degraded` / `ratelimit_unavailable` event. If policy later requires
 > authentication to stop rather than proceed unprotected, switch to `failclosed`
 > — but only after confirming the file fallback is healthy, so that a Redis
-> outage alone never reaches degraded mode.
+> outage alone never reaches degraded mode. Do not enable Moodle's native lockout
+> as a compensating control without explicit approval: an overlapping lockout can
+> turn a transient store outage into a real account lockout.
 
 **Institutional security strategy.** The design deliberately balances availability
 against brute-force protection rather than choosing one:
@@ -582,10 +641,10 @@ concurrency, and the role login controller regression:
 | [tests/bootstrap_output_buffer_guard_test.php](./tests/bootstrap_output_buffer_guard_test.php) | No ULMS entry point flushes or ends an output buffer without first proving one exists. |
 | [tests/ratelimit_login_outcome_test.php](./tests/ratelimit_login_outcome_test.php) | `login_outcome::classify()` for every `AUTH_LOGIN_*` code: only `FAILED`/`NOUSER` count, everything else is neutral. |
 | [tests/ratelimit_client_ip_test.php](./tests/ratelimit_client_ip_test.php) | Trusted-proxy forwarding, XFF/CF header handling, IPv4 + IPv6 canonicalisation, CIDR matching, malformed-input fallback. |
-| [tests/ratelimit_limiter_test.php](./tests/ratelimit_limiter_test.php) | Bucket thresholds, one account not blocking unrelated accounts, blocked requests not extending the window, success clearing account counters without resetting the abuse counter, Retry-After reflecting the real expiry. Also covers progressive shared-IP modes, the opt-in abuse hard limit, runtime store handover, and both degraded-mode branches. |
-| [tests/ratelimit_redis_store_test.php](./tests/ratelimit_redis_store_test.php) | Redis integration against a real server: atomic increment + expiry, inspect-does-not-increment, clear, the `ulms:auth:*` ACL namespace enforcing least privilege, and the limiter tripping/completing through Redis. |
-| [tests/ratelimit_redis_validation_test.php](./tests/ratelimit_redis_validation_test.php) | The Redis driver's reply handling, exercised against a fake client so it runs on every PHP install: connect/`AUTH`/`PING`, a failed `GET` distinguished from a missing key, `TTL -1`/`-2` handling with `EXPIRE` repair, and `DEL`/`EVAL`/`EXPIRE` validated in **both** failure modes — a thrown `\RedisException` and a `false` return each trigger the fallback. |
-| [tests/ratelimit_concurrency_test.php](./tests/ratelimit_concurrency_test.php) | **Genuine parallel-process** concurrency: simultaneous counter increments (file and Redis), concurrent authentication admissions cut off at exactly the combined allowance, counter expiry under parallel load, simultaneous success + failure, and a Redis→file runtime transition that loses no increment. |
+| [tests/ratelimit_limiter_test.php](./tests/ratelimit_limiter_test.php) | Bucket thresholds, one account not blocking unrelated accounts, blocked requests not extending the window, success clearing account counters without resetting the abuse counter, Retry-After reflecting the real expiry. Also covers the reservation lifecycle (neutral outcomes leave no trace, refused attempts refund their reservation, an unknown outcome never charges the ledger), progressive shared-IP modes, the opt-in abuse hard limit, runtime store handover, and both degraded-mode branches. |
+| [tests/ratelimit_redis_store_test.php](./tests/ratelimit_redis_store_test.php) | Redis integration against a real server: atomic increment + expiry, inspect-does-not-increment, clear, the `ulms:auth:*` ACL namespace enforcing least privilege, a release that refunds a reservation (clamped at zero, window preserved) without touching the failure ledger, and the limiter tripping/completing/refunding through Redis. |
+| [tests/ratelimit_redis_validation_test.php](./tests/ratelimit_redis_validation_test.php) | The Redis driver's reply handling, exercised against a fake client so it runs on every PHP install: connect/`AUTH`/`PING`, a failed `GET` distinguished from a missing key, `TTL -1`/`-2` handling with `EXPIRE` repair, and `DEL`/`EVAL`/`EXPIRE`/release validated in **both** failure modes — a thrown `\RedisException` and a `false` return each trigger the fallback, and a release validates the script's success marker. |
+| [tests/ratelimit_concurrency_test.php](./tests/ratelimit_concurrency_test.php) | **Genuine parallel-process** concurrency: simultaneous counter increments (file and Redis), concurrent authentication admissions cut off at exactly the combined allowance, simultaneous requests for one account from many addresses bounded at exactly the per-account allowance, counter expiry under parallel load, simultaneous success + failure, and a Redis→file runtime transition that loses no increment. |
 | [tests/role_login_regression_test.php](./tests/role_login_regression_test.php) | Integration regression for the role login controller against Moodle's real auth: valid/invalid login tokens, wrong portal, unconfirmed account, internal exceptions staying neutral, and the LTI/SSO token-validation exemption, plus log redaction. |
 
 #### 6.1 Atomic counter update vs atomic admission
@@ -596,27 +655,38 @@ Two different properties are exercised, and the tests assert both:
   `INCR` + `EXPIRE` in one server-side Lua script, and the file store serialises
   with `flock(LOCK_EX)`. Parallel increments therefore never lose a count: N
   concurrent increments over one key produce exactly N.
-- **Atomic admission for the combined bucket.** `check()` must return an
-  allow/deny decision *before* the credential is verified, so admission cannot be
-  made atomic by accounting the failure afterwards. Instead the limiter
-  **reserves** a slot in the shared `combo` bucket at the gate, through the same
-  atomic `hit()`, and the increment that crosses the allowance is refused there.
-  A burst of simultaneous requests therefore cannot all pass the gate and only
-  record their failures afterwards: exactly `ratelimitcombolimit` attempts (or
+- **Atomic admission for the combined and per-account buckets.** `check()` must
+  return an allow/deny decision *before* the credential is verified, so admission
+  cannot be made atomic by accounting the failure afterwards. Instead the limiter
+  **reserves** a slot in both the shared `combo` bucket and the per-account
+  `account` bucket at the gate, through the same atomic `hit()`, and the
+  reservation that crosses an allowance is refused there. A burst of simultaneous
+  requests therefore cannot all pass the gate and only record their failures
+  afterwards: exactly `ratelimitcombolimit` attempts (or
   `ratelimitprogressivelimit` once the address is flagged) are admitted and the
-  remainder are denied at the gate.
+  remainder are denied at the gate. Because the per-account reservation is shared
+  across addresses, simultaneous requests for one account arriving from many
+  addresses are cut off at `ratelimitaccountlimit` — no overshoot and no separate
+  lockout object.
 
-The `account` and `abuseip` failure buckets are read at the gate and written on
-the outcome, so those two reads can still lag a concurrent write; that is why the
-limiter reconciles every read against the standby mirror and takes the stronger
-observation (§3.1.4). The `combo` bucket is the one that carries the hard cut-off,
-and the concurrency suite asserts an **exact** ceiling for it: the total admitted
-across all parallel processes equals the allowance, with no overshoot.
+The `abuseip` failure bucket is read at the gate and written on the outcome, so
+that read can still lag a concurrent write; that is why the limiter reconciles
+every read against the standby mirror and takes the stronger observation
+(§3.1.4). The `combo` and `account` buckets are the ones that carry the hard
+cut-off, and the concurrency suite asserts an **exact** ceiling for both: the
+total admitted across all parallel processes equals the allowance, with no
+overshoot.
 
-A reservation is charged whether the credential then succeeds or fails, so a
-successful login also consumes one `combo` slot until the SUCCESS path clears it
-in `record()`; this is bounded by the short `combo` window and reset on every
-successful login, so a legitimate user cannot accumulate reservations.
+The reservation is **resolved exactly once** once the outcome is known: a genuine
+credential failure converts it into a recorded ledger failure (the reservation is
+refunded in the same step, so the attempt is never counted twice); a neutral
+outcome releases it, so a stale token, an MFA redirect or a caught internal error
+is never charged against the account; a success clears the account's ledgers and
+reservations; and a **refused** attempt refunds the reservation it took, so a
+single account cannot be kept restricted merely by being hammered. The failure
+ledger and the reservation are separate keys, so a release can never consume or
+erase another request's recorded failure. A reservation that is never completed
+expires with the window it was created under.
 
 Run with the standard Moodle phpunit runner:
 

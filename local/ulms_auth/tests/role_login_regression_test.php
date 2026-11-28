@@ -245,8 +245,16 @@ final class role_login_regression_test extends \advanced_testcase {
         );
         $limiter = new login_rate_limiter($policy, new file_counter_store(make_request_directory()), '198.51.100.77');
 
-        // The controller's catch block records NEUTRAL for an internal failure.
+        // The controller's catch block records NEUTRAL for an internal failure. Each
+        // attempt first passes the admission gate — taking a reservation — and is then
+        // recorded as neutral. If a neutral outcome were counted against the account (the
+        // defect), the reservation would accumulate and the allowance of two would be
+        // exhausted after the second attempt.
         for ($i = 0; $i < 10; $i++) {
+            $this->assertFalse(
+                $limiter->check('exception_account')['blocked'],
+                'Neutral attempt ' . ($i + 1) . ' must remain admissible: a neutral outcome is not a failure.'
+            );
             $limiter->record('exception_account', login_outcome::NEUTRAL);
         }
 

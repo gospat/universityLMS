@@ -184,6 +184,56 @@ final class file_counter_store implements counter_store {
     }
 
     /**
+     * Releases one admission reservation under an exclusive lock, clamped at zero.
+     *
+     * The read-modify-write happens entirely under flock(), so two concurrent releases
+     * cannot lose an update or drive the counter negative. The window start is preserved
+     * so the reservation keeps expiring with the window it was created under, and a key
+     * that does not exist or whose window has already elapsed is a successful no-op:
+     * releasing a reservation that has gone must never fail the request, and this method
+     * never touches the failure ledger because that is a separate key.
+     *
+     * @param string $key
+     * @param int $windowseconds
+     * @return bool
+     */
+    public function release(string $key, int $windowseconds): bool {
+        $path = $this->path($key);
+        if ($path === null) {
+            return false;
+        }
+        if (!is_file($path)) {
+            return true;
+        }
+        $handle = @fopen($path, 'c+');
+        if ($handle === false) {
+            return false;
+        }
+        try {
+            if (!flock($handle, LOCK_EX)) {
+                return false;
+            }
+            rewind($handle);
+            $raw = stream_get_contents($handle);
+            $data = $raw !== false ? json_decode($raw, true) : null;
+            if (!is_array($data)) {
+                return true;
+            }
+            $now = time();
+            $start = (int)($data['start'] ?? $now);
+            $count = (int)($data['count'] ?? 0);
+            if (($now - $start) >= $windowseconds || $start > $now || $count <= 0) {
+                return true;
+            }
+            $this->write_locked($handle, ['start' => $start, 'count' => $count - 1]);
+            return true;
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
+    /**
      * Reports availability of the fallback directory.
      *
      * @return bool

@@ -173,20 +173,66 @@ final class ratelimit_limiter_test extends \advanced_testcase {
         $policy = new rate_limit_policy(true, 'file', true, true, 1, 180, 10, 900, 300, 300, 1, 900);
         $limiter = $this->limiter($policy);
 
+        // The allowance is a single attempt. Each neutral attempt passes the gate first —
+        // taking a reservation — and is then released. If a neutral outcome were charged
+        // against the account (the defect this guards against), the reservation would
+        // accumulate and the second pass through the gate would be refused.
         for ($i = 0; $i < 5; $i++) {
+            $this->assertFalse(
+                $limiter->check('student1')['blocked'],
+                'Attempt ' . ($i + 1) . ' must still be admitted: a neutral outcome is not a failure.'
+            );
             $limiter->record('student1', login_outcome::NEUTRAL);
         }
 
         $this->assertFalse($limiter->check('student1')['blocked']);
     }
 
-    public function test_invalid_outcome_is_ignored(): void {
-        $policy = new rate_limit_policy(true, 'file', true, true, 1, 180, 10, 900, 300, 300, 1, 900);
-        $limiter = $this->limiter($policy);
-
-        $limiter->record('student1', 'something-else');
+    public function test_refused_attempts_refund_their_admission_reservation(): void {
+        // Allowance of one. Once the single permitted attempt has failed, every further
+        // attempt is refused at the gate. A refused attempt must hand back the capacity it
+        // reserved, otherwise hammering the gate would keep the reservation — and with it
+        // the refusal — alive, which is exactly the account-lockout denial-of-service the
+        // per-account bound must not introduce.
+        $policy = new rate_limit_policy(true, 'file', true, true, 1, 120, 10, 900, 300, 300, 1, 900);
+        $store = new file_counter_store(make_request_directory());
+        $limiter = new login_rate_limiter($policy, $store, '198.51.100.20');
 
         $this->assertFalse($limiter->check('student1')['blocked']);
+        $limiter->record('student1', login_outcome::FAILURE);
+
+        for ($i = 0; $i < 20; $i++) {
+            $this->assertTrue($limiter->check('student1')['blocked']);
+        }
+
+        // The reservation counter must be empty after so many refusals; only the single
+        // recorded failure remains. The key derivation mirrors login_rate_limiter::keys().
+        $identsha = sha1('student1');
+        $reservecombo = $store->inspect('reserve:combo:' . sha1('198.51.100.20' . '|' . $identsha), 120);
+        $reserveaccount = $store->inspect('reserve:account:' . $identsha, 900);
+        $this->assertSame(0, $reservecombo['count'], 'A refused attempt must not leave a reservation behind.');
+        $this->assertSame(0, $reserveaccount['count'], 'A refused attempt must not leave an account reservation behind.');
+
+        $combo = $store->inspect('combo:' . sha1('198.51.100.20' . '|' . $identsha), 120);
+        $this->assertSame(1, $combo['count'], 'The single recorded failure must still stand.');
+    }
+
+    public function test_invalid_outcome_is_ignored(): void {
+        // An unrecognised outcome must never be mistaken for a credential failure. The
+        // attempt takes a reservation at the gate; because the outcome is unknown the
+        // limiter neither charges the failure ledger nor guesses, so no failure is
+        // recorded — the abandoned reservation simply expires with its window.
+        $policy = new rate_limit_policy(true, 'file', true, true, 1, 180, 10, 900, 300, 300, 1, 900);
+        $store = new file_counter_store(make_request_directory());
+        $limiter = new login_rate_limiter($policy, $store, '198.51.100.30');
+
+        $this->assertFalse($limiter->check('student1')['blocked']);
+        $limiter->record('student1', 'something-else');
+
+        // The failure ledger is untouched: an unknown outcome is not a failure.
+        $identsha = sha1('student1');
+        $this->assertSame(0, $store->inspect('combo:' . sha1('198.51.100.30' . '|' . $identsha), 180)['count']);
+        $this->assertSame(0, $store->inspect('account:' . $identsha, 900)['count']);
     }
 
     public function test_disabled_policy_never_blocks(): void {
@@ -642,6 +688,17 @@ final class ratelimit_toggle_store implements counter_store {
      */
     public function clear(string $key): bool {
         return $this->broken ? false : $this->inner->clear($key);
+    }
+
+    /**
+     * Releases a reservation, or reports a runtime failure when broken.
+     *
+     * @param string $key
+     * @param int $windowseconds
+     * @return bool
+     */
+    public function release(string $key, int $windowseconds): bool {
+        return $this->broken ? false : $this->inner->release($key, $windowseconds);
     }
 
     /**

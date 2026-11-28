@@ -25,15 +25,30 @@ defined('MOODLE_INTERNAL') || die();
  * the configured policy. Enforcement is deliberately split into two steps:
  *
  *   - `check()` is the pre-login **admission gate**. It atomically reserves one slot in
- *     the combined bucket *before* any credential work happens, so a burst of
- *     simultaneous requests cannot all slip past the threshold and only record their
- *     failures afterwards: the attempt that crosses the combined allowance is denied at
- *     admission time. The window is anchored to the first hit, so a request that is
- *     already being rejected can never extend its own restriction, and the advertised
- *     Retry-After is the genuine remaining lifetime of the restricting bucket.
- *   - `record()` applies the accounting after the outcome is known. On SUCCESS the
- *     account-specific buckets (including the admission reservation) are cleared while
- *     the shared per-IP abuse counter is preserved.
+ *     both the combined bucket and the per-account bucket *before* any credential work
+ *     happens, so a burst of simultaneous requests cannot all slip past the threshold
+ *     and only record their failures afterwards: the attempt that crosses an allowance
+ *     is denied at admission time. Reserving in the per-account bucket as well is what
+ *     bounds simultaneous requests for a single account arriving from many addresses,
+ *     without adding a separate lockout. The window is anchored to the first hit, so a
+ *     request that is already being rejected can never extend its own restriction, and
+ *     the advertised Retry-After is the genuine remaining lifetime of the restricting
+ *     bucket. When the attempt is refused, the reservation it took is refunded, so a
+ *     refused attempt never holds admission capacity and a single account cannot be kept
+ *     restricted merely by being hammered — the account-lockout denial-of-service that
+ *     the per-account bound must not introduce.
+ *   - `record()` completes the reservation once the outcome is known: a genuine
+ *     credential failure converts it into a recorded failure, a neutral outcome (a stale
+ *     login token, an MFA redirect, a caught internal error) releases it so it is never
+ *     counted against the account, and a success clears the account's ledgers and
+ *     reservations while the shared per-IP abuse counter is preserved.
+ *
+ * The failure ledger and the reservation are separate keys. A recorded failure lives in
+ * the ledger; an in-flight attempt lives in the reservation. `record()` only ever
+ * releases a reservation, so it can never consume or erase another request's recorded
+ * failure, and the two cannot double-count the same attempt. A reservation that is never
+ * completed — a request that dies between the gate and the outcome — simply expires with
+ * the window it was created under.
  *
  * Shared-IP protection is progressive rather than absolute. The per-IP abuse bucket
  * detects distributed abuse but, in the default "detect" mode, crossing it only
@@ -44,11 +59,11 @@ defined('MOODLE_INTERNAL') || die();
  *
  * Redis is preferred. The bounded file store is used in two complementary roles:
  *
- *   - as a **live mirror**: while Redis is healthy, every hit and clear is also applied,
- *     best effort, to the file store, and every read takes the *stronger* of the two
- *     observations (higher count, then longer TTL). Because the mirror therefore already
- *     holds the counters, an active restriction cannot be bypassed when Redis fails
- *     mid-flight, and it also cannot be reset when Redis recovers carrying stale
+ *   - as a **live mirror**: while Redis is healthy, every hit, clear and release is also
+ *     applied, best effort, to the file store, and every read takes the *stronger* of the
+ *     two observations (higher count, then longer TTL). Because the mirror therefore
+ *     already holds the counters, an active restriction cannot be bypassed when Redis
+ *     fails mid-flight, and it also cannot be reset when Redis recovers carrying stale
  *     counters, because recovery is reconciled against the mirror on the next read;
  *   - as the **failover target**: if Redis cannot be reached, or if it connects but an
  *     individual operation fails at runtime (memory exhaustion under the production
@@ -200,11 +215,11 @@ final class login_rate_limiter {
     /**
      * Runs a store operation, transitioning to the fallback when the primary fails.
      *
-     * A null (read/write) or false (clear) result from a store that is not already the
-     * fallback means the primary backend failed *at runtime*, which is different from
-     * the initial connection failing. The same operation is then retried on the fallback
-     * so the accounting is never lost, and a structured security event records the
-     * transition with the driver's classified failure reason.
+     * A null (read/write) or false (clear/release) result from a store that is not
+     * already the fallback means the primary backend failed *at runtime*, which is
+     * different from the initial connection failing. The same operation is then retried
+     * on the fallback so the accounting is never lost, and a structured security event
+     * records the transition with the driver's classified failure reason.
      *
      * @param string $method Store method name.
      * @param array<int, mixed> $arguments Method arguments.
@@ -256,12 +271,18 @@ final class login_rate_limiter {
     /**
      * Reports whether a store result represents a runtime failure.
      *
+     * `clear` and `release` report success as a boolean, so a `false` is the failure
+     * signal; the read/write methods report success as a value, so a `null` is.
+     *
      * @param string $method Store method name.
      * @param mixed $result Returned value.
      * @return bool
      */
     private function is_failure(string $method, mixed $result): bool {
-        return $method === 'clear' ? $result === false : $result === null;
+        if ($method === 'clear' || $method === 'release') {
+            return $result === false;
+        }
+        return $result === null;
     }
 
     /**
@@ -330,6 +351,31 @@ final class login_rate_limiter {
     }
 
     /**
+     * Mirrors a reservation refund onto the standby store. Best effort by design.
+     *
+     * A mirror failure must never trigger a failover: the authoritative store has already
+     * released the reservation, and a reservation that is not released on the mirror
+     * simply expires with its window rather than restricting anyone.
+     *
+     * @param string $key Reservation key.
+     * @param int $windowseconds Window length in seconds.
+     * @return void
+     */
+    private function mirror_release(string $key, int $windowseconds): void {
+        $mirror = $this->mirror();
+        if ($mirror === null) {
+            return;
+        }
+        if (!$mirror->release($key, $windowseconds)) {
+            $this->log('ratelimit_mirror_failed', [
+                'backend' => $mirror->name(),
+                'operation' => 'release',
+                'reason' => (string)($mirror->last_failure() ?? 'operation_failed'),
+            ]);
+        }
+    }
+
+    /**
      * Reads the standby mirror without incrementing it. Best effort by design.
      *
      * @param string $key Bucket key.
@@ -383,13 +429,15 @@ final class login_rate_limiter {
     /**
      * Evaluates the policy for a login attempt and atomically reserves its admission slot.
      *
-     * The combined bucket is incremented here, before any credential work, so a burst of
-     * simultaneous requests cannot all pass the gate and only record their failures
-     * afterwards: the increment that crosses the combined allowance is denied at
-     * admission time. The remaining buckets are read-only observations, reconciled against
-     * the standby mirror so a stale or restarted primary cannot under-count an active
-     * restriction. Every window is anchored to its first hit, so a request that is already
-     * being rejected can never extend its own restriction.
+     * Both the combined bucket and the per-account bucket are reserved here, before any
+     * credential work, so a burst of simultaneous requests — including one spread across
+     * many addresses against a single account — cannot all pass the gate and only record
+     * their failures afterwards: the reservation that crosses an allowance is refused at
+     * admission time. Each bucket's effective pressure is its recorded failures plus its
+     * in-flight reservations, reconciled against the standby mirror so a stale or
+     * restarted primary cannot under-count an active restriction. Every window is
+     * anchored to its first hit, so a request that is already being rejected can never
+     * extend its own restriction.
      *
      * @param string $identifier Normalised username or email.
      * @return array{blocked:bool,retry_after:int,bucket:string|null,challenged:bool,abuse_level:int,degraded:bool}
@@ -414,33 +462,37 @@ final class login_rate_limiter {
         $keys = $this->keys($identifier);
         $definitions = $this->policy->buckets();
         $states = [];
+        $reservations = [];
 
-        // Atomic admission. The reservation is mirrored onto the standby store so it
-        // survives a backend transition mid-request.
+        // Atomic admission. A reservation is taken in the combined and the per-account
+        // bucket, and mirrored onto the standby store so it survives a backend transition
+        // mid-request. The per-account reservation is what bounds simultaneous requests
+        // for one account arriving from different addresses. Each reservation taken here
+        // is remembered so it can be refunded if this attempt is refused below: an attempt
+        // that never reaches the credential check must not hold admission capacity.
         foreach ($definitions as $definition) {
-            if ($definition['name'] !== 'combo') {
+            $name = $definition['name'];
+            if (!isset($keys['reserve' . $name])) {
                 continue;
             }
-            $reservation = $this->invoke('hit', [$keys['combo'], $definition['window']]);
+            $key = $keys['reserve' . $name];
+            $reservation = $this->invoke('hit', [$key, $definition['window']]);
             if (is_array($reservation)) {
-                $this->mirror_hit($keys['combo'], $definition['window']);
+                $this->mirror_hit($key, $definition['window']);
             }
-            $states['combo'] = $this->strongest(
+            $states[$name]['reserved'] = $this->strongest(
                 is_array($reservation) ? $reservation : null,
-                $this->mirror_inspect($keys['combo'], $definition['window'])
+                $this->mirror_inspect($key, $definition['window'])
             );
-            break;
+            $reservations[] = ['key' => $key, 'window' => $definition['window']];
         }
 
-        // The remaining buckets are read-only observations, each reconciled against the
+        // The failure ledgers are read-only observations, each reconciled against the
         // mirror so recovery can never lower the effective count.
         foreach ($definitions as $definition) {
             $name = $definition['name'];
-            if ($name === 'combo') {
-                continue;
-            }
             $primary = $this->invoke('inspect', [$keys[$name], $definition['window']]);
-            $states[$name] = $this->strongest(
+            $states[$name]['ledger'] = $this->strongest(
                 is_array($primary) ? $primary : null,
                 $this->mirror_inspect($keys[$name], $definition['window'])
             );
@@ -453,7 +505,7 @@ final class login_rate_limiter {
             return $this->degraded_result($identifier, $result);
         }
 
-        $abuse = $states['abuseip'] ?? null;
+        $abuse = $states['abuseip']['ledger'] ?? null;
         $abuselevel = is_array($abuse) ? (int)$abuse['count'] : 0;
         $ipmode = $this->policy->ip_mode();
         $elevated = ($ipmode !== rate_limit_policy::IP_MODE_OFF) && ($abuselevel >= $this->policy->abuse_ip_limit());
@@ -465,48 +517,64 @@ final class login_rate_limiter {
         $longestttl = -1;
         $bucket = null;
         foreach ($definitions as $definition) {
-            $state = $states[$definition['name']] ?? null;
-            if ($state === null) {
+            $name = $definition['name'];
+            $state = $states[$name] ?? null;
+            if (!is_array($state) || !isset($state['ledger'])) {
                 continue;
             }
+            $ledger = $state['ledger'];
             $limit = $definition['limit'];
 
-            if ($definition['name'] === 'abuseip') {
+            if ($name === 'abuseip') {
                 if ($ipmode === rate_limit_policy::IP_MODE_OFF) {
                     continue;
                 }
                 $blocksaddress = ($ipmode === rate_limit_policy::IP_MODE_BLOCK)
-                    || ($hardlimit > 0 && (int)$state['count'] >= $hardlimit);
+                    || ($hardlimit > 0 && (int)$ledger['count'] >= $hardlimit);
                 if (!$blocksaddress) {
                     continue;
                 }
-            }
-
-            if ($definition['name'] === 'combo') {
-                if ($elevated) {
+                // The abuse bucket is a pure failure ledger with no admission
+                // reservation, so it is crossed as soon as it reaches its limit.
+                $crossed = (int)$ledger['count'] >= $limit;
+                $ttl = (int)$ledger['ttl'];
+            } else {
+                // Effective pressure is recorded failures plus in-flight reservations.
+                // The reservation for this attempt is already included, so the allowance
+                // is crossed only once that total exceeds it.
+                $reserved = $state['reserved'] ?? null;
+                $pressure = (int)$ledger['count'] + (is_array($reserved) ? (int)$reserved['count'] : 0);
+                if ($name === 'combo' && $elevated) {
                     // Progressive protection: an address that is already generating
                     // abusive volume gets a tighter per-account allowance instead of a
                     // blanket block.
                     $limit = min($limit, $this->policy->progressive_combo_limit());
                 }
-                // The combined bucket was incremented atomically at admission, so the
-                // value already includes the attempt being decided right now. The
-                // allowance is the number of attempts that may proceed, so it is only
-                // crossed once the reserved count exceeds it.
-                $crossed = (int)$state['count'] > $limit;
-            } else {
-                // The failure buckets are read here before the current attempt has been
-                // recorded, so they are crossed as soon as the count reaches the limit.
-                $crossed = (int)$state['count'] >= $limit;
+                $crossed = $pressure > $limit;
+                $ttl = max(
+                    (int)$ledger['ttl'],
+                    is_array($reserved) ? (int)$reserved['ttl'] : 0
+                );
             }
 
-            if ($crossed && (int)$state['ttl'] > $longestttl) {
-                $longestttl = (int)$state['ttl'];
-                $bucket = $definition['name'];
+            if ($crossed && $ttl > $longestttl) {
+                $longestttl = $ttl;
+                $bucket = $name;
             }
         }
 
         if ($bucket !== null) {
+            // The attempt is refused, so the capacity it reserved must be handed back.
+            // Without this, every refused request would keep holding a reservation: the
+            // reservation counter would climb on each retry, and a single account could
+            // be kept restricted simply by hammering it — the account-lockout
+            // denial-of-service the per-account bound must not introduce. Refunding the
+            // reservation leaves the failure ledger (the actual restriction) untouched.
+            foreach ($reservations as $reservation) {
+                $this->invoke('release', [$reservation['key'], $reservation['window']]);
+                $this->mirror_release($reservation['key'], $reservation['window']);
+            }
+
             $result['blocked'] = true;
             $result['retry_after'] = $this->policy->clamp_retry(max(0, $longestttl));
             $result['bucket'] = $bucket;
@@ -544,16 +612,26 @@ final class login_rate_limiter {
     }
 
     /**
-     * Records a finished authentication attempt.
+     * Completes the reservation taken by check() once the authentication outcome is known.
      *
-     * On FAILURE the failure buckets (`account`, `abuseip`) are incremented; the shared
-     * combined bucket was already reserved atomically at admission and is deliberately
-     * not charged again. On SUCCESS the account-specific buckets — including that
-     * admission reservation — are cleared while the shared per-IP abuse counter is
-     * preserved. NEUTRAL is a no-op. Every write goes through invoke(), so a primary
-     * backend that starts failing mid-request hands the accounting over to the fallback
-     * instead of dropping the increment, and each successful write is also mirrored onto
-     * the standby store so a later transition or recovery cannot lose the count.
+     * The reservation is always resolved exactly once:
+     *
+     *   - a genuine credential FAILURE **converts** the reservation into a recorded
+     *     failure: the failure ledgers (`combo`, `account`, `abuseip`) are charged and the
+     *     reservation is refunded, so the effective pressure the gate sees is unchanged
+     *     and the attempt is never counted twice;
+     *   - a NEUTRAL outcome (a stale login token, an MFA redirect, a caught internal
+     *     error) **releases** the reservation so it is never counted against the account,
+     *     and deliberately never touches the failure ledger;
+     *   - a SUCCESS **clears** the account's ledgers and reservations while the shared
+     *     per-IP abuse counter is preserved.
+     *
+     * Because a release only ever decrements the reservation counter, a concurrent
+     * success, failure or neutral request can never consume or erase another request's
+     * recorded failure, and the counter can never go negative. Every write goes through
+     * invoke(), so a primary backend that starts failing mid-request hands the accounting
+     * over to the fallback instead of dropping it, and each write is mirrored onto the
+     * standby store so a later transition or recovery cannot lose the count.
      *
      * @param string $identifier Normalised username or email.
      * @param string $outcome One of login_outcome::SUCCESS|FAILURE|NEUTRAL.
@@ -563,11 +641,11 @@ final class login_rate_limiter {
         if (!$this->policy->enabled() || !login_outcome::is_valid($outcome)) {
             return;
         }
-        if ($outcome === login_outcome::NEUTRAL) {
-            return;
-        }
         $this->operationfailed = false;
         if ($this->store() === null) {
+            // No reservation can be completed and no failure can be recorded. The
+            // abandoned reservation simply expires with its window; the outage is
+            // surfaced so it is never silent.
             $this->log('ratelimit_degraded', [
                 'mode' => $this->policy->degraded_mode(),
                 'action' => 'record_skipped',
@@ -578,27 +656,55 @@ final class login_rate_limiter {
         }
 
         $keys = $this->keys($identifier);
+        $definitions = $this->policy->buckets();
+
         if ($outcome === login_outcome::SUCCESS) {
-            $this->invoke('clear', [$keys['account']]);
-            $this->mirror_clear($keys['account']);
-            $this->invoke('clear', [$keys['combo']]);
-            $this->mirror_clear($keys['combo']);
+            // A successful sign-in clears the account's own ledgers and reservations; the
+            // shared per-IP abuse counter is deliberately preserved.
+            foreach (['account', 'reserveaccount', 'combo', 'reservecombo'] as $name) {
+                $this->invoke('clear', [$keys[$name]]);
+                $this->mirror_clear($keys[$name]);
+            }
             return;
         }
 
-        $ipmode = $this->policy->ip_mode();
-        foreach ($this->policy->buckets() as $definition) {
-            $name = $definition['name'];
-            if ($name === 'combo') {
-                // The combined bucket was already incremented atomically at admission,
-                // so a failure must not charge the same attempt to it a second time.
-                continue;
+        if ($outcome === login_outcome::NEUTRAL) {
+            // Neutral is not a credential failure. Refund the admission reservation so it
+            // is never counted against the account, without ever touching the ledger.
+            foreach ($definitions as $definition) {
+                $reserve = 'reserve' . $definition['name'];
+                if (!isset($keys[$reserve])) {
+                    continue;
+                }
+                $this->invoke('release', [$keys[$reserve], $definition['window']]);
+                $this->mirror_release($keys[$reserve], $definition['window']);
             }
+            if ($this->operationfailed) {
+                $this->log('ratelimit_degraded', [
+                    'mode' => $this->policy->degraded_mode(),
+                    'action' => 'release_failed',
+                    'outcome' => $outcome,
+                    'ip_sha' => sha1($this->clientip),
+                ]);
+            }
+            return;
+        }
+
+        // A genuine credential failure: convert the reservation into a recorded failure.
+        $ipmode = $this->policy->ip_mode();
+        foreach ($definitions as $definition) {
+            $name = $definition['name'];
             if ($name === 'abuseip' && $ipmode === rate_limit_policy::IP_MODE_OFF) {
                 continue;
             }
             $this->invoke('hit', [$keys[$name], $definition['window']]);
             $this->mirror_hit($keys[$name], $definition['window']);
+
+            $reserve = 'reserve' . $name;
+            if (isset($keys[$reserve])) {
+                $this->invoke('release', [$keys[$reserve], $definition['window']]);
+                $this->mirror_release($keys[$reserve], $definition['window']);
+            }
         }
 
         if ($this->operationfailed) {
@@ -616,8 +722,14 @@ final class login_rate_limiter {
     /**
      * Builds the hashed bucket keys for an attempt. Plaintext is never stored.
      *
+     * Each applicable bucket has two keys: the failure ledger (`combo`, `account`,
+     * `abuseip`), written only when a credential failure is recorded, and the reservation
+     * counter (`reserve…`), written at admission and refunded on the outcome. Keeping them
+     * separate is what lets a neutral outcome be refunded without erasing a recorded
+     * failure. The shared per-IP abuse bucket has no reservation.
+     *
      * @param string $identifier Normalised username or email.
-     * @return array{combo:string,account:string,abuseip:string}
+     * @return array{combo:string,account:string,abuseip:string,reservecombo:string,reserveaccount:string}
      */
     private function keys(string $identifier): array {
         $identifier = $identifier !== '' ? $identifier : '__empty__';
@@ -628,6 +740,8 @@ final class login_rate_limiter {
             'combo' => 'combo:' . sha1($this->clientip . '|' . $identsha),
             'account' => 'account:' . $identsha,
             'abuseip' => 'abuseip:' . $ipsha,
+            'reservecombo' => 'reserve:combo:' . sha1($this->clientip . '|' . $identsha),
+            'reserveaccount' => 'reserve:account:' . $identsha,
         ];
     }
 

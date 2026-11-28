@@ -315,6 +315,52 @@ final class ratelimit_redis_validation_test extends \advanced_testcase {
         $this->assertSame('del_exception', $store->last_failure());
     }
 
+    public function test_release_validates_the_script_marker(): void {
+        $client = new fake_redis_client();
+        $client->evalreply = 1;
+
+        $this->assertTrue($this->store_with($client)->release('reserve:combo:abc', 120));
+    }
+
+    public function test_release_false_return_triggers_fallback(): void {
+        $client = new fake_redis_client();
+        $client->evalreply = false;
+        $store = $this->store_with($client);
+
+        $this->assertFalse($store->release('reserve:combo:abc', 120));
+        $this->assertSame('release_response', $store->last_failure());
+        $this->assertSame('response', $store->last_failure_category());
+    }
+
+    public function test_release_unexpected_marker_triggers_fallback(): void {
+        $client = new fake_redis_client();
+        // The script's success marker is the integer 1. A zero or a structured reply
+        // means the refund could not be trusted, so it must not be read as success.
+        $client->evalreply = 0;
+        $store = $this->store_with($client);
+
+        $this->assertFalse($store->release('reserve:combo:abc', 120));
+        $this->assertSame('release_response', $store->last_failure());
+    }
+
+    public function test_release_exception_triggers_fallback(): void {
+        $client = new fake_redis_client();
+        $client->evalexception = $this->driver_exception('read error on connection');
+        $store = $this->store_with($client);
+
+        $this->assertFalse($store->release('reserve:combo:abc', 120));
+        $this->assertSame('release_exception', $store->last_failure());
+        $this->assertSame('connect', $store->last_failure_category());
+    }
+
+    public function test_release_uses_the_mandatory_namespaced_key(): void {
+        $client = new fake_redis_client();
+        $client->evalreply = 1;
+
+        $this->assertTrue($this->store_with($client)->release('reserve:combo:abc', 120));
+        $this->assertSame(['ulms:auth:reserve:combo:abc', 120], $client->call_args('eval'));
+    }
+
     public function test_commands_use_the_mandatory_namespaced_key(): void {
         $client = new fake_redis_client();
         $client->getreply = '1';

@@ -24,7 +24,16 @@ defined('MOODLE_INTERNAL') || die();
  * Counters are incremented atomically by a server-side Lua script so concurrent
  * authentication requests can never lose an update, and expiry is always ensured for
  * the key so a restriction can never become permanent. Only the commands the
- * production ACL user is granted are used: INCR, EXPIRE, TTL, GET, DEL, PING and EVAL.
+ * production ACL user is granted are used: INCR, EXPIRE, TTL, GET, SET, DEL, PING and
+ * EVAL.
+ *
+ * The admission reservation is refunded by a second Lua script. It is deliberately
+ * written with GET/SET/TTL/EXPIRE rather than DECR, because the production ACL grants no
+ * DECR permission; because Redis checks the ACL for every command a script calls, a
+ * `redis.call('DECR', ...)` would be denied. The decrement is a server-side
+ * compare-and-swap (read, clamp at zero, write the value back with SET and keep the
+ * remaining lifetime) so two concurrent releases can never lose an update or drive the
+ * counter below zero, and no new ACL permission is required.
  *
  * Every key is forced into the `ulms:auth:` namespace. Plaintext identifiers are never
  * sent to Redis: the caller supplies an already-hashed logical key.
@@ -61,6 +70,42 @@ if t < 0 then
   t = tonumber(ARGV[1])
 end
 return {c, t}
+LUA;
+
+    /**
+     * Atomic release of one reservation, clamped at zero, preserving the remaining
+     * lifetime. Returns 1 on success.
+     *
+     * Written only from commands the production ACL grants (GET, SET, TTL, EXPIRE) so it
+     * needs no `DECR`; the decrement is a server-side compare-and-swap. A missing key, a
+     * non-numeric value or a value already at zero is a successful no-op: a reservation
+     * that has expired or was never taken can never turn a release into a decrement of
+     * some other request's recorded failure.
+     *
+     * The remaining lifetime is deliberately preserved rather than cleared, mirroring the
+     * file store. A refunded reservation therefore keeps the window it was created under
+     * instead of starting a fresh one, so a request that is being refused cannot advertise
+     * a freshly-extended retry window, and the key expires naturally with its window. The
+     * value is written back even when it reaches zero, so the window start is not lost.
+     */
+    private const RELEASE_SCRIPT = <<<'LUA'
+local v = redis.call('GET', KEYS[1])
+if v == false then
+  return 1
+end
+local n = tonumber(v)
+if n == nil or n <= 0 then
+  return 1
+end
+n = n - 1
+local t = redis.call('TTL', KEYS[1])
+if t < 0 then
+  redis.call('SET', KEYS[1], n)
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+else
+  redis.call('SET', KEYS[1], n, 'KEEPTTL')
+end
+return 1
 LUA;
 
     /** @var string */
@@ -322,7 +367,7 @@ LUA;
             'connect_failed', 'connect_exception' => 'connect',
             'auth_failed' => 'auth',
             'unexpected_response', 'partial_update', 'inspect_response',
-                'del_response', 'ping_failed', 'inspect_repair_failed' => 'response',
+                'del_response', 'release_response', 'ping_failed', 'inspect_repair_failed' => 'response',
             default => 'exception',
         };
     }
@@ -477,6 +522,41 @@ LUA;
         }
         if (!is_int($deleted)) {
             $this->fail('del_response', 'response');
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Releases one admission reservation atomically, clamped at zero.
+     *
+     * The refund is a single EVAL, so two concurrent releases are serialised by Redis,
+     * the value can never go negative, and the reservation's remaining lifetime is
+     * preserved. A missing key or an elapsed window is a successful no-op — releasing a
+     * reservation that no longer exists must never fail the request, and must never
+     * touch the failure ledger, which is a separate key.
+     *
+     * @param string $key
+     * @param int $windowseconds
+     * @return bool
+     */
+    public function release(string $key, int $windowseconds): bool {
+        $redis = $this->connection();
+        if ($redis === null) {
+            return false;
+        }
+        try {
+            $result = $redis->eval(self::RELEASE_SCRIPT, [$this->namespaced($key), max(1, $windowseconds)], 1);
+        } catch (\Throwable $exception) {
+            $this->fail('release_exception', self::classify_exception($exception));
+            return false;
+        }
+        // The script always returns the integer 1 on success, and only never returns
+        // when Redis could not run it at all. Anything else means the reply cannot be
+        // trusted, so the caller is told the release failed and the accounting is
+        // completed on the fallback rather than silently dropped.
+        if ($result !== 1) {
+            $this->fail('release_response', 'response');
             return false;
         }
         return true;

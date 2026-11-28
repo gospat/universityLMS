@@ -25,7 +25,8 @@ limiter. This change adds **no** database schema, no core patch and no new servi
 | Application code | New `local/ulms_auth` classes + settings + lang + version bump | Fast-forward the `main` checkout (see `01-DEPLOY-AND-ROLLBACK.md` §2) |
 | Plugin version | `local_ulms_auth` version raised `2026102600` → `2026112700`; `db/upgrade.php` savepoint added | Moodle runs the upgrade on first request after deploy (no schema change) |
 | Settings | New admin settings under **Plugins → Local plugins → ULMS Authentication** | No action; defaults are safe (`backend=auto`, `fallback=on`, `ipmode=detect`, `degradedmode=failopen`) |
-| Redis | Reused — **already installed and secured**. No install, no config change, no new ACL permission | None as part of this change |
+| Admission reservation | `combo` and `account` each gain a separate reservation counter (`reserve:combo:*`, `reserve:account:*`); a reservation is refunded on a neutral outcome, on a refusal and on a genuine failure (converted to a ledger entry) | None; keys are ephemeral and self-expiring |
+| Redis | Reused — **already installed and secured**. No install, no config change, no new ACL permission. The reservation refund is an `EVAL` built only from already-granted `GET`/`SET`/`TTL`/`EXPIRE` (no `DECR`) | None as part of this change |
 | Nginx | **No change required.** Production does not currently set `real_ip_header` / `set_real_ip_from` / `real_ip_recursive`; the limiter resolves the client IP correctly regardless (see §8) | None; adopting the snippet is optional and human-applied |
 | Core lockout | **Unchanged** — remains disabled by deliberate decision | None |
 | Secrets | Read from `/etc/ulms/redis-auth.secret` (root:www-data 0640) | Confirm file perms only |
@@ -99,7 +100,22 @@ sudo REDISCLI_AUTH="$(sudo cat <root-only-admin-credential>)" \
   redis-cli -h 127.0.0.1 -p 6379 TTL <one-of-the-keys-above>   # -> positive integer
 
 # 4.4 A successful login clears the account-specific counters
-#     (keys prefixed account:/combo: for that account disappear; abuseip: stays).
+#     (keys prefixed account:/combo: and their reserve:account:/reserve:combo:
+#      counterparts for that account disappear; abuseip: stays).
+
+# 4.5 Reservation lifecycle. During an in-flight attempt a reserve:combo:<..> or
+#     reserve:account:<..> key exists alongside the ledger. After the outcome is
+#     known the reservation is gone again: a neutral outcome (expired session /
+#     login token, MFA redirect, caught internal error) and a refused attempt both
+#     leave the ledger untouched and the reservation at zero, and a genuine
+#     failure leaves the ledger incremented with no reservation outstanding. Any
+#     reserve:* key left at a non-zero value after a completed attempt is a defect.
+sudo REDISCLI_AUTH="$(sudo cat <root-only-admin-credential>)" \
+  redis-cli -h 127.0.0.1 -p 6379 --scan --pattern 'ulms:auth:reserve:*'
+
+# Every key — ledger or reservation — MUST still carry a positive TTL:
+sudo REDISCLI_AUTH="$(sudo cat <root-only-admin-credential>)" \
+  redis-cli -h 127.0.0.1 -p 6379 TTL <one-of-the-reserve-keys-above>  # -> positive integer
 ```
 
 Functional smoke test (browser): sign in successfully as a normal user (no 429),
@@ -116,6 +132,14 @@ reference.
   and `ratelimit_unavailable` in the security log. A steady stream of
   `ratelimit_backend_unavailable` / `ratelimit_backend_degraded` means Redis is
   failing and the file fallback is carrying the load.
+- **Reservation accounting**: `ratelimit_degraded` carries an `action` that tells
+  you which part of an attempt could not be accounted for — `allow` / `deny`
+  (no store at all), `record_skipped` (an outcome arrived with no usable store),
+  `record_failed` (a failure could not be charged on any store) or
+  `release_failed` (a neutral reservation could not be refunded). Any of the
+  `*_failed` / `*_skipped` actions during ordinary traffic is worth investigating:
+  it means an attempt's accounting was deferred to a store coming back, not lost,
+  but it is the earliest signal that the counters are drifting behind reality.
 - **Security events**: `portal_login_failed` spikes indicate attack traffic; pair
   them with a Redis key scan to see which bucket is absorbing it.
 - **Redis health**: monitor `used_memory` against the 256 MB limit and the

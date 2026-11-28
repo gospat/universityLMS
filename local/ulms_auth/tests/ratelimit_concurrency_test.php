@@ -37,13 +37,14 @@ defined('MOODLE_INTERNAL') || die();
  *   - the counter update is atomic (Redis INCR inside a Lua script; flock on the file
  *     store), so N parallel increments over a shared key must produce exactly N, never
  *     N minus a lost update;
- *   - admission is atomic for the shared combined bucket. check() reserves a slot in it
- *     at the pre-login gate, before any credential work, so the increment that crosses
- *     the allowance is refused there. A burst of parallel requests therefore cannot all
- *     pass the gate and only record their failures afterwards: exactly the allowance is
- *     admitted and the remainder are refused at the gate, with no overshoot. The failure
- *     buckets (account, abuseip) are still read at the gate and written on the outcome,
- *     so only the combined bucket carries the hard cut-off.
+ *   - admission is atomic for the combined and the per-account bucket. check() reserves a
+ *     slot in both at the pre-login gate, before any credential work, so the reservation
+ *     that crosses an allowance is refused there. A burst of parallel requests therefore
+ *     cannot all pass the gate and only record their failures afterwards: exactly the
+ *     allowance is admitted and the remainder are refused at the gate, with no overshoot.
+ *     The per-account reservation also bounds simultaneous requests for one account
+ *     arriving from many addresses. The shared per-IP abuse bucket stays a pure failure
+ *     ledger, read at the gate and written on the outcome.
  *
  * The child processes are plain PHP CLI invocations that load only the rate-limiter
  * classes, so they never touch the Moodle database and can never interfere with the
@@ -98,6 +99,9 @@ class ulms_conc_dead_store implements \local_ulms_auth\local\service\ratelimit\c
     public function clear(string $key): bool {
         return false;
     }
+    public function release(string $key, int $windowseconds): bool {
+        return false;
+    }
     public function is_available(): bool {
         return true;
     }
@@ -139,7 +143,7 @@ $policy = new \local_ulms_auth\local\service\ratelimit\rate_limit_policy(
     false,
     (int)getenv('ULMS_RL_LIMIT'),
     $window,
-    9999,
+    (int)(getenv('ULMS_RL_ACCOUNT_LIMIT') ?: 9999),
     $window,
     9999,
     300,
@@ -420,12 +424,61 @@ WORKER;
         // The loop was cut short, proving the limiter actually stopped the runaway.
         $this->assertLessThan(self::PROCESSES * self::OPS, $admitted);
 
-        // The counter carries every reservation, including the refused ones, so the
-        // address stays restricted afterwards.
+        // The refused attempts handed their reservations back, so what stands afterwards is
+        // the ledger of recorded failures plus the new attempt's own reservation.
         $store = new file_counter_store($dir);
         $policy = new rate_limit_policy(true, 'file', false, false, $limit, 120, 9999, 120, 9999, 300, 1, 900);
         $limiter = new login_rate_limiter($policy, $store, self::IP);
         $this->assertTrue($limiter->check(self::IDENTIFIER)['blocked'], 'The account must remain restricted afterwards.');
+    }
+
+    public function test_distributed_parallel_admissions_for_one_account_are_bounded(): void {
+        $dir = $this->counter_dir('account-admission');
+        $limit = 3;
+        $environments = [];
+        for ($i = 0; $i < self::PROCESSES; $i++) {
+            $environments[] = [
+                'ULMS_RL_BACKEND' => 'file',
+                'ULMS_RL_MODE' => 'admission',
+                'ULMS_RL_DIR' => $dir,
+                // The combined bucket is per address, so it can never bind here; only the
+                // shared per-account bucket can. Each child therefore arrives from its own
+                // address, all targeting the same account.
+                'ULMS_RL_LIMIT' => '9999',
+                'ULMS_RL_ACCOUNT_LIMIT' => (string)$limit,
+                'ULMS_RL_IP' => '203.0.113.' . (10 + $i),
+            ];
+        }
+
+        $outputs = $this->run_children($environments);
+
+        $admitted = 0;
+        foreach ($outputs as $output) {
+            $this->assertMatchesRegularExpression('/^OK admitted=\d+$/', $output);
+            preg_match('/admitted=(\d+)/', $output, $matches);
+            $admitted += (int)$matches[1];
+        }
+
+        // check() reserves a slot in the per-account bucket at the gate, so simultaneous
+        // requests for a single account arriving from many different addresses are cut off
+        // at exactly the account allowance: no overshoot, and no separate lockout object.
+        $this->assertSame(
+            $limit,
+            $admitted,
+            'Parallel requests for one account from many addresses must be bounded by the account allowance.'
+        );
+        $this->assertLessThan(self::PROCESSES * self::OPS, $admitted);
+
+        // The account stays restricted, and the restriction is account-scoped: an unrelated
+        // account from one of the same addresses is not caught up in it.
+        $store = new file_counter_store($dir);
+        $policy = new rate_limit_policy(true, 'file', false, false, 9999, 120, $limit, 120, 9999, 300, 1, 900);
+        $limiter = new login_rate_limiter($policy, $store, '203.0.113.10');
+        $this->assertTrue($limiter->check(self::IDENTIFIER)['blocked'], 'The account must remain restricted afterwards.');
+        $this->assertFalse(
+            $limiter->check(self::IDENTIFIER . '_other')['blocked'],
+            'The restriction must be account-scoped, not address-scoped.'
+        );
     }
 
     public function test_counter_expiry_is_anchored_to_the_first_hit_under_parallel_load(): void {

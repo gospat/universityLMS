@@ -261,4 +261,50 @@ final class ratelimit_redis_store_test extends \advanced_testcase {
         $limiter->record($identifier, login_outcome::SUCCESS);
         $this->assertFalse($limiter->check($identifier)['blocked']);
     }
+
+    public function test_release_refunds_a_reservation_without_touching_the_ledger(): void {
+        $store = $this->available_store();
+        $reservation = $this->unique('reserve');
+        $ledger = $this->unique('ledger');
+
+        $store->hit($reservation, 120);
+        $store->hit($reservation, 120);
+        $store->hit($ledger, 120);
+
+        $this->assertTrue($store->release($reservation, 120));
+        $this->assertSame(1, $store->inspect($reservation, 120)['count']);
+        // The refund must be confined to the reservation: a recorded failure lives in a
+        // separate key and can never be consumed by another request's release.
+        $this->assertSame(1, $store->inspect($ledger, 120)['count'], 'A release must never touch the failure ledger.');
+
+        // Releasing an already-empty reservation is a successful no-op clamped at zero.
+        $this->assertTrue($store->release($reservation, 120));
+        $this->assertTrue($store->release($reservation, 120));
+        $this->assertSame(0, $store->inspect($reservation, 120)['count']);
+
+        // The window is preserved rather than restarted, so the key still expires.
+        $ttl = $store->inspect($reservation, 120)['ttl'];
+        $this->assertGreaterThan(0, $ttl);
+        $this->assertLessThanOrEqual(120, $ttl);
+
+        $store->clear($reservation);
+        $store->clear($ledger);
+    }
+
+    public function test_neutral_outcome_releases_the_account_reservation_in_redis(): void {
+        $store = $this->available_store();
+        // A single permitted attempt. Each neutral attempt passes the gate and is then
+        // refunded, so a neutral outcome can never accumulate against the account.
+        $policy = new rate_limit_policy(true, 'redis', true, true, 1, 180, 1, 900, 300, 300, 1, 900);
+        $limiter = new login_rate_limiter($policy, $store, self::TEST_IP);
+        $identifier = $this->unique('neutral');
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->assertFalse(
+                $limiter->check($identifier)['blocked'],
+                'A neutral attempt must remain admissible: the reservation is refunded.'
+            );
+            $limiter->record($identifier, login_outcome::NEUTRAL);
+        }
+    }
 }
