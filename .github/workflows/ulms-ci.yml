@@ -19,6 +19,9 @@
 #     fresh checkout can install a Moodle site.
 #   * The en_AU.UTF-8 locale, which Moodle's PHPUnit bootstrap requires and the
 #     ubuntu image does not ship.
+#   * A throwaway Redis 7 service container with a restricted, least-privilege ACL user,
+#     so the Redis-backed login rate limiter is validated against a real server and real
+#     access control instead of being skipped.
 #   Each of these is a pre-existing repository or image gap, described at its step.
 #
 # Reusability:
@@ -188,6 +191,18 @@ jobs:
           --health-timeout=5s
           --health-retries=12
           --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
+      # Isolated Redis 7 instance for the login rate-limiter integration tests. It exists
+      # only for the life of this run and is never the production instance. The restricted
+      # ACL user the application authenticates as is created by the provisioning step below.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -196,8 +211,9 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ env.PHP_VERSION }}
-          # Mirrors the extensions required by composer.json for the mysqli driver.
-          extensions: mysqli, pdo_mysql, curl, gd, mbstring, xml, zip, intl, soap, sodium, exif, fileinfo, opcache
+          # Mirrors the extensions required by composer.json for the mysqli driver, plus
+          # phpredis for the Redis-backed rate-limiter store.
+          extensions: mysqli, pdo_mysql, curl, gd, mbstring, xml, zip, intl, soap, sodium, exif, fileinfo, opcache, redis
           ini-values: max_input_vars=5000
           coverage: none
           tools: composer:v2
@@ -255,6 +271,43 @@ jobs:
         # ships no locales by default.
         run: sudo locale-gen en_AU.UTF-8
 
+      - name: Provision the restricted Redis ACL user
+        # Least privilege, provisioned for this run only. The application authenticates
+        # as `ulms_auth`, which may run only the commands the store issues and may touch
+        # only the `ulms:auth:` key namespace. The password is generated here and written
+        # to a file outside the working tree; it is never committed or echoed.
+        run: |
+          set -euo pipefail
+          container="${{ job.services.redis.id }}"
+          password="$(openssl rand -hex 32)"
+
+          # The image starts Redis with protected-mode on, which refuses the forwarded
+          # (non-loopback) connection the test process makes.
+          docker exec "${container}" redis-cli CONFIG SET protected-mode no > /dev/null
+
+          docker exec "${container}" redis-cli --no-auth-warning ACL SETUSER ulms_auth \
+            on ">${password}" "~ulms:auth:*" \
+            +ping +get +set +setex +incr +expire +ttl +pttl +del +exists +eval +evalsha > /dev/null
+
+          mkdir -p /tmp/ulms-redis
+          printf '%s' "${password}" > /tmp/ulms-redis/redis-auth.secret
+          chmod 600 /tmp/ulms-redis/redis-auth.secret
+
+          # Prove the restriction is really in force before the suite relies on it.
+          inside="$(docker exec "${container}" redis-cli --no-auth-warning -u "redis://ulms_auth:${password}@127.0.0.1:6379" SET ulms:auth:probe 1 2>&1)"
+          if [ "${inside}" != "OK" ]; then
+            echo "::error::The ACL user could not write inside the ulms:auth: namespace (got: ${inside})."
+            exit 1
+          fi
+          docker exec "${container}" redis-cli --no-auth-warning -u "redis://ulms_auth:${password}@127.0.0.1:6379" DEL ulms:auth:probe > /dev/null
+
+          outside="$(docker exec "${container}" redis-cli --no-auth-warning -u "redis://ulms_auth:${password}@127.0.0.1:6379" SET ulms:outside-namespace 1 2>&1 || true)"
+          if ! grep -q 'NOPERM' <<< "${outside}"; then
+            echo "::error::Expected the ACL user to be denied outside ulms:auth: (got: ${outside})."
+            exit 1
+          fi
+          echo "Restricted Redis ACL user provisioned and verified."
+
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
@@ -265,6 +318,12 @@ jobs:
       - name: Run the required ULMS PHPUnit suites
         env:
           dbtype: mysqli
+          # Consumed by local_ulms_auth's Redis integration test. The password lives in the
+          # file provisioned above and is never passed through the environment itself.
+          ULMS_REDIS_HOST: 127.0.0.1
+          ULMS_REDIS_PORT: '6379'
+          ULMS_REDIS_ACL_USER: ulms_auth
+          ULMS_REDIS_SECRET_FILE: /tmp/ulms-redis/redis-auth.secret
         run: |
           set -euo pipefail
 
@@ -323,7 +382,89 @@ jobs:
           # the CLI builder keeps the final occurrence of the option.
           suite_filter=$(IFS=,; echo "${required[*]}")
 
-          php vendor/bin/phpunit --testsuite "${suite_filter}" ${{ inputs.phpunit_extra_options }}
+          php vendor/bin/phpunit --testsuite "${suite_filter}" \
+            --log-junit phpunit-required.xml ${{ inputs.phpunit_extra_options }}
+
+      - name: Publish the required-suite test summary
+        # The gate's evidence must be readable by whoever reviews the pull request.
+        # GitHub serves job logs only to repository members, so the totals and the name
+        # of every skipped test are published as a check-run annotation, which any
+        # account can read.
+        #
+        # Two things are enforced here rather than merely reported, because the review
+        # asked for proof that the authentication tests actually ran against the real
+        # Redis server this workflow provisions:
+        #   * the rate-limiter and role-login test classes must each have executed — a
+        #     deleted or renamed test must not look like a pass;
+        #   * none of them may be skipped, because a skip means the protection silently
+        #     stopped being exercised.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+
+          def emit(kind, message):
+              # Workflow-command escaping, as documented by GitHub Actions.
+              escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::{kind}::{escaped}')
+
+
+          root = ET.parse('phpunit-required.xml').getroot()
+
+          totals = {'tests': 0, 'assertions': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
+          for suite in root.iter('testsuite'):
+              # Nested aggregate suites repeat the leaf totals, so only the generated
+              # per-plugin/theme suites are counted.
+              if not (suite.get('name') or '').endswith('_testsuite'):
+                  continue
+              for key in totals:
+                  totals[key] += int(suite.get(key) or 0)
+
+          executed = set()
+          skipped = []
+          for case in root.iter('testcase'):
+              cls = case.get('class') or ''
+              label = f'{cls}::{case.get("name") or ""}'
+              executed.add(cls)
+              for child in case:
+                  if child.tag == 'skipped':
+                      reason = (child.get('message') or child.text or '').strip().splitlines()
+                      skipped.append(label + (f' - {reason[0]}' if reason else ''))
+
+          emit(
+              'notice',
+              'Required ULMS PHPUnit suites: '
+              f'{totals["tests"]} test(s), {totals["assertions"]} assertion(s), '
+              f'{totals["failures"]} failure(s), {totals["errors"]} error(s), '
+              f'{totals["skipped"]} skipped.'
+          )
+
+          # The classes this gate exists to protect.
+          critical = (
+              r'local_ulms_auth\ratelimit_limiter_test',
+              r'local_ulms_auth\ratelimit_concurrency_test',
+              r'local_ulms_auth\ratelimit_redis_store_test',
+              r'local_ulms_auth\role_login_regression_test',
+          )
+
+          missed = [name for name in critical if name not in executed]
+          if missed:
+              emit('error', 'The authentication test classes below did not execute, so the '
+                            'gate does not cover the behaviour it is meant to: ' + ', '.join(missed))
+              raise SystemExit(1)
+
+          prefixes = tuple(name + '::' for name in critical)
+          skipped_critical = [label for label in skipped if label.startswith(prefixes)]
+          if skipped_critical:
+              emit('error', 'Authentication tests were skipped, so the gate did not exercise '
+                            'them: ' + '; '.join(skipped_critical))
+              raise SystemExit(1)
+
+          if skipped:
+              emit('warning', 'Skipped tests in the required suites (none authentication-critical): '
+                              + '; '.join(skipped))
+          PY
 
   # Advisory only. Runs the complete ULMS suite, including any suite listed in
   # KNOWN_FAILING_SUITES, so an outstanding defect stays visible on every push without
@@ -350,6 +491,18 @@ jobs:
           --health-timeout=5s
           --health-retries=12
           --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=1024m
+      # Isolated Redis 7 instance for the login rate-limiter integration tests. It exists
+      # only for the life of this run and is never the production instance. The restricted
+      # ACL user the application authenticates as is created by the provisioning step below.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -358,7 +511,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ env.PHP_VERSION }}
-          extensions: mysqli, pdo_mysql, curl, gd, mbstring, xml, zip, intl, soap, sodium, exif, fileinfo, opcache
+          extensions: mysqli, pdo_mysql, curl, gd, mbstring, xml, zip, intl, soap, sodium, exif, fileinfo, opcache, redis
           ini-values: max_input_vars=5000
           coverage: none
           tools: composer:v2
@@ -414,6 +567,43 @@ jobs:
         # ships no locales by default.
         run: sudo locale-gen en_AU.UTF-8
 
+      - name: Provision the restricted Redis ACL user
+        # Least privilege, provisioned for this run only. The application authenticates
+        # as `ulms_auth`, which may run only the commands the store issues and may touch
+        # only the `ulms:auth:` key namespace. The password is generated here and written
+        # to a file outside the working tree; it is never committed or echoed.
+        run: |
+          set -euo pipefail
+          container="${{ job.services.redis.id }}"
+          password="$(openssl rand -hex 32)"
+
+          # The image starts Redis with protected-mode on, which refuses the forwarded
+          # (non-loopback) connection the test process makes.
+          docker exec "${container}" redis-cli CONFIG SET protected-mode no > /dev/null
+
+          docker exec "${container}" redis-cli --no-auth-warning ACL SETUSER ulms_auth \
+            on ">${password}" "~ulms:auth:*" \
+            +ping +get +set +setex +incr +expire +ttl +pttl +del +exists +eval +evalsha > /dev/null
+
+          mkdir -p /tmp/ulms-redis
+          printf '%s' "${password}" > /tmp/ulms-redis/redis-auth.secret
+          chmod 600 /tmp/ulms-redis/redis-auth.secret
+
+          # Prove the restriction is really in force before the suite relies on it.
+          inside="$(docker exec "${container}" redis-cli --no-auth-warning -u "redis://ulms_auth:${password}@127.0.0.1:6379" SET ulms:auth:probe 1 2>&1)"
+          if [ "${inside}" != "OK" ]; then
+            echo "::error::The ACL user could not write inside the ulms:auth: namespace (got: ${inside})."
+            exit 1
+          fi
+          docker exec "${container}" redis-cli --no-auth-warning -u "redis://ulms_auth:${password}@127.0.0.1:6379" DEL ulms:auth:probe > /dev/null
+
+          outside="$(docker exec "${container}" redis-cli --no-auth-warning -u "redis://ulms_auth:${password}@127.0.0.1:6379" SET ulms:outside-namespace 1 2>&1 || true)"
+          if ! grep -q 'NOPERM' <<< "${outside}"; then
+            echo "::error::Expected the ACL user to be denied outside ulms:auth: (got: ${outside})."
+            exit 1
+          fi
+          echo "Restricted Redis ACL user provisioned and verified."
+
       - name: Initialise the Moodle PHPUnit environment
         env:
           dbtype: mysqli
@@ -424,6 +614,10 @@ jobs:
       - name: Run every ULMS PHPUnit suite
         env:
           dbtype: mysqli
+          ULMS_REDIS_HOST: 127.0.0.1
+          ULMS_REDIS_PORT: '6379'
+          ULMS_REDIS_ACL_USER: ulms_auth
+          ULMS_REDIS_SECRET_FILE: /tmp/ulms-redis/redis-auth.secret
         run: |
           set -uo pipefail
 

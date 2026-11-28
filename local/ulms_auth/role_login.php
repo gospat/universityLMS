@@ -36,7 +36,13 @@ if (!(defined('PHPUNIT_TEST') && PHPUNIT_TEST) && !(defined('BEHAT_TEST') && BEH
         if (function_exists('local_ulms_dashboard_log_operational_error')) {
             local_ulms_dashboard_log_operational_error($_, 'role_login::require_login_rate_limit', []);
         } else {
-            error_log('[ULMS_PORTAL_ERROR] ' . json_encode(['location'=>'role_login::require_login_rate_limit','type'=>get_class($_),'message'=>$_->getMessage(),'line'=>$_->getLine(),'file'=>$_->getFile()], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+            error_log('[ULMS_PORTAL_ERROR] ' . json_encode(local_ulms_auth_scrub_log_data([
+                'location' => 'role_login::require_login_rate_limit',
+                'type' => get_class($_),
+                'message' => $_->getMessage(),
+                'line' => $_->getLine(),
+                'file' => $_->getFile(),
+            ]), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         }
         trigger_error('ULMS: login_rate_limit service failed to load. Rate limiting is disabled for this request. Rotate credentials at next maintenance window.', E_USER_WARNING);
     }
@@ -92,16 +98,23 @@ if (data_submitted()) {
         $normalisedusername = !empty($CFG->loginwithemail)
             ? $username
             : trim(core_text::strtolower($username));
-        if (class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false)) {
+        $ratelimitenabled = class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false);
+        if ($ratelimitenabled) {
             \local_ulms_auth\local\service\login_rate_limit::enforce_pre_login($normalisedusername, true);
         }
+        // Resolved before authenticate_user_login() consumes the token so an
+        // invalid/expired token is not mis-counted as a wrong password.
+        $tokenvalid = local_ulms_auth_login_token_is_valid($logintoken);
         try {
             $user = authenticate_user_login($normalisedusername, $password, false, $errorcode, $logintoken, false);
 
             if (!$user) {
                 $formerror = local_ulms_auth_get_login_error_message($normalisedusername, $errorcode);
-                if (class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false)) {
-                    \local_ulms_auth\local\service\login_rate_limit::record_login_result($normalisedusername, false);
+                if ($ratelimitenabled) {
+                    \local_ulms_auth\local\service\login_rate_limit::record_outcome(
+                        $normalisedusername,
+                        \local_ulms_auth\local\service\ratelimit\login_outcome::classify(false, (int)$errorcode, $tokenvalid)
+                    );
                 }
                 local_ulms_auth_log_security_event('portal_login_failed', [
                     'portal' => $portalkey,
@@ -109,22 +122,33 @@ if (data_submitted()) {
                     'identifierhash' => sha1($normalisedusername),
                 ]);
             } else if (empty($user->confirmed)) {
+                // Credentials were verified; the account simply is not activated yet.
                 $formerror = get_string('portalloginactivationrequired', 'local_ulms_auth');
-                if (class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false)) {
-                    \local_ulms_auth\local\service\login_rate_limit::record_login_result($normalisedusername, false);
+                if ($ratelimitenabled) {
+                    \local_ulms_auth\local\service\login_rate_limit::record_outcome(
+                        $normalisedusername,
+                        \local_ulms_auth\local\service\ratelimit\login_outcome::SUCCESS
+                    );
                 }
             } else if (!$service->user_matches_portal($user, $portalkey)) {
+                // Credentials were verified; the user is signing in to the wrong portal.
                 $matchedportal = $service->get_portal_definition($service->get_matching_portal_for_user($user));
                 $formerror = get_string('portalrolemismatch', 'local_ulms_auth', (object) [
                     'expected' => $portal['title'],
                     'actual' => $matchedportal['title'],
                 ]);
-                if (class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false)) {
-                    \local_ulms_auth\local\service\login_rate_limit::record_login_result($normalisedusername, false);
+                if ($ratelimitenabled) {
+                    \local_ulms_auth\local\service\login_rate_limit::record_outcome(
+                        $normalisedusername,
+                        \local_ulms_auth\local\service\ratelimit\login_outcome::SUCCESS
+                    );
                 }
             } else {
-                if (class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false)) {
-                    \local_ulms_auth\local\service\login_rate_limit::record_login_result($normalisedusername, true);
+                if ($ratelimitenabled) {
+                    \local_ulms_auth\local\service\login_rate_limit::record_outcome(
+                        $normalisedusername,
+                        \local_ulms_auth\local\service\ratelimit\login_outcome::SUCCESS
+                    );
                 }
                 complete_user_login($user);
 
@@ -137,8 +161,12 @@ if (data_submitted()) {
                 $service->redirect_to_portal_dashboard($portalkey);
             }
         } catch (\Throwable $exception) {
-            if (class_exists(\local_ulms_auth\local\service\login_rate_limit::class, false)) {
-                \local_ulms_auth\local\service\login_rate_limit::record_login_result($normalisedusername, false);
+            // An internal failure is never a credential failure.
+            if ($ratelimitenabled) {
+                \local_ulms_auth\local\service\login_rate_limit::record_outcome(
+                    $normalisedusername,
+                    \local_ulms_auth\local\service\ratelimit\login_outcome::NEUTRAL
+                );
             }
             local_ulms_auth_log_security_event('portal_login_exception', [
                 'portal' => $portalkey,

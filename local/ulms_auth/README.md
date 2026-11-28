@@ -4,8 +4,8 @@ ULMS authentication, landing-page, and clean-route plugin.
 
 This plugin defines **all** public-facing URLs that students, lecturers,
 admins, and super-admins use to log in, reset their password, and activate
-new accounts.  It also hosts the 3-tier lockout engine, password-reset rate
-limiter, audited security event logger, forced password-change workflow, and
+new accounts.  It also hosts the Redis-backed login rate limiter, password-reset
+rate limiter, audited security event logger, forced password-change workflow, and
 the Moodle `\core\hook\after_config`-triggered `.htaccess`-style clean route
 entry dispatcher (via `clean_route_entry.php`).
 
@@ -15,7 +15,7 @@ entry dispatcher (via `clean_route_entry.php`).
 
 1. **Clean canonical public routes.**  Maps human-readable URLs to controllers without exposing internal Moodle file names.
 2. **Landing page service.**  Resolves the current user's *correct* portal entry after sign-in based on their primary role + capabilities.
-3. **Login attempt rate limiting** — 3 independent buckets to defeat both distributed brute force and targeted credential stuffing.
+3. **Login attempt rate limiting** — Redis-backed, 3 independent buckets to defeat both distributed brute force and targeted credential stuffing.
 4. **Password-reset rate limiting** — prevents account enumeration and SMTP/Resend amplification attacks.
 5. **Forced password-change workflow** — when an admin resets a user's password, the user's next login is forced to the password-change screen; all other sessions are logged out.
 6. **Activation** flow for self-registered or bulk-provisioned users that have not yet claimed their account.
@@ -62,23 +62,496 @@ standard Moodle rewrites.
 
 ## 3. Lockouts & Rate Limiting
 
-All lockout and rate limit state is stored in **Moodle cache buckets**
-(shared caches) rather than a DB table so the hot path never blocks on writes.
+The login rate limiter is **Redis-backed** by default and keeps every counter
+outside the request hot path. The password-reset limiter uses short-lived Moodle
+cache state (see §3.2). Neither writes to a database table.
 
 ### 3.1 Login Attempt Rate Limit
 
-Configured via env vars in `.env` (middle layer of DB > ENV > defaults):
+**Why this was rebuilt.** The previous limiter stored counters in **JSON files**
+and did a read-modify-write per request, so concurrent logins could lose
+updates; it counted the wrong events as failures (wrong-role portal, unconfirmed
+accounts, internal exceptions); thresholds were hardcoded; and the 429 page
+advertised a fixed 30-second retry regardless of the real remaining restriction.
+It could also let a single account's failed attempts collide with unrelated
+accounts sharing one public IP. The rebuild below replaces the storage with
+atomic Redis counters, classifies outcomes precisely, makes every threshold
+configurable, derives `Retry-After` from the actual expiry, and keeps the IP
+bucket at an abuse-detection ceiling rather than a hard network lockout.
 
-| env key | default | meaning |
+The login limiter is layered so each concern can be reasoned about and tested on
+its own:
+
+| Layer | File | Responsibility |
 |---|---|---|
-| `ULMS_LOCKOUT_THRESHOLD` | `5` | Failed attempts per bucket before the bucket locks. |
-| `ULMS_LOCKOUT_WINDOW` | `900` (15 min) | Sliding window for counting attempts. |
-| `ULMS_LOCKOUT_DURATION` | `1800` (30 min) | How long the bucket stays locked after threshold is reached. |
+| Client address | [classes/local/service/ratelimit/client_ip.php](./classes/local/service/ratelimit/client_ip.php) | Resolve one canonical, spoof-safe client IP. |
+| Store contract | [classes/local/service/ratelimit/counter_store.php](./classes/local/service/ratelimit/counter_store.php) | `hit` / `inspect` / `clear` / `release` / `is_available`. |
+| Redis store | [classes/local/service/ratelimit/redis_counter_store.php](./classes/local/service/ratelimit/redis_counter_store.php) | Atomic counters via a server-side Lua script. |
+| File store | [classes/local/service/ratelimit/file_counter_store.php](./classes/local/service/ratelimit/file_counter_store.php) | Bounded, `flock`-serialised local fallback. |
+| Policy | [classes/local/service/ratelimit/rate_limit_policy.php](./classes/local/service/ratelimit/rate_limit_policy.php) | Thresholds, windows, backend, retry clamp. |
+| Outcome | [classes/local/service/ratelimit/login_outcome.php](./classes/local/service/ratelimit/login_outcome.php) | Classify an attempt as success / failure / neutral. |
+| Limiter | [classes/local/service/ratelimit/login_rate_limiter.php](./classes/local/service/ratelimit/login_rate_limiter.php) | Derive keys, enforce, record, choose backend. |
+| Facade | [classes/local/service/login_rate_limit.php](./classes/local/service/login_rate_limit.php) | Static API used by the login controllers + the 429 page. |
 
-**3 independent buckets** apply simultaneously (to stop both distributed and targeted attacks):
-1. **Per IP address** — blocks 1 IP trying many passwords.
-2. **Per username identifier** — blocks the world trying to brute-force 1 specific account.
-3. **Per (IP, identifier) combo** — fine-grained; also used to release IP-only lock when combo passes.
+#### 3.1.1 Buckets
+
+**3 independent buckets** are evaluated on every attempt. Each of the two blockable
+buckets is split into two keys: a **failure ledger** (`combo`, `account`), written
+only when a genuine credential failure is recorded, and a separate **reservation
+counter** (`reserve:combo:…`, `reserve:account:…`). At the gate, `check()`
+**reserves one slot in both** the combined and the per-account bucket, before any
+credential is verified, so a burst of simultaneous requests cannot all pass the
+gate and only record their failures afterwards — the reservation that would cross
+an allowance is refused at the gate itself. Reserving in the per-account bucket is
+what bounds simultaneous requests for a single account arriving from many
+addresses, without introducing a separate lockout. The `abuseip` bucket is a pure
+failure ledger with no reservation. Every window is anchored to its first hit, so a
+request that is already blocked cannot extend its own restriction.
+
+Once the outcome is known, `record()` resolves the reservation exactly once: a
+genuine credential failure **converts** it into a recorded failure (the ledger is
+charged and the reservation is refunded, so the attempt is never counted twice),
+a **neutral** outcome (a stale session or login token, an MFA redirect, a caught
+internal error) **releases** it so it is never counted against the account, and a
+**success** clears the account's ledgers and reservations. Because a release only
+ever decrements a reservation counter, one request can never consume or erase
+another request's recorded failure, and the counter can never go negative. A
+reservation that is never completed — a request that dies between the gate and the
+outcome — simply expires with the window it was created under. A request that is
+**refused** at the gate also refunds the reservation it took, so hammering the gate
+cannot keep an account restricted: the account-lockout denial-of-service that a
+per-account bound must not introduce.
+
+The consequence is that a reservation is **not** charged unless the credential
+actually fails: a neutral outcome leaves no trace, and a successful sign-in clears
+both the `combo` and `account` buckets, so ordinary traffic never accumulates
+against them; only the short 3-minute `combo` window can briefly hold a handful of
+genuinely in-flight attempts.
+
+| Bucket | Key scope | Default limit / window | Defeats |
+|---|---|---|---|
+| `combo` | one client IP + one account | 5 / 180 s (3 min) | fast brute force on a single account from one source |
+| `account` | one account, across every IP | 10 / 900 s (15 min) | slow, low-and-slow credential stuffing from many addresses |
+| `abuseip` | one client IP, across every account | 300 / 300 s (5 min) | distributed / password-spray abuse from one source |
+
+Only the `combo` and `account` buckets can block a request by themselves. The
+`abuseip` bucket is a **detection** signal, not a network-wide lockout: by
+default (`ratelimitabuseipmode = detect`) crossing it does **not** block the
+address or any account — see §3.1.3.1. This is deliberate, because Bells
+students and staff share a campus NAT and a small number of institutional egress
+addresses; a blanket per-IP block would take the whole campus offline the moment
+one unrelated account behind that address was attacked. Locking one account never
+blocks the other accounts sharing that IP.
+
+#### 3.1.2 What counts as a failure
+
+Only a **wrong credential** is counted as a *failure*. The limiter inspects the
+`authenticate_user_login()` result through
+[login_outcome::classify()](./classes/local/service/ratelimit/login_outcome.php)
+and treats everything else as **neutral** — it never charges the failure ledger for
+it. (Admission is separate: the `combo` and `account` reservations taken at the
+gate are **released** on a neutral outcome and on a refusal, so a neutral attempt
+leaves no trace at all — see §3.1.1.)
+
+| Counted as failure | Never counted |
+|---|---|
+| `AUTH_LOGIN_FAILED` (wrong password) | wrong-role portal rejection |
+| `AUTH_LOGIN_NOUSER` (unknown user) | account not yet activated / confirmed |
+| | suspended account (`AUTH_LOGIN_SUSPENDED`) |
+| | `AUTH_LOGIN_LOCKOUT` / `AUTH_LOGIN_UNAUTHORISED` |
+| | invalid / expired session or login token |
+| | reCAPTCHA failure (`AUTH_LOGIN_FAILED_RECAPTCHA`) |
+| | internal exceptions, DB errors, Redis errors, any other infra failure |
+
+A **successful** login clears the account-specific `account` and `combo`
+counters, but deliberately **preserves** the shared `abuseip` counter so that a
+successful login cannot be used to reset network-abuse detection. Unknown users
+and wrong passwords are treated identically, so the response never reveals
+whether an account exists.
+
+> The plugin resolves login-token validity *before* Moodle consumes the token
+> (see `local_ulms_auth_login_token_is_valid()` in [lib.php](./lib.php)), so a
+> stale-token re-submit is correctly classified as neutral instead of being
+> charged against the account.
+
+#### 3.1.3 Settings reference
+
+| Setting (UI / `local_ulms_auth/...`) | Env override | Default | Meaning |
+|---|---|---|---|
+| `enableratelimit` | `ULMS_LOGIN_RATELIMIT_ENABLED` | on | Master switch for the login limiter. |
+| `ratelimitbackend` | `ULMS_LOGIN_RATELIMIT_BACKEND` | `auto` | `auto` \| `redis` \| `file`. |
+| `ratelimitfallback` | `ULMS_LOGIN_RATELIMIT_FALLBACK` | on | Allow the bounded file fallback when Redis is unavailable or an operation fails. |
+| `ratelimitsecuritylogging` | `ULMS_LOGIN_RATELIMIT_LOGGING` | on | Emit structured security events. |
+| `ratelimitcombolimit` | `ULMS_LOGIN_RATELIMIT_COMBO_LIMIT` | 5 | `combo` bucket limit. |
+| `ratelimitcombowindow` | `ULMS_LOGIN_RATELIMIT_COMBO_WINDOW` | 180 | `combo` bucket window (seconds). |
+| `ratelimitaccountlimit` | `ULMS_LOGIN_RATELIMIT_ACCOUNT_LIMIT` | 10 | `account` bucket limit. |
+| `ratelimitaccountwindow` | `ULMS_LOGIN_RATELIMIT_ACCOUNT_WINDOW` | 900 | `account` bucket window (seconds). |
+| `ratelimitabuseiplimit` | `ULMS_LOGIN_RATELIMIT_ABUSE_IP_LIMIT` | 300 | `abuseip` detection threshold. |
+| `ratelimitabuseipwindow` | `ULMS_LOGIN_RATELIMIT_ABUSE_IP_WINDOW` | 300 | `abuseip` window (seconds). |
+| `ratelimitabuseipmode` | `ULMS_LOGIN_RATELIMIT_ABUSE_IP_MODE` | `detect` | `off` \| `detect` \| `block` — how the `abuseip` bucket is enforced. |
+| `ratelimitprogressivelimit` | `ULMS_LOGIN_RATELIMIT_PROGRESSIVE_LIMIT` | 2 | Tighter `combo` allowance applied to an address already above the abuse threshold (detect mode). |
+| `ratelimitabuseiphardlimit` | `ULMS_LOGIN_RATELIMIT_ABUSE_IP_HARD_LIMIT` | 0 | Optional absolute per-IP ceiling that blocks in detect mode; `0` disables it. |
+| `ratelimitdegradedmode` | `ULMS_LOGIN_RATELIMIT_DEGRADED_MODE` | `failopen` | `failopen` \| `failclosed` — behaviour when no counter store is usable. |
+| `ratelimitminimumretry` | `ULMS_LOGIN_RATELIMIT_MIN_RETRY` | 15 | Lower clamp for the advertised `Retry-After`. |
+| `ratelimitmaximumretry` | `ULMS_LOGIN_RATELIMIT_MAX_RETRY` | 900 | Upper clamp for the advertised `Retry-After`. |
+
+#### 3.1.3.1 Progressive shared-IP protection (`ratelimitabuseipmode`)
+
+Raising the `abuseip` threshold alone does not solve the institutional
+shared-network problem: a fixed ceiling either blocks an entire campus egress
+address or is high enough to be useless. The limiter therefore makes the
+per-IP bucket **progressive** by default:
+
+| Mode | Behaviour when an address is above `ratelimitabuseiplimit` |
+|---|---|
+| `detect` (default) | **No hard block.** The address is flagged (`challenged` in the check result, `abuse_level` in the metrics) and its per-account `combo` allowance is tightened from `ratelimitcombolimit` (5) to `ratelimitprogressivelimit` (2). Effective protection against spraying and distributed attacks is retained, but unrelated legitimate accounts behind the same address keep the normal `account` allowance and are **not** blocked. |
+| `block` | Legacy behaviour: the whole address is blocked once the abuse threshold is crossed. Available for sites that explicitly want a blanket network lockout. |
+| `off` | The `abuseip` bucket is neither counted nor evaluated. |
+
+In `detect` mode an optional absolute ceiling can be layered on top: when
+`ratelimitabuseiphardlimit` is greater than `0`, an address whose count reaches
+that value **is** blocked (the threshold is intentionally far above
+`ratelimitabuseiplimit`). This gives an operator an explicit, opt-in hard stop
+without making it the default.
+
+The important property is that protection scales with the abuse volume instead of
+switching between "no effect" and "everyone on this IP is locked out". A shared
+address under attack sees only its *per-account* allowance tighten; the accounts
+behind it that are not part of the attack continue to authenticate normally.
+
+#### 3.1.4 Backend selection, runtime failures and fallback
+
+The backend is chosen once per request, and every individual store operation is
+guarded, because **Redis can stay connected while its operations fail**.
+
+Resolution order (`store()`):
+
+- **`auto` (default)** — use Redis when it is reachable; otherwise fall back to
+  the file store. This is the recommended production setting.
+- **`redis`** — prefer Redis. If Redis is unreachable and `ratelimitfallback` is
+  on, the file store takes over; if fallback is off, no store is used and the
+  degraded-mode policy applies.
+- **`file`** — never touch Redis.
+
+##### Runtime operation failures (not just the initial connection)
+
+Initial resolution is not enough, so `inspect()`, `hit()`, `clear()` and `release()`
+are all routed through a guarded `invoke()` that treats a failed operation as a
+*transition trigger*, not as a "not counted" result. A release is no exception: if
+the primary cannot refund a reservation, the refund is re-applied on the fallback
+rather than assumed, so a reservation can neither be lost nor left charged. The
+following production conditions are handled:
+
+| Condition | Example | Handled as |
+|---|---|---|
+| Memory exhaustion | Redis `noeviction` at 256 MB → `OOM command not allowed` | permission/memory failure category → handover |
+| Command permission error | ACL denies a command → `NOPERM` | permission failure category → handover |
+| Connection loss after init | socket closed mid-request | connect failure category → handover |
+| Read/write timeout | slow or stalled server | timeout failure category → handover |
+| Unexpected reply | malformed / wrong-type reply | response failure category → handover |
+| Partial counter update | `INCR` applied but `EXPIRE` failed | the whole increment is re-applied on the fallback |
+
+When the primary fails mid-request the limiter:
+
+1. emits a `ratelimit_backend_degraded` security event with the driver's
+   classified failure category;
+2. switches **this request** to the already-prepared fallback store;
+3. **re-runs the same operation on the fallback** so the attempt is not dropped.
+
+If the fallback also fails, the operation is genuinely unserved and the
+degraded-mode policy (§3.1.5) decides the outcome. A failed *read* can never
+under-count a *write*, because the write is retried on the fallback rather than
+being treated as zero.
+
+##### Counter continuity across backend transitions and recovery
+
+Counter continuity is preserved by design:
+
+- **No counter is reset, deleted or migrated during a switch.** A client cannot
+  escape a restriction by inducing a Redis failure, and a transition never rewinds
+  an account's or an address's history.
+- **The failed increment is re-applied on the fallback**, so attempts are never
+  silently dropped while a store is degraded.
+- **Every successful write is also mirrored onto the standby store** while the
+  primary is healthy — the file store is a live copy of Redis, not merely a
+  cold spare. A transition or a partial update therefore finds the fallback already
+  holding the current count, and only the single in-flight operation has to be
+  replayed.
+- **Every read is reconciled against both stores and the stronger observation
+  wins** (higher count, tie-broken by the longer remaining TTL). A store that has
+  fallen behind, or a Redis instance that restarts with a stale or empty counter,
+  can therefore never *lower* an active restriction: the mirrored count out-votes
+  it.
+- **A restriction is only ever delayed until a store applies it** — the limiter
+  never returns "allowed" merely because the primary failed.
+- **Redis keeps its own counters and TTLs.** Nothing deletes them on the way out,
+  so when Redis recovers and is once again the stronger observation, counting
+  resumes on it seamlessly.
+- **A fresh limiter instance is created per request**, so recovery takes effect
+  immediately on the next request — there is no sticky "degraded" state to clear.
+- **Counters on both stores expire on their own** (each key is written with a TTL),
+  so neither store can accumulate a stale restriction after the other returns.
+
+The practical consequence is that a Redis outage shortens nothing and lengthens
+nothing: it changes *where* the count is kept, not *whether* it is kept, and a
+restriction that was active before the outage is still active after it.
+
+##### What the mirror does and does not guarantee
+
+The mirror is applied **best effort, per write**, on the same request that performs
+the primary write. It is **not transactional replication**: there is no distributed
+transaction, no two-phase commit and no cross-store rollback. The honest guarantees
+and their residual limitations are:
+
+- **Guaranteed:** a write is never silently dropped. If the primary write fails, the
+  same operation is re-applied on the fallback before the request continues; if both
+  fail, a `ratelimit_degraded` event is emitted and the degraded-mode policy applies.
+  Reads always take the stronger of the two observations, so a lagging or restarted
+  store can never *lower* an active restriction.
+- **Guaranteed:** the failure ledger and the reservation counter are separate keys,
+  and a release only ever decrements a reservation counter (clamped at zero), so a
+  concurrent success, failure or neutral request can never consume or erase another
+  request's recorded failure, and no counter can go negative.
+- **Residual limitation:** a write that succeeds on the primary but whose *mirror*
+  write fails leaves the standby momentarily behind that one write. The divergence is
+  bounded to the in-flight operation and is self-healing on the next request, because
+  the stronger read wins and the primary remains authoritative while it is healthy —
+  but between those two points the standby is a best-effort copy, not a byte-exact
+  replica. The concurrency suite asserts this: after an intermittent-failure run the
+  combined count equals the number of recorded writes, with the replayed writes
+  landing on the mirror.
+- **Residual limitation:** the mirror is a per-request copy, not a background stream.
+  A request that dies between the primary write and its mirror write leaves the
+  standby behind by exactly that one operation until the next read reconciles — which
+  can only ever *raise* the effective count, never lower it.
+
+#### 3.1.5 Degraded mode when no store is usable
+
+If **both** stores are unusable (Redis down *and* the file fallback unavailable
+or disabled), the request is handed to the bounded degraded-mode policy. This is
+never silent: a `ratelimit_degraded` event is always emitted, and the branch taken
+is controlled by `ratelimitdegradedmode`:
+
+| Value | Behaviour | When to use |
+|---|---|---|
+| `failopen` (default) | Sign-in stays **available**; the request is allowed and the outage is logged loudly (`ratelimit_degraded`, action `allow`). | Keeps the LMS usable — availability first. Moodle's native lockout is **not** re-enabled as a compensating control. |
+| `failclosed` | Sign-in is **denied** with a bounded `Retry-After` (clamped to `ratelimitminimumretry`), bucket `degraded`, action `deny`. | For a deployment that would rather stop all logins than run with no counter store. |
+
+Both branches are bounded: `failclosed` advertises the minimum retry, so it
+cannot become a permanent lockout, and `failopen` is visible in the security log
+so the gap is detectable rather than invisible. The system never silently
+disables protection *and* never silently breaks authentication: the operator
+picks the trade-off with `ratelimitdegradedmode` before an incident, not during
+one.
+
+While no store is usable, no reservation can be taken or completed, so an
+abandoned reservation simply expires with its own window — an outage can never
+create, and can never prolong, a restriction. The limiter also never enables an
+overlapping control to compensate: Moodle's native account lockout is left exactly
+as the site configured it (disabled in production, see §3.1.10) rather than being
+switched on by the degraded path.
+
+> **Recommendation for Bells production.** Keep the default `failopen` while
+> Moodle's native account lockout stays disabled, and alert on any
+> `ratelimit_degraded` / `ratelimit_unavailable` event. If policy later requires
+> authentication to stop rather than proceed unprotected, switch to `failclosed`
+> — but only after confirming the file fallback is healthy, so that a Redis
+> outage alone never reaches degraded mode. Do not enable Moodle's native lockout
+> as a compensating control without explicit approval: an overlapping lockout can
+> turn a transient store outage into a real account lockout.
+
+**Institutional security strategy.** The design deliberately balances availability
+against brute-force protection rather than choosing one:
+
+- **Degraded mode is the last resort, not the first.** The live mirror means the
+  file fallback already holds the current counters, so a Redis outage alone does
+  not reach degraded mode — the fallback keeps enforcing the same thresholds.
+  Only a simultaneous failure of *both* stores does.
+- **Protection is never silently disabled.** Whichever branch is taken, a
+  `ratelimit_degraded` event is emitted, so an unprotected window is always
+  detectable and alertable rather than invisible.
+- **Availability is never silently broken.** `failclosed` is bounded by
+  `ratelimitminimumretry`, so even that branch cannot produce a permanent or
+  open-ended authentication outage.
+- **The trade-off is chosen before the incident.** `ratelimitdegradedmode` is set
+  in configuration, not decided at runtime, so the operator's
+  availability-versus-protection preference is explicit and reviewable.
+
+Failures never surface Redis errors, stack traces or infrastructure detail to the
+user, and a restriction can never become permanent because every counter is
+written with an expiry.
+
+#### 3.1.6 Trusted proxy / Cloudflare client IP
+
+Production sits behind **Cloudflare** → **Nginx** → PHP-FPM.
+
+> **Verified production state (do not assume the Nginx rewrite is active).** A
+> direct inspection of the production Nginx configuration returned **no**
+> `real_ip_header`, `set_real_ip_from` or `real_ip_recursive` directives. The
+> reference site config in `deploy/nginx/` *does* contain them, but that file has
+> not been applied to the live server, so it must not be treated as the current
+> production state. The limiter is designed to be correct **with or without** that
+> Nginx change:
+>
+> - **Without the Nginx rewrite (current production).** The immediate peer that
+>   PHP sees is the **Cloudflare edge** address, which is one of the trusted
+>   ranges below, so the resolver honours `CF-Connecting-IP` (set by Cloudflare
+>   and passed through by Nginx by default) and returns the true browser IP.
+>   A direct-to-origin request has a peer outside those ranges, so its
+>   `CF-Connecting-IP` / `X-Forwarded-For` headers are ignored.
+> - **With the Nginx rewrite (optional defence in depth).** The peer becomes the
+>   true client IP, which is not a trusted range, so the resolver simply returns
+>   it. Spoofing is inert in both configurations.
+>
+> Adopting the managed snippet
+> ([deploy/nginx/ulms-cloudflare-realip.conf](../../deploy/nginx/ulms-cloudflare-realip.conf))
+> is therefore an **optional** hardening step, applied by a human during an
+> approved change window. It is not required for the limiter to attribute
+> failures to the correct client, and the plugin never modifies Nginx or firewall
+> settings itself.
+
+[client_ip.php](./classes/local/service/ratelimit/client_ip.php) resolves the
+address as follows:
+
+- only honours a forwarding header when the **direct peer** is a configured
+  trusted proxy (the `trustedproxies` setting below, or the built-in defaults —
+  loopback plus the 22 published Cloudflare ranges);
+- otherwise returns the direct peer address, so spoofed
+  `X-Forwarded-For` / `CF-Connecting-IP` headers from a direct-origin hit are
+  ignored;
+- handles **IPv4 and IPv6**, canonicalises the address (IPv6 compression,
+  bracket/port and `%zone` stripping), and safely falls back to the raw peer on
+  malformed input;
+- never collapses every Cloudflare visitor onto a single IP.
+
+| Setting | Type | Default | Meaning |
+|---|---|---|---|
+| `trustedproxies` | textarea | (empty — use the built-in loopback + Cloudflare ranges) | Newline/comma list of trusted proxy IPs or CIDR ranges. |
+| `trustedproxyheaders` | text | `cf-connecting-ip,x-real-ip,x-forwarded-for` | Header preference order to read from a trusted peer. |
+
+> The `trustedproxies` setting **adds to** the built-in defaults; leaving it empty
+> is the supported configuration for the current Cloudflare-fronted production
+> setup. Never add an origin address or a private range to `trustedproxies`, and
+> never add `set_real_ip_from` for a non-Cloudflare network — either would let a
+> direct client dictate its own address.
+
+#### 3.1.7 HTTP 429 contract
+
+When a restriction applies, the limiter responds with **HTTP 429** and:
+
+- an accurate `Retry-After` header taken from the **real remaining expiry** of the
+  restricting bucket (clamped to the configured minimum/maximum);
+- anti-cache headers (`Cache-Control: no-store, no-cache, must-revalidate`,
+  `Pragma: no-cache`, `Expires: 0`);
+- `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY`;
+- a **Bells University branded** HTML page (desktop and mobile) with a short
+  human-readable wait time and an 8-character **support reference**
+  (`[ULMS-LOGIN-RL-429-<ref>]` is logged server-side for correlation).
+
+The 429 body never exposes thresholds, bucket names, counters, account
+existence, stack traces or Redis/infrastructure detail.
+
+#### 3.1.8 Configuration example
+
+Thresholds and windows may be tuned from **Site administration → Plugins →
+Local plugins → ULMS Authentication** or overridden per environment. Example
+`.env` overrides (placeholders only — never commit real secrets):
+
+```dotenv
+# Login rate limiter (values shown are the defaults)
+ULMS_LOGIN_RATELIMIT_ENABLED=1
+ULMS_LOGIN_RATELIMIT_BACKEND=auto          # auto | redis | file
+ULMS_LOGIN_RATELIMIT_FALLBACK=1            # allow bounded file fallback
+ULMS_LOGIN_RATELIMIT_LOGGING=1
+ULMS_LOGIN_RATELIMIT_COMBO_LIMIT=5
+ULMS_LOGIN_RATELIMIT_COMBO_WINDOW=180
+ULMS_LOGIN_RATELIMIT_ACCOUNT_LIMIT=10
+ULMS_LOGIN_RATELIMIT_ACCOUNT_WINDOW=900
+ULMS_LOGIN_RATELIMIT_ABUSE_IP_LIMIT=300
+ULMS_LOGIN_RATELIMIT_ABUSE_IP_WINDOW=300
+ULMS_LOGIN_RATELIMIT_ABUSE_IP_MODE=detect  # off | detect | block
+ULMS_LOGIN_RATELIMIT_PROGRESSIVE_LIMIT=2   # combo allowance for an abusive IP
+ULMS_LOGIN_RATELIMIT_ABUSE_IP_HARD_LIMIT=0 # 0 = no absolute per-IP ceiling
+ULMS_LOGIN_RATELIMIT_DEGRADED_MODE=failopen # failopen | failclosed
+ULMS_LOGIN_RATELIMIT_MIN_RETRY=15
+ULMS_LOGIN_RATELIMIT_MAX_RETRY=900
+
+# Redis connection (credential is read from a file, never from an env var)
+ULMS_REDIS_HOST=<redis-host>
+ULMS_REDIS_PORT=6379
+ULMS_REDIS_ACL_USER=<acl-username>
+ULMS_REDIS_SECRET_FILE=<path-to-root-owned-credential-file>
+```
+
+The Redis ACL user must be restricted to the `ulms:auth:*` key namespace and to
+the commands the store actually uses (`PING`, `GET`, `SET`, `SETEX`, `INCR`,
+`EXPIRE`, `TTL`, `PTTL`, `DEL`, `EXISTS`, `EVAL`, `EVALSHA`). It deliberately has
+**no** `SCAN` or `INFO` permission — operational diagnostics use the separate
+root-controlled administrative access, not the application user (see
+[04-LOGIN-RATE-LIMITER.md](../../scripts/DEPLOYMENT_RUNBOOKS/04-LOGIN-RATE-LIMITER.md) §5).
+The credential file must be readable only by the web user (e.g.
+`root:www-data 0640`). **Never commit the password**, and never give the
+application the Redis admin credential.
+
+#### 3.1.9 Transition plan (JSON/cache → Redis)
+
+1. Deploy the plugin code with `ratelimitbackend = auto` and
+   `ratelimitfallback = 1`. No data migration is required: counters are
+   ephemeral and start empty, so the worst case is a single fresh counting
+   window.
+2. Confirm Redis is healthy and the ACL user authenticates. Supply the credential
+   through `REDISCLI_AUTH` (an environment variable) rather than a command-line
+   argument, so it never appears in the process list:
+   ```bash
+   REDISCLI_AUTH="$(sudo cat /etc/ulms/redis-auth.secret)" \
+     redis-cli -h 127.0.0.1 -p 6379 --user ulms_auth PING   # -> PONG
+   ```
+   Then confirm the ACL user can write only inside the namespace
+   (`SET ulms:auth:probe 1` → `OK`) and is denied outside it
+   (`SET ulms:outside 1` → `NOPERM`).
+3. Verify enforcement during a deliberate test of failed logins. Because the
+   application ACL user intentionally has **no** `SCAN` permission, enumerate
+   keys with the **root-controlled administrative access**, not the app user
+   (see
+   [04-LOGIN-RATE-LIMITER.md](../../scripts/DEPLOYMENT_RUNBOOKS/04-LOGIN-RATE-LIMITER.md) §5);
+   confirm every key carries a positive TTL and that successful logins clear the
+   `account`/`combo` keys. Remove any diagnostic key you create after testing.
+4. The old per-IP / per-identifier / per-combo cache-bucket limiter and its
+   `ULMS_LOCKOUT_*` environment variables are **superseded** by this policy and
+   are no longer read by the login path.
+
+Operational steps for deploying, verifying, monitoring and rolling this limiter
+back are in
+[scripts/DEPLOYMENT_RUNBOOKS/04-LOGIN-RATE-LIMITER.md](../../scripts/DEPLOYMENT_RUNBOOKS/04-LOGIN-RATE-LIMITER.md).
+
+#### 3.1.10 Coexistence with Moodle's native account lockout
+
+Moodle core has its own account lockout (`$CFG->lockoutthreshold` /
+`lockoutwindow`) that counts failed logins against a user record. It is
+currently **disabled** in production, and this plugin does **not** re-enable it
+silently — enabling an overlapping lockout policy at the same time would let one
+attacker lock a real account out of Moodle entirely (a denial-of-service on the
+victim, not the attacker).
+
+Recommended coexistence:
+
+- **Keep Moodle's native lockout disabled** while the Redis limiter is the
+  primary control. The limiter already stops brute force at the network/account
+  edge and, crucially, does **not** modify the user account, so a victim's
+  account is never actually locked by an attacker.
+- Treat the Redis limiter's `account` and `combo` buckets as the *front door*
+  and Moodle's core lockout as an optional *second* layer to be enabled only
+  deliberately, with a longer window and a lockout that an administrator can
+  clear via the standard "unlock" workflow.
+- If native lockout is ever enabled, raise its threshold well above the Redis
+  `account` limit so the Redis layer absorbs normal attack traffic first, and
+  document the change as a separate, approved production decision.
+- Both mechanisms may coexist, but the rule is **one intentional policy at a
+  time**: never enable native lockout as an incidental side effect of this
+  change.
+
+This is a proposal for approval; no core lockout setting is changed by this
+plugin.
 
 ### 3.2 Password Reset Rate Limit
 
@@ -140,6 +613,11 @@ Currently logged events:
 | `password_reset_rate_limited` | Identifier+IP exceeded the 5/30 min threshold. |
 | `password_reset_requested` | Valid-looking reset request submitted (email dispatched). |
 | `password_reset_failed` | Reset token was invalid / expired / wrong user. |
+| `ratelimit_backend_unavailable` | The preferred counter backend (Redis) was unreachable; records a scrubbed reason and failure category. |
+| `ratelimit_backend_fallback` | The limiter selected the bounded file fallback store at resolution time. |
+| `ratelimit_backend_degraded` | A primary store operation failed **at runtime** and the request was handed to the fallback store (records the operation and failure category). |
+| `ratelimit_degraded` | No counter store could serve a check or a write; records the configured degraded mode and the action taken (`allow` / `deny` / `record_skipped` / `record_failed`). |
+| `ratelimit_unavailable` | Both stores were unusable and the limiter entered degraded mode (logged only). |
 
 The audit log events are human-searchable JSON lines and also accessible via
 the `/super-admin/auditlogs` view (see `local_ulms_dashboard` Super Admin
@@ -149,18 +627,102 @@ sections).
 
 ## 6. Testing
 
-Two PHPUnit test classes cover the plugin:
+The plugin ships PHPUnit test classes covering the auth flow, the clean-route
+registry, the email template, the bootstrap buffer guard, the login rate limiter
+end-to-end, the Redis driver's return-value validation, genuine parallel-process
+concurrency, and the role login controller regression:
 
 | Test file | Coverage |
 |---|---|
-| [tests/auth_flow_test.php](./tests/auth_flow_test.php) | Force-password-change flow, forced flag clear on successful reset, portal redirection after password change. |
+| [tests/auth_flow_test.php](./tests/auth_flow_test.php) | Force-password-change flow, forced flag cleared on successful reset, portal redirection after password change. |
 | [tests/landing_page_service_test.php](./tests/landing_page_service_test.php) | Clean route registration, role portal resolution, canonical URL generation for all 4 portals. |
+| [tests/route_canonical_url_test.php](./tests/route_canonical_url_test.php) | Every directory-backed clean route keeps its canonical trailing slash (a missing slash makes a POST a GET and drops the body). |
+| [tests/email_template_service_test.php](./tests/email_template_service_test.php) | Branded email template: client-compatible markup, exhaustive escaping, action button cannot diverge from the visible fallback link. |
+| [tests/bootstrap_output_buffer_guard_test.php](./tests/bootstrap_output_buffer_guard_test.php) | No ULMS entry point flushes or ends an output buffer without first proving one exists. |
+| [tests/ratelimit_login_outcome_test.php](./tests/ratelimit_login_outcome_test.php) | `login_outcome::classify()` for every `AUTH_LOGIN_*` code: only `FAILED`/`NOUSER` count, everything else is neutral. |
+| [tests/ratelimit_client_ip_test.php](./tests/ratelimit_client_ip_test.php) | Trusted-proxy forwarding, XFF/CF header handling, IPv4 + IPv6 canonicalisation, CIDR matching, malformed-input fallback. |
+| [tests/ratelimit_limiter_test.php](./tests/ratelimit_limiter_test.php) | Bucket thresholds, one account not blocking unrelated accounts, blocked requests not extending the window, success clearing account counters without resetting the abuse counter, Retry-After reflecting the real expiry. Also covers the reservation lifecycle (neutral outcomes leave no trace, refused attempts refund their reservation, an unknown outcome never charges the ledger), progressive shared-IP modes, the opt-in abuse hard limit, runtime store handover, and both degraded-mode branches. |
+| [tests/ratelimit_redis_store_test.php](./tests/ratelimit_redis_store_test.php) | Redis integration against a real server: atomic increment + expiry, inspect-does-not-increment, clear, the `ulms:auth:*` ACL namespace enforcing least privilege, a release that refunds a reservation (clamped at zero, window preserved) without touching the failure ledger, and the limiter tripping/completing/refunding through Redis. |
+| [tests/ratelimit_redis_validation_test.php](./tests/ratelimit_redis_validation_test.php) | The Redis driver's reply handling, exercised against a fake client so it runs on every PHP install: connect/`AUTH`/`PING`, a failed `GET` distinguished from a missing key, `TTL -1`/`-2` handling with `EXPIRE` repair, and `DEL`/`EVAL`/`EXPIRE`/release validated in **both** failure modes — a thrown `\RedisException` and a `false` return each trigger the fallback, and a release validates the script's success marker. |
+| [tests/ratelimit_concurrency_test.php](./tests/ratelimit_concurrency_test.php) | **Genuine parallel-process** concurrency: simultaneous counter increments (file and Redis), concurrent authentication admissions cut off at exactly the combined allowance, simultaneous requests for one account from many addresses bounded at exactly the per-account allowance, counter expiry under parallel load, simultaneous success + failure, and a Redis→file runtime transition that loses no increment. |
+| [tests/role_login_regression_test.php](./tests/role_login_regression_test.php) | Integration regression for the role login controller against Moodle's real auth: valid/invalid login tokens, wrong portal, unconfirmed account, internal exceptions staying neutral, and the LTI/SSO token-validation exemption, plus log redaction. |
+
+#### 6.1 Atomic counter update vs atomic admission
+
+Two different properties are exercised, and the tests assert both:
+
+- **Atomic counter update.** `counter_store::hit()` is atomic — Redis applies
+  `INCR` + `EXPIRE` in one server-side Lua script, and the file store serialises
+  with `flock(LOCK_EX)`. Parallel increments therefore never lose a count: N
+  concurrent increments over one key produce exactly N.
+- **Atomic admission for the combined and per-account buckets.** `check()` must
+  return an allow/deny decision *before* the credential is verified, so admission
+  cannot be made atomic by accounting the failure afterwards. Instead the limiter
+  **reserves** a slot in both the shared `combo` bucket and the per-account
+  `account` bucket at the gate, through the same atomic `hit()`, and the
+  reservation that crosses an allowance is refused there. A burst of simultaneous
+  requests therefore cannot all pass the gate and only record their failures
+  afterwards: exactly `ratelimitcombolimit` attempts (or
+  `ratelimitprogressivelimit` once the address is flagged) are admitted and the
+  remainder are denied at the gate. Because the per-account reservation is shared
+  across addresses, simultaneous requests for one account arriving from many
+  addresses are cut off at `ratelimitaccountlimit` — no overshoot and no separate
+  lockout object.
+
+The `abuseip` failure bucket is read at the gate and written on the outcome, so
+that read can still lag a concurrent write; that is why the limiter reconciles
+every read against the standby mirror and takes the stronger observation
+(§3.1.4). The `combo` and `account` buckets are the ones that carry the hard
+cut-off, and the concurrency suite asserts an **exact** ceiling for both: the
+total admitted across all parallel processes equals the allowance, with no
+overshoot.
+
+The reservation is **resolved exactly once** once the outcome is known: a genuine
+credential failure converts it into a recorded ledger failure (the reservation is
+refunded in the same step, so the attempt is never counted twice); a neutral
+outcome releases it, so a stale token, an MFA redirect or a caught internal error
+is never charged against the account; a success clears the account's ledgers and
+reservations; and a **refused** attempt refunds the reservation it took, so a
+single account cannot be kept restricted merely by being hammered. The failure
+ledger and the reservation are separate keys, so a release can never consume or
+erase another request's recorded failure. A reservation that is never completed
+expires with the window it was created under.
 
 Run with the standard Moodle phpunit runner:
 
 ```bash
 php admin/tool/phpunit/cli/init.php
-vendor/bin/phpunit --testsuite local_ulms_auth_tests
+vendor/bin/phpunit --testsuite local_ulms_auth_testsuite
 ```
+
+The Redis integration suites (`ratelimit_redis_store_test.php` and the Redis
+cases in `ratelimit_concurrency_test.php`) skip **only** when the `phpredis`
+extension is absent. When `phpredis` **is** present they require a reachable Redis
+and fail rather than skipping, so a real Redis regression cannot pass unnoticed.
+The reply-validation suite (`ratelimit_redis_validation_test.php`) instead injects
+a fake client, so it exercises the driver's failure handling on **every** PHP
+install — including those without `phpredis` — by simulating both a thrown
+`\RedisException` and a `false` return. The file-store concurrency cases and every
+other test always run. The tests read their connection from environment variables
+and never contain a secret:
+
+| Env var | Default |
+|---|---|
+| `ULMS_REDIS_HOST` | `127.0.0.1` |
+| `ULMS_REDIS_PORT` | `6379` |
+| `ULMS_REDIS_ACL_USER` | `ulms_auth` |
+| `ULMS_REDIS_SECRET_FILE` | `/etc/ulms/redis-auth.secret` |
+
+CI (`.github/workflows/ulms-ci.yml`) provisions a throwaway Redis 7 container
+with an equivalent least-privilege ACL user for each run, so these tests execute
+against a real server instead of being skipped. The remaining suites use only
+isolated Moodle test data and never touch production.
+
+The required gate writes a JUnit report and publishes its totals — tests,
+assertions, failures, errors and skipped — as a check-run annotation, which any
+account can read, because GitHub serves job logs only to repository members. It
+then **fails** if the rate-limiter or role-login test classes did not execute, or
+if any of them was skipped, so a renamed, deleted or silently skipped
+authentication test cannot look like a pass.
 
 (Composer vendor is not required to use the plugin, only to run the test suite.)

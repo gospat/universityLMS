@@ -103,8 +103,23 @@
 # DONE: [ ]  Rules → Transform Rules → Managed Transforms:
 #              Add visitor location headers = On (optional).
 #              Restore original visitor IP = On (CF-Connecting-IP always set).
-#              The Nginx reference site block already restores REMOTE_ADDR
-#              from CF-Connecting-IP for every request via set_real_ip_from.
+#
+#              VERIFIED PRODUCTION STATE: the live Nginx origin does NOT
+#              currently configure real_ip_header, set_real_ip_from or
+#              real_ip_recursive (verified by direct inspection).  The block in
+#              the reference Nginx site file in the repo has NOT been applied to
+#              production.  This is NOT a defect for the login rate limiter:
+#              PHP sees the Cloudflare edge address as REMOTE_ADDR, that address
+#              is inside the trusted ranges shipped by client_ip.php, and the
+#              limiter resolves the true client from CF-Connecting-IP — while a
+#              direct-to-origin request (peer outside the CF ranges) cannot spoof
+#              the header.
+#              Adopting the managed snippet
+#              (deploy/nginx/ulms-cloudflare-realip.conf) is an OPTIONAL
+#              defence-in-depth step to be applied by a human in an approved
+#              change window.  It must not be applied automatically, and no
+#              Nginx or firewall change should be made merely to make the
+#              limiter work.
 # DONE: [ ]  No Transform Rule overrides X-Forwarded-Proto.  Cloudflare sets
 #              X-Forwarded-Proto: https automatically when it terminates TLS,
 #              and the Nginx reference block forces fastcgi_param HTTPS=on, so
